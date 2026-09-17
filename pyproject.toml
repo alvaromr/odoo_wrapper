@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odoo-wrapper"
+version = "1.0.0"
+description = "Odoo attendance CLI and local weekly-hours dashboard"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+odoo = "odoo_wrapper.cli:main"
+odoo-dashboard = "odoo_wrapper.dashboard:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+odoo_wrapper = ["templates/*", "templates/js/*"]

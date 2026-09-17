@@ -1,0 +1,129 @@
+/*
+ * Design tokens of the page: shadcn/ui over Tailwind's neutral palette, Geist,
+ * 10px cards, monochrome blue data. Every colour lives here as a token; never
+ * hardcode one anywhere else.
+ *
+ * --background/--card/--foreground/--muted-foreground for surfaces and text,
+ * --primary for solid buttons, --ring for focus, --status-success/--destructive
+ * for state, --chart-2 for the data (one series, one hue) with --chart-1 for the
+ * in-progress week and --chart-rest for break segments. Light and dark both
+ * ship; the page follows prefers-color-scheme.
+ *
+ * Breaks: in the day and week meters and the calendar rows each break is drawn
+ * where it happened along the bar, never stacked at the end (an end segment
+ * reads as "on a break right now"). The weekly chart instead stacks the sums,
+ * break at the bottom of the column, work above. Lunch appears in no bar: it is
+ * not worked time, and a segment for it made the column incomparable with the
+ * target line (tried and dropped). The violet is the
+ * palette's slot 7, the closest to the blues; violet next to blue is
+ * weak for red-green colour blindness, so the 2px surface ring around every
+ * segment is the required second cue. Keep it.
+ */
+:root {
+  color-scheme: light dark;
+  --background: #fff;
+  --card: #fff;
+  --foreground: #0a0a0a;
+  --muted-foreground: #737373;
+  --muted: #f5f5f5;
+  --secondary: #f5f5f5;
+  --accent: #f5f5f5;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #a1a1a1;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --status-success: #15803d;
+  --destructive: #e40014;
+  --chart-1: #8ec5ff;
+  --chart-2: #2b7fff;
+  --chart-rest: #4a3aa7;
+  --chart-foreground: #171717;
+
+  --subtle-foreground: color-mix(in srgb, var(--muted-foreground) 70%, var(--background));
+  --success-wash: color-mix(in srgb, var(--status-success) 10%, transparent);
+  --success-border: color-mix(in srgb, var(--status-success) 25%, transparent);
+  --destructive-wash: color-mix(in srgb, var(--destructive) 10%, transparent);
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --card: #171717;
+    --foreground: #fafafa;
+    --muted-foreground: #a1a1a1;
+    --muted: #262626;
+    --secondary: #262626;
+    --accent: #404040;
+    --border: #ffffff12;
+    --input: #ffffff26;
+    --ring: #737373;
+    --primary: #e5e5e5;
+    --primary-foreground: #171717;
+    --status-success: #86efac;
+    --destructive: #ff6568;
+    --chart-rest: #b388ff;
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+
+.btn {
+  border: 1px solid var(--input);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn.primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; color: var(--foreground); }
+.btn.ghost:hover { background: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fichajes · Acceso</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#171717">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fichajes">
+<style>
+  body {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  form {
+    width: min(340px, 100%);
+    display: grid;
+    gap: 14px;
+    padding: 26px 24px 24px;
+  }
+  .clock {
+    font-size: 46px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin: 2px 0 10px;
+  }
+  h1 { font-size: 15px; font-weight: 600; }
+  p { font-size: 12.5px; color: var(--muted-foreground); }
+  input {
+    background: var(--background);
+    border: 1px solid var(--input);
+    border-radius: var(--radius-sm);
+    padding: 11px 12px;
+    color: var(--foreground);
+    font: inherit;
+  }
+  .err { font-size: 12.5px; color: var(--destructive); min-height: 17px; }
+  .secret { position: relative; display: grid; }
+  .secret input { padding-right: 44px; }
+  .secret .eye {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 32px;
+    padding: 0;
+    color: var(--muted-foreground);
+  }
+
+  @media (max-width: 400px) {
+    .clock { font-size: 38px; }
+  }
+</style>
+</head>
+<body>
+<form id="login" class="card">
+  <span class="label">Hora local</span>
+  <span class="clock num" id="clock" aria-live="off">--:--</span>
+  <h1>Fichajes · Odoo</h1>
+  <p id="hint">Introduce tu usuario y contraseña de Odoo. Solo se guarda la sesión, nunca la contraseña.</p>
+  <input id="url" type="url" name="url" placeholder="URL de Odoo (https://…)" hidden>
+  <input id="db" type="text" name="db" placeholder="Base de datos" hidden>
+  <input id="user" type="text" name="username" autocomplete="username" placeholder="Usuario" required>
+  <div class="secret" id="secret">
+    <input id="pass" type="password" name="password" autocomplete="current-password" placeholder="Contraseña" required>
+    <button class="btn ghost eye" id="eye" type="button" aria-label="Mostrar contraseña" aria-pressed="false">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>
+        <line id="eye-slash" x1="4" y1="4" x2="20" y2="20" style="display: none"/>
+      </svg>
+    </button>
+  </div>
+  <input id="code" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="Código de verificación (2FA)" hidden>
+  <button id="submit" class="btn primary" type="submit">Entrar</button>
+  <div class="err" id="err"></div>
+</form>
+<script>
+const form = document.getElementById("login");
+const err = document.getElementById("err");
+const submit = document.getElementById("submit");
+const clock = document.getElementById("clock");
+const field = id => document.getElementById(id);
+
+const tick = () => {
+  const d = new Date();
+  clock.textContent = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+tick();
+setInterval(tick, 10000);
+
+(async () => {
+  const cfg = await (await fetch("/api/config")).json();
+  field("user").value = cfg.user || "";
+  if (!cfg.local) {
+    field("hint").textContent = "Aquí no se inicia sesión. En el ordenador, abre http://localhost:8931/ y pulsa «Emparejar móvil»: escanea el código que aparece y entrarás sin contraseña.";
+    for (const el of [field("user"), field("secret"), submit]) el.hidden = true;
+    return;
+  }
+  if (!cfg.configured) {
+    for (const id of ["url", "db"]) field(id).hidden = false;
+    field("url").required = field("db").required = true;
+  }
+  field(cfg.user ? "pass" : cfg.configured ? "user" : "url").focus();
+})();
+
+field("eye").addEventListener("click", () => {
+  const shown = field("pass").type === "password";
+  field("pass").type = shown ? "text" : "password";
+  field("eye-slash").style.display = shown ? "" : "none";
+  field("eye").setAttribute("aria-pressed", String(shown));
+  field("eye").setAttribute("aria-label", shown ? "Ocultar contraseña" : "Mostrar contraseña");
+  field("pass").focus();
+});
+
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  err.textContent = "";
+  submit.disabled = true;
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: field("url").value, db: field("db").value,
+        user: field("user").value, password: field("pass").value, code: field("code").value,
+      }),
+    });
+    if (res.ok) {
+      location.replace("/");
+      return;
+    }
+    const answer = await res.json();
+    if (answer.totp) {
+      field("hint").textContent = "Introduce el código de tu aplicación de verificación. Este navegador quedará como dispositivo de confianza 90 días.";
+      field("code").hidden = false;
+      field("code").required = true;
+      submit.disabled = false;
+      field("code").focus();
+      return;
+    }
+    err.textContent = answer.error || `HTTP ${res.status}`;
+  } catch (e) {
+    err.textContent = e.message;
+  }
+  submit.disabled = false;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fichajes · Horas semanales</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#171717">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fichajes">
+<style>
+  .page { max-width: 1040px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  header h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted-foreground); font-size: 13px; flex: 1; }
+  .hdr-btn {
+    border: 1px solid var(--input); background: transparent; color: var(--foreground);
+    border-radius: var(--radius-sm); padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .hdr-btn:hover { background: var(--accent); }
+
+  /* ---- hero: semana actual ---- */
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(210px, 0.9fr) minmax(280px, 1.4fr) minmax(170px, 0.55fr);
+    gap: 28px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .label { display: block; margin-bottom: 6px; }
+  .hero .value { font-size: 52px; font-weight: 650; letter-spacing: -0.03em; line-height: 1; }
+  .hero .value.text { font-size: 26px; letter-spacing: -0.01em; font-family: var(--font-sans); }
+  .hero .value.done { color: var(--status-success); }
+  .delta { font-size: 13px; font-weight: 550; margin-top: 8px; }
+  .delta.up   { color: var(--status-success); }
+  .delta.down { color: var(--destructive); }
+  .delta.flat { color: var(--foreground); }
+  .eta { font-size: 13px; color: var(--foreground); margin-top: 6px; }
+  .eta b { color: var(--foreground); font-weight: 650; font-size: 15px; }
+  .hero .meter-box { display: flex; flex-direction: column; justify-content: center; gap: 10px; min-width: 0; }
+  .meter { position: relative; height: 8px; border-radius: 4px; background: var(--secondary); overflow: visible; }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--chart-2); }
+  .meter .tick {
+    position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--muted-foreground); border-radius: 1px;
+  }
+  .meter.day { height: 16px; border-radius: 8px; }
+  .meter.day .fill { border-radius: 8px; }
+  .meter.day.done .fill { background: var(--status-success); }
+  .meter.week { height: 5px; border-radius: 3px; }
+  .meter.week .fill { background: var(--chart-1); border-radius: 3px; }
+  .meter-caption {
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums;
+  }
+  .meter-caption.strong { font-size: 13px; color: var(--foreground); font-weight: 550; }
+  .meter-block { display: flex; flex-direction: column; gap: 5px; }
+  .hero .note { font-size: 12px; color: var(--muted-foreground); }
+  .durations { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .duration { display: inline-flex; align-items: center; gap: 6px; }
+  .lunch-input {
+    width: 58px; background: var(--background); color: var(--foreground); font: inherit; font-size: 12px;
+    border: 1px solid var(--input); border-radius: var(--radius-xs); padding: 3px 6px; text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .phone { display: flex; gap: 20px; align-items: center; margin-top: 20px; }
+  .phone .qr svg { width: 116px; height: 116px; border-radius: var(--radius-xs); display: block; }
+  .phone .links { min-width: 0; display: grid; gap: 4px; justify-items: start; }
+  .phone .btn { display: inline-flex; align-items: center; gap: 8px; }
+  .phone .url { font-size: 14px; font-weight: 600; word-break: break-all; }
+  .lastpunch { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--foreground); }
+  .lastpunch .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); flex: none; }
+  .lastpunch.open .dot { background: var(--status-success); }
+  .lastpunch.rest .dot { background: var(--destructive); }
+
+  /* ---- botones de fichaje ---- */
+  .actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; flex: none; padding: 0;
+    border: 1px solid var(--input); border-radius: var(--radius-sm);
+    background: transparent; color: var(--foreground); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--accent); }
+  .icon-btn[aria-pressed="true"] { color: var(--muted-foreground); }
+  .notify-row { display: flex; align-items: flex-start; gap: 8px; }
+  .notify-row .note { flex: 1; min-width: 0; }
+  .btn.arm { box-shadow: 0 0 0 2px var(--primary); font-weight: 600; }
+  .btn.pulse { animation: pulse 1.5s ease-out infinite; }
+  .btn.pulse.primary { background: var(--status-success); color: var(--primary-foreground); }
+  .btn.pulse.ghost {
+    background: var(--success-wash); color: var(--status-success);
+    border-color: var(--status-success); font-weight: 600;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 var(--success-border); transform: scale(1); }
+    70%  { box-shadow: 0 0 0 9px transparent; transform: scale(1.035); }
+    100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .btn.pulse { animation: none; box-shadow: 0 0 0 3px var(--success-border); }
+  }
+  .actions .err { color: var(--destructive); font-size: 12px; }
+
+  /* ---- filtros ---- */
+  .filter-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 4px 2px 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); padding: 2px; }
+  .seg button {
+    border: 0; background: none; color: var(--foreground); font: inherit; font-size: 12.5px;
+    padding: 4px 12px; border-radius: var(--radius-xs); cursor: pointer;
+  }
+  .seg button:hover { background: var(--accent); }
+  .seg button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+  .filter-label { font-size: 12.5px; color: var(--muted-foreground); }
+  .spacer { flex: 1; }
+
+  /* ---- KPI row ---- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpis .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+  .kpis .foot { font-size: 12px; color: var(--muted-foreground); margin-top: 4px; }
+
+  /* ---- overview chart ---- */
+  .overview { margin-bottom: 20px; }
+  .overview h2, .weeks-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .overview .caption { font-size: 12px; color: var(--muted-foreground); margin-bottom: 10px; }
+  .overview svg { width: 100%; height: auto; display: block; }
+  #overviewChart { overflow-x: auto; }
+  .col { cursor: default; }
+  .col .bar { fill: var(--chart-2); }
+  .col .hit { fill: transparent; }
+  .col.inprogress .bar { fill: var(--chart-1); }
+  .col .rest { fill: var(--chart-rest); stroke: var(--card); stroke-width: 2; paint-order: stroke; }  .col:hover .bar, .col:hover .rest { filter: brightness(1.12); }
+  .col:focus-visible { outline: none; }
+  .col:focus-visible .hit { fill: color-mix(in srgb, var(--ring) 25%, transparent); }
+  .col:focus-visible .bar { stroke: var(--ring); stroke-width: 2; }
+  .gridline { stroke: var(--border); stroke-width: 1; }
+  .axisline { stroke: var(--input); stroke-width: 1; }
+  .targetline { stroke: var(--muted-foreground); stroke-width: 1; stroke-dasharray: 5 4; }
+  .targettick { stroke: var(--muted-foreground); stroke-width: 1.5; }
+  .ticklabel, .xlabel { font-size: 11px; fill: var(--muted-foreground); font-family: var(--font-mono); }
+  .targetlabel { font-size: 11px; fill: var(--muted-foreground); font-weight: 550; }
+  .inprogress-label { font-size: 10px; fill: var(--muted-foreground); letter-spacing: 0.06em; text-transform: uppercase; }
+
+  /* ---- calendario semanal ---- */
+  .weeks-title { margin: 4px 2px 2px; }
+  .weeks-hint { font-size: 12px; color: var(--muted-foreground); margin: 8px 2px 20px; }
+  .week-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .week-head .range { font-weight: 600; }
+  .week-head .total { margin-left: auto; font-weight: 650; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .navbtn {
+    border: 1px solid var(--input); background: transparent; color: var(--foreground);
+    border-radius: var(--radius-sm); width: 28px; height: 26px; font: inherit; font-size: 15px; line-height: 1; cursor: pointer;
+  }
+  .navbtn:hover:not(:disabled) { background: var(--accent); }
+  .navbtn:disabled { opacity: 0.35; cursor: default; }
+  .todaybtn {
+    border: 1px solid var(--input); background: transparent; color: var(--foreground);
+    border-radius: var(--radius-sm); padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .todaybtn:hover:not(:disabled) { background: var(--accent); }
+  .todaybtn:disabled { opacity: 0.35; cursor: default; }
+  .badge {
+    font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+  }
+  .badge.up   { color: var(--status-success); background: var(--success-wash); }
+  .badge.down { color: var(--destructive);  background: var(--destructive-wash); }
+  .badge.flat { color: var(--foreground); background: var(--secondary); }
+  .dayrow { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-radius: var(--radius-sm); }
+  .dayrow:hover, .dayrow:focus-visible { background: var(--muted); }
+  .dayrow .dlabel { width: 58px; font-size: 12px; color: var(--foreground); flex: none; }
+  .dayrow .dlabel .dnum { color: var(--muted-foreground); }
+  .dayrow .track { flex: 1; position: relative; height: 18px; }
+  .dayrow .bar {
+    position: absolute; top: 3px; height: 12px; left: 0;
+    background: var(--chart-2); border-radius: 0 4px 4px 0;
+  }
+  .dayrow.today .bar { background: var(--chart-1); }
+  .meter .rest, .bar .rest {
+    position: absolute; top: 0; bottom: 0; background: var(--chart-rest);
+    border-radius: inherit; box-shadow: 0 0 0 2px var(--card);
+  }
+  .bar .rest { border-radius: var(--radius-xs); }
+  .dayrow .exp-tick { position: absolute; top: 0; height: 18px; width: 2px; background: var(--muted-foreground); border-radius: 1px; }
+  .dayrow .dvalue {
+    width: 62px; text-align: right; font-size: 12px; color: var(--foreground);
+    font-variant-numeric: tabular-nums; flex: none;
+  }
+  .dayrow .dvalue.zero { color: var(--muted-foreground); }
+  .dayrow.vac .dlabel, .dayrow.vac .dvalue { color: var(--muted-foreground); font-style: italic; }
+  .vacbtn {
+    font-size: 13px; line-height: 1; width: 24px; padding: 2px 0; flex: none;
+    opacity: 0; text-align: center;
+  }
+  .vacbtn.active { opacity: 1; }
+
+  /* ---- horario semanal ---- */
+  .cal-filter { margin: 0 0 14px; }
+  .tl-axis { position: relative; height: 16px; margin: 0 106px 4px 68px; }
+  .tl-axis span {
+    position: absolute; transform: translateX(-50%); font-size: 11px;
+    color: var(--muted-foreground); font-family: var(--font-mono);
+  }
+  .tl-row .track { height: 22px; }
+  .tl-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
+  .tl-row .sess {
+    position: absolute; top: 3px; height: 16px; background: var(--chart-2); border-radius: var(--radius-xs);
+    color: var(--chart-foreground); font-size: 11px; line-height: 16px; padding: 0 5px;
+    overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .tl-row.today .sess { background: var(--chart-1); }
+  .tl-row .sess.rest { background: var(--chart-rest); box-shadow: 0 0 0 2px var(--card); }
+  .tl-row .sess.join-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .tl-row .sess.join-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .tl-row .leave {
+    position: absolute; top: 3px; height: 16px; border: 1px dashed var(--muted-foreground); border-radius: var(--radius-xs);
+    font-size: 11px; line-height: 14px; padding: 0 5px; color: var(--muted-foreground);
+    overflow: hidden; white-space: nowrap;
+  }
+  .tl-row .gap {
+    position: absolute; top: 5px; height: 12px; border: 1px dashed var(--ring); border-radius: var(--radius-xs);
+    font-size: 10px; line-height: 10px; text-align: center; color: var(--muted-foreground);
+    overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- tabla ---- */
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 10px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td { font-family: var(--font-mono); }
+  th {
+    color: var(--muted-foreground); font-weight: 550; font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase; border-bottom: 1px solid var(--input);
+  }
+  td:first-child, th:first-child { text-align: left; }
+  td:first-child { font-family: var(--font-sans); }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: 0; }
+  td.up { color: var(--status-success); font-weight: 600; }
+  td.down { color: var(--destructive); font-weight: 600; }
+  td.dim { color: var(--muted-foreground); }
+
+  /* ---- tooltip ---- */
+  #tip {
+    position: fixed; z-index: 10; pointer-events: none; display: none;
+    background: var(--popover, var(--card)); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; min-width: 170px; max-width: 280px;
+  }
+  #tip .t-title { font-size: 11.5px; color: var(--muted-foreground); margin-bottom: 4px; }
+  #tip .t-row { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; padding: 1px 0; }
+  #tip .t-row .v { font-weight: 650; font-variant-numeric: tabular-nums; }
+  #tip .t-row .k { color: var(--foreground); }
+  #tip .t-sep { border-top: 1px solid var(--border); margin: 5px 0; }
+  .hidden { display: none !important; }
+  #loadmsg { color: var(--muted-foreground); padding: 40px 0; text-align: center; }
+
+  @media (max-width: 960px) {
+    .hero { grid-template-columns: minmax(200px, 0.9fr) minmax(260px, 1.3fr); gap: 22px 28px; }
+    .hero .actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .actions .btn { flex: 1 1 150px; }
+    .actions .note, .actions .err { flex-basis: 100%; }
+    .actions .err:empty { display: none; }
+  }
+
+  @media (max-width: 620px) {
+    .page { padding: 18px 14px 48px; }
+    header { gap: 6px 12px; }
+    header h1 { flex: 1 1 auto; }
+    header .sub { flex: 1 1 100%; order: 3; }
+    .hero { grid-template-columns: 1fr; gap: 18px; }
+    .hero .value { font-size: 40px; }
+    .hero .value.text { font-size: 22px; }
+    .hero .actions { flex-direction: column; }
+    .actions .btn { flex: none; width: 100%; }
+    .card { padding: 16px 14px; }
+    .kpis { gap: 10px; }
+    .kpis .value { font-size: 22px; }
+    .dayrow .dlabel { width: 46px; }
+    .dayrow .dvalue { width: 52px; }
+    .tl-axis { margin: 0 96px 4px 56px; }
+    .week-head .total { font-size: 15px; }
+    .filter-row { gap: 8px; }
+    .seg button { padding: 4px 9px; }
+    #overviewChart svg { width: auto; height: 230px; }
+    .phone { flex-direction: column; align-items: flex-start; }
+    .phone .url { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>Horas de fichaje</h1>
+    <span class="sub" id="subtitle"></span>
+    <button class="hdr-btn" id="refreshBtn" type="button">Actualizar</button>
+  </header>
+
+  <div id="loadmsg">Cargando datos de Odoo…</div>
+
+  <div id="app" class="hidden">
+    <section class="card hero" id="hero"></section>
+
+    <h2 class="weeks-title">Calendario semanal</h2>
+    <section class="card" id="weekCal"></section>
+    <p class="weeks-hint" id="weeksHint"></p>
+
+    <div class="filter-row">
+      <span class="filter-label">Mostrar</span>
+      <div class="seg" id="rangeSeg" role="group" aria-label="Rango de semanas">
+        <button type="button" data-weeks="4">4 semanas</button>
+        <button type="button" data-weeks="8">8 semanas</button>
+        <button type="button" data-weeks="12" aria-pressed="true">12 semanas</button>
+        <button type="button" data-weeks="all">Todo</button>
+      </div>
+      <span class="spacer"></span>
+      <div class="seg" id="viewSeg" role="group" aria-label="Tipo de vista">
+        <button type="button" data-view="charts" aria-pressed="true">Gráficas</button>
+        <button type="button" data-view="table">Tabla</button>
+      </div>
+    </div>
+
+    <div id="chartsView">
+      <section class="kpis" id="kpis"></section>
+
+      <section class="card overview">
+        <h2 id="overviewTitle"></h2>
+        <div class="caption" id="overviewCaption"></div>
+        <div id="overviewChart"></div>
+      </section>
+    </div>
+
+    <section class="card tablewrap hidden" id="tableView"></section>
+
+    <section class="card phone hidden" id="phone"></section>
+  </div>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
