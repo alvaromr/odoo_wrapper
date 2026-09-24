@@ -198,7 +198,7 @@ export function renderHero() {
   const restToday = day.rest;
   const open = store.data.sessions.find(s => !s.out);
   const lunchDone = unloggedGap(day.sessions);
-  const lunchLeft = Math.max(lunchHours(day) - lunchDone, 0);
+  const lunchLeft = lunchDone > 0.01 ? 0 : lunchHours(day);
   const leaveAt = open && dayRemaining > 0
     ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6)
     : null;

@@ -5,7 +5,8 @@
  * - Absence days subtract their expected hours from the week's target. A leave shorter than a day
  *   subtracts just its hours from that day and is kept on the day so the hero and the timeline can show it.
  * - Break sessions count toward the total, same as Odoo's worked_hours. Lunch is checked out, so it is an
- *   unlogged gap that never counts; lunchHours says how much of it the day still owes.
+ *   unlogged gap that never counts; lunchHours is the lunch the day allows for. The estimated leave time adds
+ *   it only until the day has a gap: once lunch is taken, its actual length is what it is.
  */
 import { store, MonthNames } from "./store.js";
 import { fmtHours, fmtHM, dayKey, isoDay, fmtDay } from "./format.js";
