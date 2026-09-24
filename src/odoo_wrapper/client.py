@@ -214,6 +214,9 @@ class OdooClient:
         self.uid = info.get("uid")
         return info
 
+    def logout(self):
+        self.jsonrpc("/web/session/destroy", {})
+
     def call_kw(self, model, method, args, kwargs=None):
         return self.jsonrpc(
             "/web/dataset/call_kw",

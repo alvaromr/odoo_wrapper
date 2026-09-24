@@ -17,7 +17,7 @@ import { busy } from "./ui.js";
 import { setClock, indexSessions } from "./week.js";
 import { isoDay } from "./format.js";
 import { renderHero, renderAll, setRangeWeeks, punchText } from "./render.js";
-import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
+import { api, stale, loadAndRender, loadFirst, refreshState } from "./api.js";
 import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
 
 document.addEventListener("visibilitychange", () => {
@@ -99,6 +99,18 @@ document.getElementById("viewSeg").addEventListener("click", e => {
 document.getElementById("refreshBtn").addEventListener("click", async e => {
   e.target.disabled = true;
   try { await loadAndRender(true); } finally { e.target.disabled = false; }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async e => {
+  e.target.disabled = true;
+  try {
+    await api("/api/logout", {});
+    location.replace("/login");
+  } catch (err) {
+    e.target.textContent = "Error al cerrar sesión";
+    e.target.title = err.message;
+    e.target.disabled = false;
+  }
 });
 
 loadFirst();

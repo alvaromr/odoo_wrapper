@@ -156,6 +156,11 @@ class RpcTest(unittest.TestCase):
         self.assertEqual(odoo.session_info()["username"], "u")
         self.assertEqual(odoo.uid, 4)
 
+    def test_logout_destroys_the_session(self):
+        odoo = client({"result": None})
+        odoo.logout()
+        self.assertTrue(odoo.opener.calls[0][0].endswith("/web/session/destroy"))
+
 
 class EmployeeTest(unittest.TestCase):
     def test_loads_once(self):

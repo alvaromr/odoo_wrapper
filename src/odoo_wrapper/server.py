@@ -30,6 +30,11 @@ Login and sessions
   Both devices then share one Odoo session: whatever ends it on one ends it on the other. Tokens live in
   memory, so a restart drops any pairing in progress. The QR carries the session for two minutes, so the
   page shows it only on demand: a QR always on screen would be a key to anyone watching a screen share.
+- Logout: POST /api/logout destroys the session in Odoo (/web/session/destroy), forgets it here with its
+  pairings and cached data, and clears the cookie; a session Odoo already ended still clears the cookie.
+  It needs no valid session, so a dead one never leaves the page stuck. The phone shares that session, so
+  logging out on either device logs out both. The trusted-device cookie stays: it is per browser, and Odoo
+  simply ignores it for a different user.
 - Brute force: wrong passwords cost LOGIN_PENALTY seconds each, and after LOGIN_TRIES failures that IP is
   locked out with a doubling delay capped at LOGIN_LOCK_MAX, answered as 429. The sleep alone was not a
   brake: the server is threaded, so concurrent attempts sleep in parallel.
@@ -299,6 +304,18 @@ class Handler(BaseHTTPRequestHandler):
             cookies.append((DEVICE_COOKIE, client.device))
         self._send(200, {"ok": True}, cookies=cookies)
 
+    def _logout(self):
+        session_id = session_cookie(self.headers)
+        if session_id and read_config():
+            try:
+                new_client(session_id).logout()
+            except SessionExpired:
+                pass
+        _sessions.pop(session_id, None)
+        revoke_pairings(session_id)
+        data.drop_data_cache()
+        self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])
+
     def _post(self):
         length = int(self.headers.get("Content-Length") or 0)
         try:
@@ -308,6 +325,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/login":
             self._login(body)
+            return
+        if self.path == "/api/logout":
+            self._logout()
             return
         if not self._authorized():
             self._send(401, {"error": "no autorizado"})

@@ -350,6 +350,26 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(list(sv._pairings), ["theirs"])
         self.assertEqual(self.request("GET", f"/pair?t={token}", ip="10.0.0.9", cookie=None)[1]["Location"], "/login")
 
+    def test_logout_ends_the_session_in_odoo_and_here(self):
+        sv._pairings.clear()
+        self.addCleanup(sv._pairings.clear)
+        sv._pairings["mine"] = ("sid", time.monotonic() + 60)
+        with patch.object(sv, "new_client") as client:
+            status, headers, payload = self.post("/api/logout", {})
+        client.assert_called_once_with("sid")
+        client.return_value.logout.assert_called_once_with()
+        self.assertEqual((status, payload), (200, {"ok": True}))
+        self.assertIn(f"{sv.COOKIE_NAME}=; Path=/; Max-Age=0", headers["Set-Cookie"])
+        self.assertNotIn("sid", sv._sessions)
+        self.assertEqual(sv._pairings, {})
+
+    def test_logout_with_a_dead_or_missing_session_still_clears_the_cookie(self):
+        with patch.object(sv, "new_client") as client:
+            client.return_value.logout.side_effect = SessionExpired("caducada")
+            self.assertEqual(self.post("/api/logout", {})[0], 200)
+            self.assertEqual(self.post("/api/logout", {}, cookie=None)[0], 200)
+        client.assert_called_once_with("sid")
+
     def test_stale_pairings_are_purged_when_a_new_one_is_minted(self):
         sv._pairings.clear()
         self.addCleanup(sv._pairings.clear)
