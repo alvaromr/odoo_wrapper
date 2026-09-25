@@ -1,26 +1,19 @@
 /*
- * DOM building blocks: elements, the break segments drawn inside a bar, the tooltip, the inline icons
- * (bell, QR) and the controls of the hero (duration field, punch button); busy() also lives here since it
- * reads the tooltip it owns.
+ * DOM building blocks: the break segments drawn inside a bar, the inline icons
+ * (bell, QR) and the controls of the hero (duration field, punch button), and busy().
  *
  * - Every punch button asks for confirmation in place: the first click arms it («¿Confirmar?») for four
  *   seconds, the second one punches. The server validates the real state and answers 409 on invalid
  *   actions; the error lands in the hero's error box. A punch that succeeds but is followed by a failed
  *   reload says so instead of claiming the punch itself failed, and leaves the button disabled since the
  *   punch went through and the next tick or tab focus will reload.
- * - The tooltip follows the pointer and also opens on keyboard focus; busy() treats an open tooltip, an
- *   armed button or a focused duration field as "do not repaint now".
+ * - busy() treats an open tooltip (shared.js), an armed button or a focused duration field as "do not
+ *   repaint now".
  */
 import { store, LunchMax } from "./store.js";
-import { api, saveState, loadAndRender } from "./api.js";
+import { el, api, tipOpen } from "./shared.js";
+import { saveState, loadAndRender } from "./api.js";
 import { checkAlarms } from "./alarms.js";
-
-export function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-}
 
 function restSpans(sessions) {
   let before = 0;
@@ -42,51 +35,11 @@ export function fillBar(bar, sessions, total) {
 }
 
 /* ---------- estado ocupado ---------- */
-const tip = document.getElementById("tip");
 export function busy() {
-  return tip.style.display === "block"
+  return tipOpen()
     || Boolean(document.querySelector(".btn.arm, .actions .btn:disabled, .lunch-input:focus"));
 }
 
-/* ---------- tooltip ---------- */
-export function tipRow(k, v) {
-  const r = el("div", "t-row");
-  r.appendChild(el("span", "k", k));
-  r.appendChild(el("span", "v", v));
-  return r;
-}
-let TipOwner = null;
-
-function showTip(build, x, y, owner) {
-  TipOwner = owner || null;
-  tip.replaceChildren();
-  build(tip);
-  tip.style.display = "block";
-  moveTip(x, y);
-}
-function moveTip(x, y) {
-  const r = tip.getBoundingClientRect();
-  let left = x + 14, top = y + 14;
-  if (left + r.width > innerWidth - 8) left = x - r.width - 14;
-  if (top + r.height > innerHeight - 8) top = y - r.height - 14;
-  tip.style.left = left + "px";
-  tip.style.top = top + "px";
-}
-function hideTip(owner) {
-  if (owner && TipOwner !== owner) return;
-  TipOwner = null;
-  tip.style.display = "none";
-}
-export function attachTip(node, build) {
-  node.addEventListener("pointerenter", e => showTip(build, e.clientX, e.clientY, node));
-  node.addEventListener("pointermove", e => moveTip(e.clientX, e.clientY));
-  node.addEventListener("pointerleave", () => hideTip(node));
-  node.addEventListener("focus", () => {
-    const r = node.getBoundingClientRect();
-    showTip(build, r.left + r.width / 2, r.bottom, node);
-  });
-  node.addEventListener("blur", () => hideTip(node));
-}
 
 /* ---------- controles del hero ---------- */
 export function minutesField(label, key, suffix) {

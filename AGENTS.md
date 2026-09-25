@@ -17,14 +17,16 @@ src/odoo_wrapper/
   dashboard.py       entry point: wires the pieces below and serves
   server.py          pages, JSON API, Odoo sessions as the login, same-site guard
   data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
+  team.py            the management view's payload: one week of everyone the session can read, flagged
   state.py           the shared state file (lunch stamp, durations, mute)
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
   qr.py              hand-written QR encoder
-  templates/         dashboard.html, login.html, style.css (design tokens), manifest.json and icon.svg
-                     (installable page), and js/: the page as ES modules (store, format, week, ui, api,
-                     render, alarms, app), app.js the only one dashboard.html loads and store.js holding
-                     the shared state, served at /style.css and /js/<name>
+  templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
+                     (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
+                     as ES modules (store, format, week, ui, api, render, alarms, app, shared, team, teamcharts),
+                     app.js and team.js the only ones each page loads, shared.js what both use, store.js
+                     the dashboard's shared state, served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance  (.claude/skills in the repo points there; symlink it into
                      ~/.claude/skills to use it from other projects)
@@ -37,7 +39,8 @@ Don't duplicate — each fact has one home:
 - **`bin/odoo` with no arguments** and **`bin/odoo-dashboard --help`** — everything about using each tool:
   commands, flags, files, what clocks for real.
 - **The header of each module** — why it behaves as it does: `server.py` (sessions, same-site guard, API),
-  `data.py` (what is read from Odoo and how it is cached), `state.py` (the shared state), `lan.py` (phone
+  `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and
+  what each flag means), `state.py` (the shared state), `lan.py` (phone
   access and its certificate), `process.py` (log, self-restart, ports), `cli.py` (the commands), each file
   in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
@@ -80,12 +83,15 @@ Start with the unit tests:
 
 ```bash
 python3 -m unittest discover -s tests   # the Python suite
-python3 tests/report_coverage.py        # the same under the stdlib tracer; fails unless every line ran
+python3 tests/report_coverage.py        # the same with coverage; fails unless every line and branch ran (branches: Python ≥ 3.14)
 node --test tests/app.test.mjs          # the page's logic (Node ≥ 18, nothing to install)
+node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=100 \
+     --test-coverage-branches=100 --test-coverage-functions=100 tests/app.test.mjs   # the same with coverage (Node ≥ 22)
 ```
 
-Keep it at 100 %: a new branch in the Python code comes with the test that runs it, and the report names the
-lines that are missing. Extend the DOM stand-in in `tests/app.test.mjs` when a new DOM call breaks it. What the
+Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes
+with the test that runs it, and each report names what is missing. A branch no input can take is removed from
+the code, not excused. Extend the DOM stand-in in `tests/app.test.mjs` when a new DOM call breaks it. What the
 tests cannot see is layout, sound and real browsers, so the page is still checked by hand; run the checks your
 change touches:
 
@@ -135,6 +141,10 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   punch; `client.py`'s header says how.
 - Status and history are `search_read` on `hr.attendance`, read-only. Odoo stores times in UTC; the tools print
   them in the local timezone.
+- The management view and the per-day targets also read, never write: `hr.contract` (the calendar in force
+  each day), `hr.employee` with `active_test` off (`active`, `departure_date` for people who left) and
+  `approval.request` (attendance change requests, found by category name). Which employees a session sees is
+  left to Odoo's record rules; `data.py` and `team.py` headers have the details.
 
 ## Known limitations, already investigated
 

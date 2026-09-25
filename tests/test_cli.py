@@ -173,9 +173,10 @@ class MainTest(unittest.TestCase):
             with patch.object(sys, "argv", ["odoo", "history", "30"]):
                 cli.main()
             history.assert_called_once_with(odoo.return_value, 30)
-            code, _, err = self.run_main("history", "cero")
-        self.assertEqual(code, 1)
-        self.assertIn("ERROR: history espera un número de días", err)
+            for days in ("cero", "0"):
+                code, _, err = self.run_main("history", days)
+                self.assertEqual(code, 1)
+                self.assertIn(f"ERROR: history espera un número de días, no «{days}»", err)
 
     def test_odoo_errors_go_to_stderr(self):
         with patch.object(cli, "cli_client", side_effect=c.OdooError("sin configurar")):

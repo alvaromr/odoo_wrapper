@@ -1,8 +1,9 @@
 """Unit tests for the Odoo payload: time helpers, schedule, absences, the cache, the full build and punching."""
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from helpers import NORMAL, REST, ScriptedClient, temp_state, utc
 from odoo_wrapper import data as dt
@@ -73,7 +74,7 @@ class AbsencesTest(unittest.TestCase):
     def test_holidays_skip_the_weekend(self):
         out, client = self.absences([{"name": "Puente", "date_from": "2026-08-07 12:00:00", "date_to": "2026-08-10 12:00:00"}])
         self.assertEqual(out, [{"date": "2026-08-07", "type": "Puente"}, {"date": "2026-08-10", "type": "Puente"}])
-        self.assertIn(("calendar_id", "=", 4), client.calls[0][1][0])
+        self.assertIn(("calendar_id", "in", [4]), client.calls[0][1][0])
 
     def test_full_day_leaves_cover_each_working_day(self):
         out, _ = self.absences(leaves=[{
@@ -125,12 +126,12 @@ class DataCacheTest(unittest.TestCase):
         self.addCleanup(dt.drop_data_cache)
         dt.drop_data_cache()
 
-    def count(self, client):
+    def count(self, client, employee=None):
         self.calls += 1
-        return {"call": self.calls, "client": client.session_id}
+        return dict({"call": self.calls, "client": client.session_id}, **({"employee": employee} if employee else {}))
 
-    def fetch(self, session_id, fresh=False):
-        return dt.fetch_data(SimpleNamespace(session_id=session_id), fresh)
+    def fetch(self, session_id, fresh=False, employee=None):
+        return dt.fetch_data(SimpleNamespace(session_id=session_id), fresh, employee)
 
     def test_serves_the_same_payload_within_the_ttl_per_session(self):
         self.assertEqual(self.fetch("one"), {"call": 1, "client": "one"})
@@ -142,6 +143,20 @@ class DataCacheTest(unittest.TestCase):
     def test_fresh_bypasses_it(self):
         self.fetch("one")
         self.assertEqual(self.fetch("one", fresh=True)["call"], 2)
+
+    def test_someone_elses_week_keeps_longer(self):
+        self.fetch("one", employee=9)
+        with patch.object(dt, "DATA_TTL", -1):
+            self.assertEqual(self.fetch("one", employee=9)["call"], 1)
+            self.assertEqual(self.fetch("one")["call"], 2)
+        with patch.object(dt, "VIEW_TTL", -1):
+            self.assertEqual(self.fetch("one", employee=9)["call"], 3)
+
+    def test_someone_elses_week_has_its_own_entry(self):
+        self.assertEqual(self.fetch("one")["call"], 1)
+        self.assertEqual(self.fetch("one", employee=9), {"call": 2, "client": "one", "employee": 9})
+        self.assertEqual(self.fetch("one", employee=9)["call"], 2)
+        self.assertEqual(self.fetch("one")["call"], 1)
 
     def test_a_punch_drops_every_session(self):
         self.fetch("one")
@@ -156,6 +171,32 @@ class DataCacheTest(unittest.TestCase):
         dt.DATA_TTL = -1
         self.addCleanup(setattr, dt, "DATA_TTL", original)
         self.assertEqual(self.fetch("one")["call"], 2)
+
+
+class ContractHoursTest(unittest.TestCase):
+    EIGHT = {"hours": [8, 8, 8, 8, 8, 0, 0], "lunch_from": [None] * 7}
+
+    def client(self, contracts):
+        def blocks(args, kwargs):
+            return [{"dayofweek": str(d), "hour_from": 9.0, "hour_to": 14.0, "day_period": "morning"} for d in range(5)]
+        return ScriptedClient({"hr.contract": contracts, "resource.calendar.attendance": blocks})
+
+    def test_only_days_whose_contract_asks_for_other_hours_are_listed(self):
+        client = self.client([
+            {"employee_id": [7, "Ana"], "date_start": "2025-03-05", "date_end": "2025-03-06", "resource_calendar_id": [9, "25 h"]},
+            {"employee_id": [7, "Ana"], "date_start": "2025-03-07", "date_end": False, "resource_calendar_id": [4, "Std"]},
+        ])
+        out = dt.contract_hours(client, self.EIGHT, date(2025, 3, 3), date(2025, 3, 10))
+        self.assertEqual(out, {"2025-03-03": 0, "2025-03-04": 0, "2025-03-05": 5.0, "2025-03-06": 5.0})
+        domain = next(args for model, args, _ in client.calls if model == "hr.contract")[0]
+        self.assertIn(("employee_id", "in", [7]), domain)
+
+    def test_without_contracts_or_a_current_calendar(self):
+        self.assertEqual(dt.contract_hours(self.client([]), self.EIGHT, date(2025, 3, 3), date(2025, 3, 10)), {})
+        client = self.client([{"employee_id": [7, "Ana"], "date_start": "2025-03-03", "date_end": False,
+                               "resource_calendar_id": [9, "25 h"]}])
+        out = dt.contract_hours(client, None, date(2025, 3, 3), date(2025, 3, 5))
+        self.assertEqual(out, {"2025-03-03": 5.0, "2025-03-04": 5.0})
 
 
 class BuildDataTest(unittest.TestCase):
@@ -189,6 +230,9 @@ class BuildDataTest(unittest.TestCase):
         self.assertNotIn("phone", payload)
         self.assertEqual(payload["schedule"]["hours"][0], 8.0)
         self.assertEqual(payload["absences"], [])
+        self.assertFalse(payload["team"])
+        self.assertEqual(payload["contract_hours"], {})
+        self.assertEqual((payload["long_hours"], payload["work_hours"]), (12, [6.5, 22]))
 
     def test_without_attendance_reasons(self):
         payload, client = self.build([{"check_in": utc(30), "check_out": False, "worked_hours": 0}], reasons=(None, None))
@@ -198,14 +242,32 @@ class BuildDataTest(unittest.TestCase):
         self.assertNotIn("attendance_reason_ids", fields)
 
     def test_history_starts_at_the_oldest_punch_or_min_weeks(self):
-        old = {"check_in": "2025-01-06 08:00:00", "check_out": "2025-01-06 16:00:00", "worked_hours": 8.0, "attendance_reason_ids": []}
-        payload, client = self.build([old])
-        expected = (dt.week_monday(datetime.now().astimezone()) - dt.week_monday(dt.local("2025-01-06 08:00:00"))).days // 7 + 1
+        tap = {"check_in": "2024-06-03 08:00:00", "check_out": "2024-06-03 08:00:04", "worked_hours": 0.001, "attendance_reason_ids": []}
+        old = {"check_in": "2025-01-08 08:00:00", "check_out": "2025-01-08 16:00:00", "worked_hours": 8.0, "attendance_reason_ids": []}
+        payload, client = self.build([tap, old])
+        self.assertEqual(payload["since"], "2025-01-06")
+        today = date.today()
+        expected = (today - timedelta(days=today.weekday()) - date(2025, 1, 6)).days // 7 + 1
         self.assertEqual(payload["weeks"], expected)
         self.assertEqual([a[0] for model, a, _ in client.calls if model == "hr.attendance"], [[("employee_id", "=", 7)]])
         self.assertEqual([model for model, _, _ in client.calls].count("hr.employee"), 0)
         payload, _ = self.build([])
         self.assertEqual(payload["weeks"], dt.MIN_WEEKS)
+        self.assertEqual(payload["since"], (today - timedelta(days=today.weekday())).isoformat())
+
+    def test_someone_elses_week_is_loaded_by_id_and_leaves_the_state_alone(self):
+        stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()
+        st.write_state(lunch=stamp)
+        client = ScriptedClient({
+            "hr.attendance": [{"check_in": utc(30), "check_out": False, "worked_hours": 0, "attendance_reason_ids": []}],
+            "hr.attendance.reason": [NORMAL, REST], "resource.calendar.leaves": [], "hr.leave": [],
+            "resource.calendar.attendance": [],
+        })
+        client.load_other = lambda employee: setattr(client, "employee_id", employee)
+        dt.build_data(client, 42)
+        self.assertEqual(client.employee_id, 42)
+        self.assertEqual(st.read_state()["lunch"], stamp)
+        self.assertIn([("employee_id", "=", 42)], [a[0] for model, a, _ in client.calls if model == "hr.attendance"])
 
     def test_a_punch_after_the_lunch_stamp_clears_it(self):
         stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()

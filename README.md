@@ -13,7 +13,7 @@ dependencies: Python 3.9+ and its standard library, nothing else.
 bin/odoo             clock in / status / history
 bin/odoo-dashboard   web dashboard at http://localhost:8931/
 src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.py (entry point) and the
-                     server modules it wires: server.py, data.py, state.py, lan.py, process.py; qr.py;
+                     server modules it wires: server.py, data.py, team.py, state.py, lan.py, process.py; qr.py;
                      templates/ (pages, style.css and the page's scripts in js/)
 .ai/skills/          the agent skill odoo-attendance
 ```
@@ -22,6 +22,8 @@ src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.p
 
 - **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history` — see `bin/odoo`.
 - **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes.
+- **Management view**: for a user who can read other people's attendances, `/gestion` shows everyone's week,
+  month or year with punch errors (orange), hours short (red) and too many hours (blue), read only.
 - **Phone pairing**: HTTPS over the LAN with a one-shot QR that shares the browser's session, no password
   login off `localhost`.
 - **Two-factor login**: asks for the authenticator code once and remembers the device for 90 days.

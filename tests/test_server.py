@@ -113,6 +113,8 @@ class HandlerTest(unittest.TestCase):
         c.save_config(**CONFIG)
         sv._sessions["sid"] = 3
         self.addCleanup(sv._sessions.clear)
+        sv._sees.clear()
+        self.addCleanup(sv._sees.clear)
         sv._login_fails.clear()
         self.addCleanup(sv._login_fails.clear)
         self.addCleanup(dt.drop_data_cache)
@@ -172,16 +174,17 @@ class HandlerTest(unittest.TestCase):
         for cookie in (None, "sid"):
             self.assertIn(b'rel="manifest"', self.get("/", cookie=cookie)[2])
 
-    def test_the_page_loads_every_script_and_nothing_else(self):
-        page = self.get("/")[2].decode()
-        tags = re.findall(r'<script[^>]*>', page)
-        self.assertEqual(tags, ['<script type="module" src="/js/app.js">'])
+    def test_each_page_loads_one_entry_script_and_every_other_script_is_imported(self):
+        entries = {"/": "app.js", "/gestion": "team.js"}
+        for path, entry in entries.items():
+            tags = re.findall(r'<script[^>]*>', self.get(path)[2].decode())
+            self.assertEqual(tags, [f'<script type="module" src="/js/{entry}">'], path)
         sources = {}
         for name in os.listdir(sv.SCRIPTS):
             with open(os.path.join(sv.SCRIPTS, name)) as f:
                 sources[name] = f.read()
         for name in sources:
-            if name == "app.js":
+            if name in entries.values():
                 continue
             self.assertTrue(
                 any(re.search(rf'from "\./{re.escape(name)}"', src) for src in sources.values()), name)
@@ -191,6 +194,66 @@ class HandlerTest(unittest.TestCase):
         self.assertIn(b"Introduce tu usuario", self.get("/", cookie="a b")[2])
         self.assertNotIn(b"Introduce tu usuario", self.get("/")[2])
         self.assertIn(b"Introduce tu usuario", self.get("/login")[2])
+        self.assertIn(b"Introduce tu usuario", self.get("/gestion", cookie=None)[2])
+        self.assertIn(b"Gesti\xc3\xb3n de fichajes", self.get("/gestion")[2])
+        self.assertIn(b'id="hero"', self.get("/empleado?id=9")[2])
+        self.assertIn(b"Introduce tu usuario", self.get("/empleado?id=9", cookie=None)[2])
+
+    def test_the_permission_to_read_others_is_remembered_per_session(self):
+        client = SimpleNamespace(session_id="sid", calls=0)
+        def ask():
+            client.calls += 1
+            return True
+        client.sees_others = ask
+        self.assertTrue(sv.sees_others(client))
+        self.assertTrue(sv.sees_others(client))
+        self.assertEqual(client.calls, 1)
+        with patch.object(sv, "SEES_TTL", -1):
+            sv.sees_others(client)
+        self.assertEqual(client.calls, 2)
+        with patch.object(sv, "new_client") as other:
+            self.post("/api/logout", {})
+        self.assertNotIn("sid", sv._sees)
+
+    def test_someone_elses_data(self):
+        self.assertEqual(self.get("/api/data?employee=x")[0], 400)
+        with patch.object(sv, "new_client") as client, patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch:
+            client.return_value.sees_others.return_value = False
+            self.assertEqual(self.get("/api/data?employee=9")[0], 403)
+            fetch.assert_not_called()
+            client.return_value.sees_others.return_value = True
+            sv._sees.clear()
+            status, _, payload = self.get("/api/data?employee=9&fresh")
+            self.assertEqual(status, 200)
+            self.assertEqual((payload["phone"], payload["state"]), (None, st.OTHER_STATE))
+            fetch.assert_called_with(client.return_value, fresh=True, employee=9)
+
+    def test_team_api(self):
+        self.assertEqual(self.get("/api/team", cookie=None)[0], 401)
+        self.assertEqual(self.get("/api/team?week=nope")[0], 400)
+        with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_team", return_value={"ok": 1}) as fetch:
+            client.return_value.sees_others.return_value = False
+            status, _, payload = self.get("/api/team")
+            self.assertEqual((status, payload), (403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"}))
+            fetch.assert_not_called()
+            client.return_value.sees_others.return_value = True
+            sv._sees.clear()
+            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1})
+            fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
+            self.get("/api/team")
+            fetch.assert_called_with(client.return_value, sv.team.monday_of(sv.date.today()), False)
+            self.get("/api/team?month=2026-09")
+            fetch.assert_called_with(client.return_value, sv.date(2026, 8, 31), False, 5, sv.date(2026, 9, 1), sv.date(2026, 10, 1))
+        self.assertEqual(self.get("/api/team?month=2026-13")[0], 400)
+        self.assertEqual(self.get("/api/team?year=dos")[0], 400)
+        with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_year", return_value={"year": 2025}) as fetch:
+            client.return_value.sees_others.return_value = True
+            self.assertEqual(self.get("/api/team?year=2025&fresh")[2], {"year": 2025})
+            fetch.assert_called_with(client.return_value, 2025, True)
+        with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_fixes", return_value={"employees": []}) as fixes:
+            client.return_value.sees_others.return_value = True
+            self.assertEqual(self.get("/api/team?fixes")[2], {"employees": []})
+            fixes.assert_called_with(client.return_value, False)
 
     def test_foreign_host_or_origin_is_refused(self):
         self.assertEqual(self.get("/", host="evil.com")[0], 403)
@@ -305,6 +368,10 @@ class HandlerTest(unittest.TestCase):
         odoo.assert_called_once_with("https://other.example/", "x", device="")
         self.assertEqual(c.read_config(), {"url": "https://other.example", "db": "x", "user": "ana"})
 
+    def test_a_server_without_its_database_is_ignored(self):
+        _, _, _, odoo, _ = self.login({"url": "https://other.example/", "user": "ana", "password": "pw"})
+        odoo.assert_called_once_with("https://odoo.example", "db", device="")
+
     def test_first_run_needs_the_server(self):
         os.remove(c.CONFIG_FILE)
         status, _, payload, odoo, _ = self.login({"user": "ana", "password": "pw"})
@@ -368,6 +435,8 @@ class HandlerTest(unittest.TestCase):
             client.return_value.logout.side_effect = SessionExpired("caducada")
             self.assertEqual(self.post("/api/logout", {})[0], 200)
             self.assertEqual(self.post("/api/logout", {}, cookie=None)[0], 200)
+            with patch.object(sv, "read_config", return_value={}):
+                self.assertEqual(self.post("/api/logout", {})[0], 200)
         client.assert_called_once_with("sid")
 
     def test_stale_pairings_are_purged_when_a_new_one_is_minted(self):

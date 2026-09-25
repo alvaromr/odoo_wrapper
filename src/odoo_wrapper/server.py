@@ -6,6 +6,9 @@ Login and sessions
   (HttpOnly, SameSite=Lax, Secure over TLS, Max-Age 400 days). The password is never stored. Every later
   request forwards that cookie to Odoo, so each browser holds its own session. config.json keeps url, db
   and user only.
+- Whether a session may read other people (client.sees_others, behind /api/team and /api/data?employee)
+  is remembered per session for SEES_TTL, half an hour: it was one more Odoo call on every request and
+  does not change within a session. Logout forgets it.
 - Validity is Odoo's call. A cookie not seen since the server started is checked once with
   get_session_info and remembered in _sessions with its uid (cleared by every restart, which is fine).
   When Odoo answers code 100 anywhere, the API replies 401, clears the cookie and forgets it; the page sends
@@ -56,6 +59,13 @@ API
 - GET /api/data is the cached payload from data.py plus, fresh on every response, the phone access block and
   the shared state; the state used to ride inside the cached payload, so for up to its TTL a page could load
   with a stale mute or duration and overwrite the good one.
+- GET /api/data?employee=<id> is that employee's payload, for /empleado?id=<id> (the dashboard page in
+  read-only mode, linked from each row of /gestion), with the same 403 as /api/team; it carries no phone
+  block and state.OTHER_STATE instead of the viewer's state.
+- GET /api/team?week=<any day>[&fresh] is team.py's payload for that day's week (this week by default), and
+  ?month=YYYY-MM the one for every week of that month, ?year=YYYY that year summarised by month, ?fixes
+  the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
+  attendances. The page for it is /gestion.
 - Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
 """
 
@@ -67,11 +77,12 @@ import string
 import threading
 import time
 import traceback
+from datetime import date
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
 
-from . import data, lan, process, state
+from . import data, lan, process, state, team
 from .client import (
     CONFIG_KEYS, AccessDenied, OdooClient, OdooDown, OdooError, SessionExpired, TotpRequired,
     load_config, read_config, save_config,
@@ -80,6 +91,9 @@ from .client import (
 PORT = 8931
 TEMPLATE = f"{process.TEMPLATES}/dashboard.html"
 LOGIN_TEMPLATE = f"{process.TEMPLATES}/login.html"
+TEAM_TEMPLATE = f"{process.TEMPLATES}/team.html"
+PAGES = {"/": TEMPLATE, "/index.html": TEMPLATE, "/empleado": TEMPLATE, "/gestion": TEAM_TEMPLATE,
+         "/login": LOGIN_TEMPLATE}
 STYLESHEET = f"{process.TEMPLATES}/style.css"
 SCRIPTS = f"{process.TEMPLATES}/js"
 MANIFEST = f"{process.TEMPLATES}/manifest.json"
@@ -93,7 +107,9 @@ LOGIN_TRIES = 5
 LOGIN_LOCK = 30
 LOGIN_LOCK_MAX = 900
 PAIR_TTL = 120
+SEES_TTL = 1800
 _sessions = {}
+_sees = {}
 _pairings = {}
 _login_fails = {}
 _login_lock = threading.Lock()
@@ -110,6 +126,15 @@ def session_cookie(headers, name=COOKIE_NAME):
     morsel = SimpleCookie(headers.get("Cookie") or "").get(name)
     value = morsel.value if morsel else ""
     return value if value and set(value) <= SESSION_CHARS else ""
+
+
+def sees_others(client):
+    known = _sees.get(client.session_id)
+    if known and time.monotonic() - known[0] < SEES_TTL:
+        return known[1]
+    answer = client.sees_others()
+    _sees[client.session_id] = (time.monotonic(), answer)
+    return answer
 
 
 def session_ok(session_id):
@@ -228,8 +253,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self):
         self.path, _, query = self.path.partition("?")
-        if self.path in ("/", "/index.html", "/login"):
-            page = TEMPLATE if self.path != "/login" and session_cookie(self.headers) else LOGIN_TEMPLATE
+        if self.path in PAGES:
+            page = PAGES[self.path] if session_cookie(self.headers) else LOGIN_TEMPLATE
             with open(page, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
         elif self.path == "/style.css":
@@ -263,8 +288,46 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})
                 return
-            payload = data.fetch_data(new_client(self.session), fresh=query == "fresh")
-            self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state()))
+            params = dict(parse_qsl(query, keep_blank_values=True))
+            employee = params.get("employee", "")
+            if not employee:
+                payload = data.fetch_data(new_client(self.session), fresh="fresh" in params)
+                self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state()))
+                return
+            if not employee.isdigit():
+                self._send(400, {"error": f"Empleado no válido: {employee}"})
+                return
+            client = new_client(self.session)
+            if not sees_others(client):
+                self._send(403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"})
+                return
+            payload = data.fetch_data(client, fresh="fresh" in params, employee=int(employee))
+            self._send(200, dict(payload, phone=None, state=state.OTHER_STATE))
+        elif self.path == "/api/team":
+            if not self._authorized():
+                self._send(401, {"error": "no autorizado"})
+                return
+            params = dict(parse_qsl(query, keep_blank_values=True))
+            try:
+                year = int(params["year"]) if params.get("year") else None
+                if params.get("month"):
+                    span = team.month_span(date.fromisoformat(f"{params['month']}-01"))
+                else:
+                    span = (team.monday_of(date.fromisoformat(params["week"]) if params.get("week") else date.today()),)
+            except ValueError:
+                self._send(400, {"error": f"Periodo no válido: {params.get('year') or params.get('month') or params['week']}"})
+                return
+            client = new_client(self.session)
+            if not sees_others(client):
+                self._send(403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"})
+                return
+            if year:
+                self._send(200, team.fetch_year(client, year, "fresh" in params))
+                return
+            if "fixes" in params:
+                self._send(200, team.fetch_fixes(client, "fresh" in params))
+                return
+            self._send(200, team.fetch_team(client, span[0], "fresh" in params, *span[1:]))
         else:
             self._send(404, {"error": "not found"})
 
@@ -312,6 +375,7 @@ class Handler(BaseHTTPRequestHandler):
             except SessionExpired:
                 pass
         _sessions.pop(session_id, None)
+        _sees.pop(session_id, None)
         revoke_pairings(session_id)
         data.drop_data_cache()
         self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])

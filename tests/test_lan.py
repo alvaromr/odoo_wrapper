@@ -78,6 +78,10 @@ class CertTest(unittest.TestCase):
         self.assertEqual(again, (cert, key))
         self.assertIn("subjectAltName=DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1", run.call_args[0][0])
         self.assertEqual(oct(os.stat(key).st_mode & 0o777), "0o600")
+        os.remove(key)
+        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):
+            self.assertEqual(lan.ensure_cert(), (cert, key))
+        self.assertEqual(run.call_count, 1)
 
     def test_a_new_identity_gets_its_own_pair_and_a_known_one_is_reused(self):
         with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):

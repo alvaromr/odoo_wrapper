@@ -214,6 +214,11 @@ class OdooClient:
         self.uid = info.get("uid")
         return info
 
+    def sees_others(self):
+        if not self.uid:
+            self.session_info()
+        return bool(self.call_kw("hr.attendance", "search", [[("employee_id.user_id", "!=", self.uid)]], {"limit": 1}))
+
     def logout(self):
         self.jsonrpc("/web/session/destroy", {})
 
@@ -236,9 +241,15 @@ class OdooClient:
         )
         if not emp:
             raise OdooError("No se encontró empleado asociado a tu usuario")
-        self.employee_id = emp[0]["id"]
-        self.employee_name = emp[0]["name"]
-        calendar = emp[0]["resource_calendar_id"]
+        self._take(emp[0])
+
+    def load_other(self, employee_id):
+        self._take(self.call_kw("hr.employee", "read", [[employee_id], ["name", "resource_calendar_id"]])[0])
+
+    def _take(self, emp):
+        self.employee_id = emp["id"]
+        self.employee_name = emp["name"]
+        calendar = emp["resource_calendar_id"]
         self.calendar_id = calendar[0] if calendar else None
 
     def open_attendance(self):

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fichajes · Gestión</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#171717">
+<style>
+  body { container-type: inline-size; }
+  .page { max-width: 1280px; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .toolbar .push { margin-left: auto; }
+  .search { border: 1px solid var(--input); background: transparent; color: var(--foreground); font: inherit;
+    font-size: 12px; border-radius: var(--radius-sm); padding: 4px 10px; min-width: 180px; }
+  .toolbar .week { font-weight: 600; min-width: 190px; text-align: center; }
+
+  #openCard { margin-top: 16px; }
+  #openCard.wide { width: calc(100cqw - 40px); margin-left: calc((100% - 100cqw) / 2 + 20px); }
+  .fix-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .fix-kinds { flex-wrap: wrap; gap: 3px; }
+  .fix-wrap { position: relative; margin-top: 12px; }
+  .fixes .chart-note { padding-right: 108px; }
+  .fix-scroll { overflow-x: auto; cursor: grab; touch-action: pan-y; }
+  .fix-scroll.dragging { cursor: grabbing; user-select: none; }
+  .fix-scroll a { cursor: pointer; }
+  .fix-grid { display: grid; grid-template-columns: 220px 270px max-content; row-gap: 6px; align-items: center;
+    width: max-content; }
+  .fix-grid > :nth-child(3n+1), .fix-grid > :nth-child(3n+2) { position: sticky; z-index: 1; background: var(--card);
+    align-self: stretch; display: flex; align-items: center; }
+  .fix-grid > :nth-child(3n+1) { left: 0; }
+  .fix-grid > :nth-child(3n+2) { left: 220px; padding-right: 10px; box-shadow: 1px 0 0 var(--border); }
+  .fix-zoom { position: absolute; top: -40px; right: 0; z-index: 2; display: flex; gap: 4px; }
+  .fix-zoom button {
+    width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: var(--card);
+    color: var(--foreground); font: inherit; font-size: 16px; line-height: 1; cursor: pointer;
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--background) 60%, transparent);
+  }
+  .fix-zoom button:hover { background: var(--accent); }
+  .fix-zoom button:disabled { opacity: 0.4; cursor: default; }
+  .fix-grid .label { align-self: end; }
+  .fix-name { color: var(--foreground); text-decoration: none; font-weight: 550; font-size: 13px; }
+  .fix-name:hover { text-decoration: underline; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground); }
+  .chip.warn { color: var(--status-warning); border-color: var(--chart-error); }
+  .fixes svg { display: block; }
+  .fix-grid .chips { flex-wrap: wrap; }
+  .fixes .bar.error { fill: var(--chart-error); }
+  .fixes .bar.late { opacity: 0.55; }
+  .fixes .bar.missing { fill: transparent; stroke: var(--chart-error); stroke-width: 1; }
+  .fixes .hit { fill: transparent; }
+  .fixes .mark:hover .bar, .fixes .mark:focus-visible .bar { opacity: 1; }
+  .fixes .mark { outline: none; }
+  .fixes .zero { stroke: var(--border); }
+  .fixes .grid { stroke: var(--border); }
+  .fixes .day { stroke: var(--border); stroke-width: 0.5; }
+  .fixes .monday { stroke: var(--muted-foreground); stroke-width: 0.75; opacity: 0.6; }
+  .fixes .axis-label { fill: var(--muted-foreground); font-size: 10px; }
+  @media (max-width: 720px) {
+    .fix-grid { grid-template-columns: 130px 150px max-content; }
+    .fix-grid > :nth-child(3n+2) { left: 130px; }
+  }
+
+  .grid-card { padding: 0; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 860px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  thead th { font-size: 11px; font-weight: 550; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-foreground); white-space: nowrap; }
+  thead th.today { color: var(--foreground); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.name { font-weight: 550; white-space: nowrap; }
+  thead th:first-child, td.name { position: sticky; left: 0; z-index: 1; background: var(--card); }
+  thead th:last-child, td.total:last-child {
+    position: sticky; right: 0; z-index: 1; background: var(--card); box-shadow: -1px 0 0 var(--border);
+  }
+  .hours, .meta, .gap { white-space: nowrap; }
+  td.name a { color: inherit; text-decoration: none; }
+  td.name a:hover { text-decoration: underline; }
+  td.day, td.total { min-width: 88px; }
+  td.day, td.week { cursor: pointer; }
+  .gap { display: block; font-size: 11.5px; font-weight: 600; }
+  .meta.block { display: block; font-weight: 400; }
+  td.today { background: var(--muted); }
+  td.future { color: var(--subtle-foreground); }
+  td.warn { background: var(--warning-wash); }
+  td.over { background: var(--over-wash); }
+  td.bad { background: var(--destructive-wash); }
+  td.total.warn:last-child { background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card); }
+  td.total.over:last-child { background: linear-gradient(var(--over-wash), var(--over-wash)), var(--card); }
+  td.total.bad:last-child { background: linear-gradient(var(--destructive-wash), var(--destructive-wash)), var(--card); }
+  .hours { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .meta { font-size: 11.5px; color: var(--muted-foreground); }
+  .flag { display: block; font-size: 11.5px; font-weight: 600; color: var(--destructive); }
+  .flag.warn { color: var(--status-warning); }
+  .flag.over, #tip .t-note.over, .dialog .t-note.over { color: var(--chart-2); }
+  .req { display: block; font-size: 11.5px; color: var(--muted-foreground); margin-top: 2px; }
+  :is(.req, #tip .t-note, .dialog .t-note).pending { color: var(--chart-2); font-weight: 600; }
+  :is(.req, #tip .t-note, .dialog .t-note).approved { color: var(--status-success); }
+  :is(.req, #tip .t-note, .dialog .t-note).refused { text-decoration: line-through; }
+  .empty-state { padding: 28px 20px; color: var(--muted-foreground); text-align: center; }
+  #loadmsg { color: var(--muted-foreground); padding: 40px 0; text-align: center; }
+  .legend { font-size: 12px; color: var(--muted-foreground); margin: 10px 2px; }
+  .criteria { margin-top: 16px; }
+  #charts { display: grid; gap: 16px; }
+  .chart-note { font-size: 12px; color: var(--muted-foreground); }
+  .chart-title { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
+  .chart svg { display: block; width: 100%; height: auto; margin-top: 12px; }
+  .chart .bar.short { fill: var(--chart-short); }
+  .chart .bar.over { fill: var(--chart-2); }
+  .chart .bar.error { fill: var(--chart-error); }
+  .chart .hit { fill: transparent; }
+  .chart .mark:hover .hit, .chart .mark:focus-visible .hit { fill: var(--muted); }
+  .chart .mark { outline: none; }
+  .chart .mark.link { cursor: pointer; }
+  .chart .mark.link:hover .axis-label { fill: var(--foreground); text-decoration: underline; }
+  .chart .zero { stroke: var(--muted-foreground); stroke-width: 1; }
+  .chart .grid { stroke: var(--border); stroke-width: 1; }
+  .chart .axis-label { fill: var(--muted-foreground); font-size: 11px; }
+  .chart .value-label { fill: var(--foreground); font-size: 11px; font-family: var(--font-mono); }
+  .legend-row { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted-foreground); }
+  .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .swatch.short { background: var(--chart-short); }
+  .swatch.over { background: var(--chart-2); }
+  .swatch.error { background: var(--chart-error); }
+  #tip .t-row .k .swatch { display: inline-block; margin-right: 6px; vertical-align: -1px; }
+  #tip .t-name { padding-left: 16px; color: var(--muted-foreground); }
+  dialog.dialog {
+    margin: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+    color: var(--foreground); padding: 18px 20px; width: min(440px, calc(100vw - 32px));
+  }
+  dialog.dialog::backdrop { background: color-mix(in srgb, var(--background) 65%, transparent); }
+  .dialog h2 { font-size: 15px; font-weight: 650; margin-bottom: 8px; }
+  .dialog .t-row, .dialog .t-note { font-size: 13.5px; }
+  .dialog .actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div id="loadbar" role="progressbar" aria-label="Cargando"></div>
+<div class="page">
+  <header>
+    <h1>Gestión de fichajes</h1>
+    <span class="sub" id="subtitle"></span>
+    <a class="hdr-btn" href="/">Mis horas</a>
+    <button class="hdr-btn" id="refreshBtn" type="button">Actualizar</button>
+    <button class="hdr-btn" id="logoutBtn" type="button">Cerrar sesión</button>
+  </header>
+
+  <div class="toolbar">
+    <button class="hdr-btn" id="prevWeek" type="button" aria-label="Anterior">‹</button>
+    <span class="week" id="weekLabel"></span>
+    <button class="hdr-btn" id="nextWeek" type="button" aria-label="Siguiente">›</button>
+    <button class="hdr-btn" id="thisWeek" type="button">Hoy</button>
+    <div class="seg" id="viewSeg" role="group" aria-label="Vista">
+      <button type="button" data-view="week" aria-pressed="true">Semana</button>
+      <button type="button" data-view="month">Mes</button>
+      <button type="button" data-view="year">Año</button>
+    </div>
+    <div class="seg push" id="displaySeg" role="group" aria-label="Presentación">
+      <button type="button" data-display="table" aria-pressed="true">Tabla</button>
+      <button type="button" data-display="charts">Gráficos</button>
+    </div>
+  </div>
+  <div class="toolbar">
+    <div class="seg" id="filterSeg" role="group" aria-label="Filtro de personas">
+      <button type="button" data-filter="issues" aria-pressed="true">Con incidencias</button>
+      <button type="button" data-filter="under">Bajo objetivo</button>
+      <button type="button" data-filter="over">Demasiadas horas</button>
+      <button type="button" data-filter="all">Todas</button>
+    </div>
+    <button class="hdr-btn" id="archivedBtn" type="button" aria-pressed="true">Ocultar archivados</button>
+    <input class="search" id="search" type="search" placeholder="Buscar persona" aria-label="Buscar persona por nombre" autocomplete="off">
+  </div>
+
+  <div id="loadmsg">Cargando datos de Odoo…</div>
+
+  <section class="card grid-card hidden" id="gridCard">
+    <div class="scroll"><table id="grid"></table></div>
+  </section>
+  <div class="hidden" id="charts"></div>
+  <section class="card fixes hidden" id="openCard">
+    <h2 class="chart-title">Fichajes por corregir</h2>
+    <p class="chart-note" id="fixesNote"></p>
+    <div class="fix-controls">
+    <div class="seg fix-kinds" id="fixKinds" role="group" aria-label="Tipos de fichaje por corregir">
+      <button type="button" data-kind="open" aria-pressed="true">Sin cerrar</button>
+      <button type="button" data-kind="long" aria-pressed="true">Jornada muy larga</button>
+      <button type="button" data-kind="off" aria-pressed="true">Fuera de horario</button>
+      <button type="button" data-kind="empty" aria-pressed="true">Sin fichar</button>
+    </div>
+    <input class="search" id="fixSearch" type="search" placeholder="Buscar persona" aria-label="Buscar persona en los fichajes por corregir" autocomplete="off">
+    </div>
+    <div class="fix-wrap">
+      <div class="fix-zoom">
+        <button type="button" id="zoomOut" aria-label="Alejar la franja">−</button>
+        <button type="button" id="zoomIn" aria-label="Acercar la franja">+</button>
+        <button type="button" id="wideBtn" aria-pressed="false" aria-label="Ampliar a todo el ancho" title="Ampliar a todo el ancho">↔</button>
+      </div>
+      <div class="fix-scroll" id="fixes"></div>
+    </div>
+  </section>
+  <p class="legend criteria" id="criteria"></p>
+  <p class="legend">Cada celda: horas fichadas y, debajo, la ausencia si la hay. Pasa el ratón por una celda, o haz clic en ella, para ver sus fichajes, el porqué de cada marca y el motivo de sus solicitudes de modificación. Sábado y domingo solo aparecen si alguien tiene algo en ellos. En «Mes», cada semana se evalúa entera (haz clic en ella para abrirla) y la columna Mes suma solo los días de ese mes. En «Año», cada mes igual; haz clic en uno para abrirlo.</p>
+</div>
+<div id="tip" role="tooltip"></div>
+<dialog class="dialog" id="dayDialog" aria-labelledby="dayDialogTitle">
+  <h2 id="dayDialogTitle"></h2>
+  <div id="dayDialogBody"></div>
+  <div class="actions"><button class="btn ghost" id="dayDialogClose" type="button">Cerrar</button></div>
+</dialog>
+<script type="module" src="/js/team.js"></script>
+</body>
+</html>

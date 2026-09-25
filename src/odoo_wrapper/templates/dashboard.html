@@ -11,17 +11,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Fichajes">
 <style>
-  .page { max-width: 1040px; margin: 0 auto; padding: 28px 20px 64px; }
-
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  header h1 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
-  header .sub { color: var(--muted-foreground); font-size: 13px; flex: 1; }
-  .hdr-btn {
-    border: 1px solid var(--input); background: transparent; color: var(--foreground);
-    border-radius: var(--radius-sm); padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
-  }
-  .hdr-btn:hover { background: var(--accent); }
-
   /* ---- hero: semana actual ---- */
   .hero {
     display: grid;
@@ -73,7 +62,9 @@
   .lastpunch { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--foreground); }
   .lastpunch .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); flex: none; }
   .lastpunch.open .dot { background: var(--status-success); }
-  .lastpunch.rest .dot { background: var(--destructive); }
+  .lastpunch.rest .dot { background: var(--chart-rest); }
+  .lastpunch.stale { color: var(--status-warning); }
+  .lastpunch.stale .dot { background: var(--chart-error); }
 
   /* ---- botones de fichaje ---- */
   .actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
@@ -106,13 +97,6 @@
 
   /* ---- filtros ---- */
   .filter-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 4px 2px 16px; }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--card); padding: 2px; }
-  .seg button {
-    border: 0; background: none; color: var(--foreground); font: inherit; font-size: 12.5px;
-    padding: 4px 12px; border-radius: var(--radius-xs); cursor: pointer;
-  }
-  .seg button:hover { background: var(--accent); }
-  .seg button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
   .filter-label { font-size: 12.5px; color: var(--muted-foreground); }
   .spacer { flex: 1; }
 
@@ -127,10 +111,12 @@
   .overview .caption { font-size: 12px; color: var(--muted-foreground); margin-bottom: 10px; }
   .overview svg { width: 100%; height: auto; display: block; }
   #overviewChart { overflow-x: auto; }
-  .col { cursor: default; }
+  .col { cursor: pointer; }
   .col .bar { fill: var(--chart-2); }
   .col .hit { fill: transparent; }
   .col.inprogress .bar { fill: var(--chart-1); }
+  .col.error .bar, .col .err-mark { fill: var(--chart-error); }
+  .kpis .foot.warn { color: var(--status-warning); }
   .col .rest { fill: var(--chart-rest); stroke: var(--card); stroke-width: 2; paint-order: stroke; }  .col:hover .bar, .col:hover .rest { filter: brightness(1.12); }
   .col:focus-visible { outline: none; }
   .col:focus-visible .hit { fill: color-mix(in srgb, var(--ring) 25%, transparent); }
@@ -167,6 +153,7 @@
   .badge.up   { color: var(--status-success); background: var(--success-wash); }
   .badge.down { color: var(--destructive);  background: var(--destructive-wash); }
   .badge.flat { color: var(--foreground); background: var(--secondary); }
+  .badge.warn { color: var(--status-warning); background: var(--warning-wash); }
   .dayrow { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-radius: var(--radius-sm); }
   .dayrow:hover, .dayrow:focus-visible { background: var(--muted); }
   .dayrow .dlabel { width: 58px; font-size: 12px; color: var(--foreground); flex: none; }
@@ -211,6 +198,23 @@
   }
   .tl-row.today .sess { background: var(--chart-1); }
   .tl-row .sess.rest { background: var(--chart-rest); box-shadow: 0 0 0 2px var(--card); }
+  .tl-row .sess.long, .dayrow .bar.long { background: var(--chart-error); }
+  .errors { border-color: var(--chart-error); background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card);
+    margin-bottom: 16px; }
+  .errors h2 { display: inline; font-size: 14px; font-weight: 650; color: var(--status-warning); }
+  .errors summary { cursor: pointer; }
+  .errors summary::marker { color: var(--status-warning); }
+  .errors details[open] summary { margin-bottom: 2px; }
+  .errors p { font-size: 12.5px; color: var(--muted-foreground); margin: 2px 0 10px; }
+  .errors ul { list-style: none; display: grid; gap: 4px; }
+  .errors button { border: 0; background: none; color: var(--foreground); font: inherit; font-size: 13px; cursor: pointer;
+    padding: 0; text-align: left; }
+  .errors button:hover { text-decoration: underline; }
+  .errors .kind { color: var(--status-warning); font-weight: 600; }
+  .week-head .total.long { color: var(--status-warning); }
+  .week-head .total-warn { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--status-warning); }
+  .week-head .total-warn + .total { margin-left: 8px; }
+  .dayrow .dvalue.long { color: var(--status-warning); }
   .tl-row .sess.join-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .tl-row .sess.join-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   .tl-row .leave {
@@ -239,20 +243,9 @@
   tbody tr:last-child { border-bottom: 0; }
   td.up { color: var(--status-success); font-weight: 600; }
   td.down { color: var(--destructive); font-weight: 600; }
+  td.warn { color: var(--status-warning); font-weight: 600; }
   td.dim { color: var(--muted-foreground); }
 
-  /* ---- tooltip ---- */
-  #tip {
-    position: fixed; z-index: 10; pointer-events: none; display: none;
-    background: var(--popover, var(--card)); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 10px 12px; min-width: 170px; max-width: 280px;
-  }
-  #tip .t-title { font-size: 11.5px; color: var(--muted-foreground); margin-bottom: 4px; }
-  #tip .t-row { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; padding: 1px 0; }
-  #tip .t-row .v { font-weight: 650; font-variant-numeric: tabular-nums; }
-  #tip .t-row .k { color: var(--foreground); }
-  #tip .t-sep { border-top: 1px solid var(--border); margin: 5px 0; }
-  .hidden { display: none !important; }
   #loadmsg { color: var(--muted-foreground); padding: 40px 0; text-align: center; }
 
   @media (max-width: 960px) {
@@ -264,10 +257,6 @@
   }
 
   @media (max-width: 620px) {
-    .page { padding: 18px 14px 48px; }
-    header { gap: 6px 12px; }
-    header h1 { flex: 1 1 auto; }
-    header .sub { flex: 1 1 100%; order: 3; }
     .hero { grid-template-columns: 1fr; gap: 18px; }
     .hero .value { font-size: 40px; }
     .hero .value.text { font-size: 22px; }
@@ -281,7 +270,6 @@
     .tl-axis { margin: 0 96px 4px 56px; }
     .week-head .total { font-size: 15px; }
     .filter-row { gap: 8px; }
-    .seg button { padding: 4px 9px; }
     #overviewChart svg { width: auto; height: 230px; }
     .phone { flex-direction: column; align-items: flex-start; }
     .phone .url { font-size: 13px; }
@@ -289,10 +277,12 @@
 </style>
 </head>
 <body>
+<div id="loadbar" role="progressbar" aria-label="Cargando"></div>
 <div class="page">
   <header>
     <h1>Horas de fichaje</h1>
     <span class="sub" id="subtitle"></span>
+    <a class="hdr-btn hidden" id="teamLink" href="/gestion">Gestión</a>
     <button class="hdr-btn" id="refreshBtn" type="button">Actualizar</button>
     <button class="hdr-btn" id="logoutBtn" type="button">Cerrar sesión</button>
   </header>
@@ -300,6 +290,7 @@
   <div id="loadmsg">Cargando datos de Odoo…</div>
 
   <div id="app" class="hidden">
+    <section class="card errors hidden" id="errorsBanner"></section>
     <section class="card hero" id="hero"></section>
 
     <h2 class="weeks-title">Calendario semanal</h2>
@@ -309,10 +300,10 @@
     <div class="filter-row">
       <span class="filter-label">Mostrar</span>
       <div class="seg" id="rangeSeg" role="group" aria-label="Rango de semanas">
-        <button type="button" data-weeks="4">4 semanas</button>
-        <button type="button" data-weeks="8">8 semanas</button>
-        <button type="button" data-weeks="12" aria-pressed="true">12 semanas</button>
-        <button type="button" data-weeks="all">Todo</button>
+        <button type="button" data-months="1">1 mes</button>
+        <button type="button" data-months="6" aria-pressed="true">6 meses</button>
+        <button type="button" data-months="12">1 año</button>
+        <button type="button" data-months="all">Todo</button>
       </div>
       <span class="spacer"></span>
       <div class="seg" id="viewSeg" role="group" aria-label="Tipo de vista">

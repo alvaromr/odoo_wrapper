@@ -71,8 +71,9 @@ def kw(rows):
 class ScriptedClient:
     """Odoo client stand-in for the server side: answers call_kw per model and records every punch."""
 
-    def __init__(self, rows=None, open_att=None, reasons=(NORMAL, REST)):
+    def __init__(self, rows=None, open_att=None, reasons=(NORMAL, REST), team=False):
         self.rows = rows or {}
+        self.team = team
         self.open_att = open_att
         self.reasons = reasons
         self.employee_id, self.employee_name, self.calendar_id = 7, "Ana", 4
@@ -104,6 +105,9 @@ class ScriptedClient:
 
     def sign_in_reasons(self):
         return self.reasons
+
+    def sees_others(self):
+        return self.team
 
     def punch(self, reason_id=None):
         self.punches.append(reason_id)

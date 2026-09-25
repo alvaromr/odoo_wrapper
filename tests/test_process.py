@@ -73,6 +73,11 @@ class OutputTest(unittest.TestCase):
             pr.own_the_output()
         self.assertEqual(os.path.getsize(log + ".1"), pr.LOG_MAX + 1)
         self.assertEqual(os.path.getsize(log), 0)
+        with open(log, "w") as f:
+            f.write("x")
+        with patch.object(sys, "stdout", streams[0]), patch.object(sys, "stderr", streams[1]), patch.object(os, "dup2"):
+            pr.own_the_output()
+        self.assertEqual(os.path.getsize(log + ".1"), pr.LOG_MAX + 1)
 
     def test_messages_carry_a_timestamp(self):
         out = io.StringIO()

@@ -11,14 +11,43 @@
  *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
  * - Every sentence quoting the schedule is generated from it (scheduleSentence).
+ * - The banner above the hero lists this person's punch errors (week.js's punchErrors), whoever is looking
+ *   and whatever their rights: it reads only this page's own sessions. Each one opens its week. It folds
+ *   (closed by default, the count in its title) and keeps whatever the viewer left it at across repaints. A missed day
+ *   also reads «sin fichar» in orange in both calendar views instead of a bare dash. In the weekly chart a
+ *   week with a punch error (a too long session or a missed day) is orange, with a thin orange line just
+ *   under the axis so a week with nothing punched still shows it (under it, not on it: on it, it read as a
+ *   few hours punched), and its tooltip says why. The chart's grid keeps
+ *   about six lines whatever the tallest week: a 230 h week used to draw one every 10 h. Its scale leaves
+ *   out suspect weeks, which run to the top: one forgotten check-out flattened every other column. A click (or Enter) on
+ *   a column opens that week in the calendar, as a banner entry does (showWeek). The average and balance
+ *   tiles turn orange with a note when a finished week they count has a punch error: they cannot be trusted.
+ *   «Horario habitual» averages only days without a punch error: a check-out on the next morning read as
+ *   leaving at 8:36, and an open entry or an off-hours punch skewed the mean the same way.
+ * - A session longer than the payload's long_hours is drawn orange (a punch error, style.css) in the
+ *   timeline, and so is its day's total in both calendar views: it is nearly always a forgotten check-out. A session that ends on a later day
+ *   runs to midnight on its check-in day, labelled with the days it spans («15:00 – 09:00 (+1)»); its end
+ *   hour used to come before its start and left a sliver. A week holding such a session never claims its
+ *   target reached: the hero, the week card's badge and the table say a punch needs checking instead, the
+ *   card's total says its sum cannot be trusted, and the day's bar is red in «Objetivo» too. A week with a
+ *   missed day says a punch needs checking the same way (week.error).
+ * - «Objetivo» scales its bars to the week shown, leaving out its long days, which run to the edge: scaled to
+ *   the longest day of the whole history, one forgotten check-out of hundreds of hours shrank every normal day to a sliver.
+ * - A session left open since an earlier day is not today's work: the hero estimates no leave time from it
+ *   and its last-punch line says, in orange, since when it is open (leftOpen). The punch buttons still follow
+ *   the real open attendance, which is what Odoo will close.
  * - Colours: never hardcode one here. Two call sites build the token name at runtime (var(--${…})) and go
  *   silently colourless when a token is renamed; the palette and its rules are in style.css.
  */
 import { store, DayNames, DayFull } from "./store.js";
-import { buildWeek, buildWeeks, weekRangeLabel, lunchHours, lunchOpen, targetLabel } from "./week.js";
-import { fmtShort, fmtTime, fmtHM, fmtDelta, fmtHours, fmtDay, fmtClock, hourOf } from "./format.js";
-import { el, fillBar, minutesField, bellIcon, qrIcon, actionButton, attachTip, tipRow } from "./ui.js";
-import { api, saveState } from "./api.js";
+import {
+  buildWeek, buildWeeks, weekRangeLabel, lunchHours, lunchOpen, targetLabel, weeksSince, punchErrors, weekOffsetOf,
+  missed, longDay, offHours, dayError, unclosed,
+} from "./week.js";
+import { fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey } from "./format.js";
+import { el, api, attachTip, tipRow } from "./shared.js";
+import { fillBar, minutesField, bellIcon, qrIcon, actionButton } from "./ui.js";
+import { saveState } from "./api.js";
 import { stopFlash, notifyStatus } from "./alarms.js";
 
 /* ---------- último fichaje ---------- */
@@ -35,17 +64,22 @@ export function unloggedGap(sessions) {
     i && sessions[i - 1].out ? a + Math.max(s.in - sessions[i - 1].out, 0) / 3.6e6 : a, 0);
 }
 
+export function leftOpen(ev) {
+  return ev.open && ev.at < store.today;
+}
+
 export function punchText(ev) {
   const elapsed = (Date.now() - ev.at) / 3.6e6;
+  if (leftOpen(ev)) return `Entrada del ${fmtDay(ev.at)} a las ${fmtTime(ev.at)} sin cerrar · hace ${fmtShort(elapsed)}`;
   const label = ev.out
-    ? ev.rest ? "Fin del descanso" : "Última salida"
-    : ev.rest ? "En descanso desde" : "Entrada";
+    ? ev.rest ? "Fin del descanso a las" : "Última salida a las"
+    : ev.rest ? "En descanso desde las" : "Entrada a las";
   const since = ev.open ? `llevas ${fmtShort(elapsed)}` : `hace ${fmtShort(elapsed)}`;
-  return `${label} a las ${fmtTime(ev.at)} · ${since}`;
+  return `${label} ${fmtTime(ev.at)} · ${since}`;
 }
 
 /* ---------- hero (hoy y semana actual, no dependen del filtro) ---------- */
-export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft) {
+export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, leftover = false) {
   const main = el("div", "main");
   const headline = (label, value, valueCls, detail) => {
     main.appendChild(el("span", "label", label));
@@ -58,7 +92,7 @@ export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft) {
   } else if (dayRemaining > 0) {
     headline("Pendiente hoy", fmtShort(dayRemaining), "num", {
       text: `para la jornada de ${fmtHM(day.expected)}`
-        + (leaveAt ? "" : " · sin fichaje abierto"),
+        + (leaveAt ? "" : leftover ? " · hay una entrada anterior sin cerrar" : " · sin fichaje abierto"),
     });
     if (leaveAt) {
       const eta = el("div", "eta");
@@ -109,8 +143,8 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
     weekBlock.appendChild(meter);
     const cap = el("div", "meter-caption");
     cap.appendChild(el("span", null,
-      remaining > 0
-        ? `Semana ${weekRangeLabel(week)} · faltan ${fmtHM(remaining)}`
+      week.error ? `Semana ${weekRangeLabel(week)} · hay un fichaje por revisar`
+        : remaining > 0 ? `Semana ${weekRangeLabel(week)} · faltan ${fmtHM(remaining)}`
         : `Semana ${weekRangeLabel(week)} · objetivo alcanzado`));
     cap.appendChild(el("span", null, `${fmtHM(week.total)} / ${targetLabel(week)}`));
     weekBlock.appendChild(cap);
@@ -122,7 +156,7 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
   const ev = lastPunch();
   store.punchEl = store.punchEv = null;
   if (ev) {
-    const punch = el("div", "lastpunch" + (open ? open.rest ? " rest" : " open" : ""));
+    const punch = el("div", "lastpunch" + (leftOpen(ev) ? " stale" : open ? open.rest ? " rest" : " open" : ""));
     punch.appendChild(el("span", "dot"));
     const txt = el("span", null, punchText(ev));
     punch.appendChild(txt);
@@ -139,7 +173,7 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
     box.appendChild(el("div", "note",
       `Descanso fichado hoy: ${fmtShort(restToday)}${open && open.rest ? " (en curso)" : ""}`));
   }
-  if (day.expected > 0) {
+  if (day.expected > 0 && !store.other) {
     const cfg = el("div", "note durations");
     cfg.appendChild(minutesField("Comida", "lunch_minutes",
       lunchHours(day) > 0 ? "" : " · hoy sin comida prevista"));
@@ -197,17 +231,18 @@ export function renderHero() {
   const remaining = Math.max(week.target - week.total, 0);
   const restToday = day.rest;
   const open = store.data.sessions.find(s => !s.out);
+  const working = open && new Date(open.in) >= store.today;
   const lunchDone = unloggedGap(day.sessions);
   const lunchLeft = lunchDone > 0.01 ? 0 : lunchHours(day);
-  const leaveAt = open && dayRemaining > 0
+  const leaveAt = working && dayRemaining > 0
     ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6)
     : null;
 
   const hero = document.getElementById("hero");
   hero.replaceChildren();
-  hero.appendChild(heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft));
+  hero.appendChild(heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, Boolean(open && !working)));
   hero.appendChild(heroMeters(week, day, open, remaining, restToday, lunchDone));
-  hero.appendChild(heroActions(open, day, dayRemaining));
+  if (!store.other) hero.appendChild(heroActions(open, day, dayRemaining));
 }
 
 /* ---------- acceso desde el móvil ---------- */
@@ -302,14 +337,22 @@ export function renderKpis(weeks) {
   }
   if (!done.length) return;
   const balance = done.reduce((a, w) => a + w.delta, 0);
-  kpis.appendChild(tile("Media semanal",
+  const wrong = done.filter(w => w.error).length;
+  const unreliable = n => el("div", "foot warn", `⚠ No fiable: ${n} ${n === 1 ? "semana" : "semanas"} con `
+    + "fichajes incorrectos (jornadas muy largas, entradas sin cerrar, fuera de horario o días sin fichar)");
+  const wrongWorking = working.filter(w => w.error).length;
+  const averageTile = tile("Media semanal",
     working.length ? fmtHM(working.reduce((a, w) => a + w.total, 0) / working.length) : "—",
-    `${working.length} semanas laborables completas`));
-  kpis.appendChild(tile("Balance frente al objetivo", fmtDelta(balance),
+    `${working.length} ${working.length === 1 ? "semana laborable completa" : "semanas laborables completas"}`, wrongWorking ? "status-warning" : null);
+  if (wrongWorking) averageTile.appendChild(unreliable(wrongWorking));
+  kpis.appendChild(averageTile);
+  const balanceTile = tile("Balance frente al objetivo", fmtDelta(balance),
     balance >= 0 ? "acumulado a favor" : "acumulado en contra",
-    Math.abs(balance) < 1 / 60 ? null : balance > 0 ? "status-success" : "destructive"));
+    wrong ? "status-warning" : Math.abs(balance) < 1 / 60 ? null : balance > 0 ? "status-success" : "destructive");
+  if (wrong) balanceTile.appendChild(unreliable(wrong));
+  kpis.appendChild(balanceTile);
 
-  const worked = weeks.flatMap(w => w.days).filter(d => d.sessions.length);
+  const worked = weeks.flatMap(w => w.days).filter(d => d.sessions.length && !dayError(d));
   const minsOf = d => d.getHours() * 60 + d.getMinutes();
   const avgTime = list => {
     if (!list.length) return null;
@@ -320,7 +363,7 @@ export function renderKpis(weeks) {
   const exit = avgTime(worked.filter(d => d.sessions.at(-1).out).map(d => minsOf(d.sessions.at(-1).out)));
   if (entry && exit) {
     kpis.appendChild(tile("Horario habitual", `${entry} – ${exit}`,
-      `entrada y salida medias · ${worked.length} días`));
+      `entrada y salida medias · ${worked.length} ${worked.length === 1 ? "día" : "días"}`));
   }
 }
 
@@ -335,24 +378,26 @@ export function scheduleSentence() {
   });
   const parts = [...groups].map(([hours, names]) => {
     const span = names.length > 2 ? `de ${names[0]} a ${names.at(-1)}` : `los ${names.join(" y ")}`;
-    return `${fmtHours(hours)} ${span}`;
+    return `${fmtHM(hours)} ${span}`;
   });
   return parts.join(", ");
 }
 
 export function renderOverview(weeks) {
   document.getElementById("overviewTitle").textContent =
-    `Total semanal frente al objetivo de ${fmtHours(store.weekTarget)}`;
+    `Total semanal frente al objetivo de ${fmtHM(store.weekTarget)}`;
   const adjusted = weeks.some(w => w.target !== store.weekTarget && w.target > 0);
   document.getElementById("overviewCaption").textContent =
-    "Cada columna es una semana; la actual, en azul claro; abajo, en morado, el descanso fichado."
+    "Cada columna es una semana; la actual, en azul claro; abajo, en morado, el descanso fichado; en naranja, "
+    + "las semanas con un error de fichaje (una jornada muy larga, una entrada sin cerrar, un fichaje fuera de horario o"
+    + " un día sin fichar). Pulsa una para verla arriba."
     + (adjusted ? " Las semanas con ausencias o permisos llevan su objetivo ajustado como marca horizontal." : "");
 
   const BaseW = 940, MinBand = 38, H = 250, MinSegH = 3;
   const m = { l: 34, r: 84, t: 14, b: 34 };
   const plotW = Math.max(BaseW - m.l - m.r, weeks.length * MinBand);
   const W = plotW + m.l + m.r, plotH = H - m.t - m.b;
-  const maxTotal = Math.max(...weeks.map(w => w.total), store.weekTarget);
+  const maxTotal = Math.max(...weeks.filter(w => !w.suspect).map(w => w.total), store.weekTarget);
   const yMax = Math.max(44, Math.ceil((maxTotal + 2) / 4) * 4);
   const y = v => m.t + plotH - (v / yMax) * plotH;
   const band = plotW / weeks.length;
@@ -362,7 +407,7 @@ export function renderOverview(weeks) {
   const svg = document.createElementNS(NS, "svg");
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Horas totales por semana frente al objetivo de ${fmtHours(store.weekTarget)}`);
+  svg.setAttribute("aria-label", `Horas totales por semana frente al objetivo de ${fmtHM(store.weekTarget)}`);
   function sEl(tag, attrs, cls) {
     const e = document.createElementNS(NS, tag);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
@@ -370,7 +415,8 @@ export function renderOverview(weeks) {
     return e;
   }
 
-  for (let v = 10; v <= yMax; v += 10) {
+  const gridStep = Math.max(10, Math.ceil(yMax / 6 / 10) * 10);
+  for (let v = gridStep; v <= yMax; v += gridStep) {
     if (v !== store.weekTarget) svg.appendChild(sEl("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }, "gridline"));
     const t = sEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, "ticklabel");
     t.textContent = v;
@@ -381,8 +427,11 @@ export function renderOverview(weeks) {
   weeks.forEach((w, i) => {
     const cx = m.l + band * i + band / 2;
     const x0 = cx - colW / 2;
-    const yTop = y(w.total), r = Math.min(4, (y(0) - yTop) / 2);
-    const g = sEl("g", { tabindex: 0 }, "col" + (w.current ? " inprogress" : ""));
+    const yTop = y(Math.min(w.total, yMax)), r = Math.min(4, (y(0) - yTop) / 2);
+    const error = w.error;
+    const g = sEl("g", { tabindex: 0 }, "col" + (w.current ? " inprogress" : "") + (error ? " error" : ""));
+    g.addEventListener("click", () => showWeek(w.monday));
+    g.addEventListener("keydown", e => { if (e.key === "Enter") showWeek(w.monday); });
     g.setAttribute("aria-label", `Semana del ${weekRangeLabel(w)}: ${fmtHM(w.total)}`);
     if (w.total > 0.01) {
       const d = `M ${x0} ${y(0)} L ${x0} ${yTop + r} Q ${x0} ${yTop} ${x0 + r} ${yTop}` +
@@ -393,6 +442,7 @@ export function renderOverview(weeks) {
       const h = Math.max(y(0) - y(w.rest), MinSegH);
       g.appendChild(sEl("rect", { x: x0, y: y(0) - h, width: colW, height: h }, "rest"));
     }
+    if (error) g.appendChild(sEl("rect", { x: x0, y: y(0) + 2, width: colW, height: 1.5 }, "err-mark"));
     g.appendChild(sEl("rect", { x: m.l + band * i, y: m.t, width: band, height: plotH }, "hit"));
     if (w.target !== store.weekTarget && w.target > 0) {
       svg.appendChild(sEl("line", { x1: x0 - 5, x2: x0 + colW + 5, y1: y(w.target), y2: y(w.target) }, "targettick"));
@@ -414,11 +464,21 @@ export function renderOverview(weeks) {
         t.appendChild(tipRow("Descanso", fmtShort(w.rest)));
       }
       if (w.target !== store.weekTarget) t.appendChild(tipRow("Objetivo (con ausencias)", targetLabel(w)));
+      if (w.suspect) t.appendChild(el("div", "t-note warn", "Incluye una jornada muy larga: suma no fiable"));
+      if (w.offDays) {
+        t.appendChild(el("div", "t-note warn", `${w.offDays} ${w.offDays === 1 ? "día" : "días"} con fichajes fuera de horario`));
+      }
+      if (w.missedDays) {
+        t.appendChild(el("div", "t-note warn", `${w.missedDays} ${w.missedDays === 1 ? "día" : "días"} sin fichar`));
+      }
+      if (w.openDays) {
+        t.appendChild(el("div", "t-note warn", `${w.openDays} ${w.openDays === 1 ? "día" : "días"} con una entrada sin cerrar`));
+      }
       if (w.allVacation && w.total < 0.01) {
         t.appendChild(tipRow("Vacaciones", "toda la semana"));
       } else if (w.complete) {
         const r2 = tipRow(w.delta >= 0 ? "Sobre objetivo" : "Bajo objetivo", fmtDelta(w.delta));
-        r2.querySelector(".v").style.color = `var(--${w.delta >= 0 ? "status-success" : "destructive"})`;
+        r2.querySelector(".v").style.color = `var(--${w.suspect ? "status-warning" : w.delta >= 0 ? "status-success" : "destructive"})`;
         t.appendChild(r2);
       } else {
         t.appendChild(tipRow("Para el objetivo", fmtHM(Math.max(w.target - w.total, 0))));
@@ -428,7 +488,7 @@ export function renderOverview(weeks) {
 
   svg.appendChild(sEl("line", { x1: m.l, x2: W - m.r, y1: y(store.weekTarget), y2: y(store.weekTarget) }, "targetline"));
   const tl = sEl("text", { x: W - m.r + 8, y: y(store.weekTarget) + 4 }, "targetlabel");
-  tl.textContent = `Objetivo ${fmtHours(store.weekTarget)}`;
+  tl.textContent = `Objetivo ${fmtHM(store.weekTarget)}`;
   svg.appendChild(tl);
 
   if (W > BaseW) {
@@ -456,7 +516,9 @@ export function renderCalendar() {
     (store.data.schedule
       ? `La marca vertical de cada día es la jornada prevista en Odoo: ${scheduleSentence()}.`
       : "Odoo no devuelve horario para tu calendario, así que no hay jornada prevista ni objetivo semanal.")
-    + " El descanso fichado va en morado, en el tramo en que ocurrió."
+    + " El descanso fichado va en morado, en el tramo en que ocurrió; en naranja, las jornadas de más de "
+    + `${fmtHM(store.data.long_hours)} en total, los fichajes fuera de horario, las entradas sin cerrar y los días con`
+    + " jornada prevista sin fichar, casi siempre un fichaje olvidado."
     + " En el horario, cada bloque es un fichaje en su hora real; los huecos entre bloques son tiempo sin fichar,"
     + " la comida por ejemplo, y no cuentan."
     + " Los festivos y ausencias aprobadas se marcan solos (🏖) y no cuentan en el objetivo de su semana;"
@@ -464,7 +526,7 @@ export function renderCalendar() {
     + " como bloque punteado.";
   const card = document.getElementById("weekCal");
   card.replaceChildren();
-  const barMax = Math.max(10, ...[...store.byDay.values()].map(v => v.hours));
+  const barMax = Math.max(10, ...w.days.filter(d => !longDay(d)).map(d => Math.max(d.hours, d.expected)));
 
   const head = el("div", "week-head");
   function navButton(cls, label, title, disabled, onClick) {
@@ -485,6 +547,8 @@ export function renderCalendar() {
     () => { calOffset = 0; renderCalendar(); }));
   if (w.complete && w.allVacation && w.total < 0.01) {
     head.appendChild(el("span", "badge flat", "vacaciones"));
+  } else if (w.error) {
+    head.appendChild(el("span", "badge warn", `⚠ ${w.complete ? "" : "en curso · "}fichaje por revisar`));
   } else if (w.complete) {
     const cls = Math.abs(w.delta) < 1 / 60 ? "flat" : w.delta > 0 ? "up" : "down";
     const arrow = cls === "up" ? "▲ " : cls === "down" ? "▼ " : "";
@@ -494,7 +558,13 @@ export function renderCalendar() {
   } else {
     head.appendChild(el("span", "badge flat", `en curso · faltan ${fmtHM(w.target - w.total)}`));
   }
-  head.appendChild(el("span", "total", fmtHM(w.total)));
+  const total = el("span", "total" + (w.suspect ? " long" : ""), fmtHM(w.total));
+  if (w.suspect) {
+    total.title = "Incluye una jornada muy larga: esta suma no es fiable";
+    const warn = el("span", "total-warn", "⚠ incluye una jornada muy larga");
+    head.append(warn);
+  }
+  head.appendChild(total);
   card.appendChild(head);
 
   const filter = el("div", "filter-row cal-filter");
@@ -518,7 +588,7 @@ export function renderCalendar() {
     return;
   }
   w.days.forEach((d, i) => {
-    if (i >= 5 && d.hours < 0.01 && !d.vacation) return;
+    if (i >= 5 && d.hours < 0.01 && !d.vacation && !missed(d)) return;
     const isToday = d.date.getTime() === store.today.getTime();
     const row = el("div", "dayrow" + (isToday ? " today" : "") + (d.vacation ? " vac" : ""));
     row.tabIndex = 0;
@@ -528,7 +598,7 @@ export function renderCalendar() {
     row.appendChild(lbl);
     const track = el("div", "track");
     if (d.hours > 0.01) {
-      const bar = el("div", "bar");
+      const bar = el("div", "bar" + (dayError(d) ? " long" : ""));
       bar.style.width = Math.min(d.hours / barMax * 100, 100) + "%";
       track.appendChild(fillBar(bar, d.sessions, d.hours));
     }
@@ -538,8 +608,7 @@ export function renderCalendar() {
       track.appendChild(tick);
     }
     row.appendChild(track);
-    row.appendChild(el("span", "dvalue" + (d.hours < 0.01 ? " zero" : ""),
-      d.hours < 0.01 ? (d.vacation ? "vac." : "—") : fmtHM(d.hours)));
+    row.appendChild(dayValue(d));
     row.appendChild(vacIcon(d));
     card.appendChild(row);
 
@@ -565,10 +634,20 @@ export function renderCalendar() {
 }
 
 /* ---------- horario semanal ---------- */
+function spanDays(s) {
+  const out = s.out || store.now;
+  return Math.round((new Date(out.getFullYear(), out.getMonth(), out.getDate())
+    - new Date(s.in.getFullYear(), s.in.getMonth(), s.in.getDate())) / 864e5);
+}
+
+function endHour(s) {
+  return dayKey(s.out || store.now) === dayKey(s.in) ? hourOf(s.out || store.now) : 24;
+}
+
 export function renderTimeline(card, w) {
-  const days = w.days.filter((d, i) => i < 5 || d.hours >= 0.01 || d.vacation);
+  const days = w.days.filter((d, i) => i < 5 || d.hours >= 0.01 || d.vacation || missed(d));
   const ends = days.flatMap(d => [
-    ...d.sessions.flatMap(s => [hourOf(s.in), hourOf(s.out || store.now)]),
+    ...d.sessions.flatMap(s => [hourOf(s.in), endHour(s)]),
     ...d.leaves.flatMap(l => [hourOf(new Date(l.from)), hourOf(new Date(l.to))]),
   ]);
   const from = Math.floor(Math.min(8, ...ends)), to = Math.ceil(Math.max(18, ...ends));
@@ -617,14 +696,25 @@ export function renderTimeline(card, w) {
         span(gap, hourOf(prev.out), hourOf(s.in));
         track.appendChild(gap);
       }
-      const start = joined ? hourOf(prev.out) : hourOf(s.in), end = hourOf(s.out || store.now);
-      const block = el("div", "sess" + (s.rest ? " rest" : "") + (joined && !s.rest ? " join-l" : ""),
-        s.rest ? "" : `${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) : "…"}`);
+      const start = joined ? hourOf(prev.out) : hourOf(s.in), end = endHour(s);
+      const days = spanDays(s);
+      const later = days > 0 ? ` (+${days})` : "";
+      const block = el("div", "sess" + (s.rest ? " rest" : "") + (joined && !s.rest ? " join-l" : "")
+        + (longDay(d) || offHours(s) ? " long" : ""), s.rest ? "" : `${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) + later : "…"}`);
       block.tabIndex = 0;
       attachTip(block, t => {
         t.appendChild(el("div", "t-title",
           `${DayNames[i]} ${fmtDay(d.date)} · ${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) : "en curso"}`));
         t.appendChild(tipRow(s.rest ? "Descanso" : "Trabajo", fmtHM(s.hours)));
+        if (days > 0) t.appendChild(el("div", "t-note", `Termina ${days === 1 ? "al día siguiente" : `${days} días después`}`));
+        if (longDay(d)) {
+          t.appendChild(el("div", "t-note warn",
+            `Jornada muy larga: ${fmtHM(d.hours)} en el día, más de ${fmtHM(store.data.long_hours)}, casi siempre una salida sin fichar`));
+        }
+        if (offHours(s)) {
+          const [from, to] = store.data.work_hours;
+          t.appendChild(el("div", "t-note warn", `Fuera de horario: fuera de ${fmtClock(from)} a ${fmtClock(to)}`));
+        }
       });
       if (s.rest) {
         span(block, hourOf(s.in), end);
@@ -641,8 +731,7 @@ export function renderTimeline(card, w) {
     });
     rests.forEach(r => track.appendChild(r));
     row.appendChild(track);
-    row.appendChild(el("span", "dvalue" + (d.hours < 0.01 ? " zero" : ""),
-      d.hours < 0.01 ? (d.vacation ? "vac." : "—") : fmtHM(d.hours)));
+    row.appendChild(dayValue(d));
     row.appendChild(vacIcon(d));
     card.appendChild(row);
   });
@@ -684,6 +773,7 @@ export function renderTable(weeks) {
     tr.appendChild(tot);
     tr.appendChild(
       w.complete && w.allVacation && w.total < 0.01 ? el("td", "dim", "vacaciones")
+      : w.error ? el("td", "warn", "fichaje por revisar")
       : w.complete ? el("td", w.delta >= 0 ? "up" : "down", fmtDelta(w.delta))
       : el("td", "dim", w.total >= w.target ? "objetivo alcanzado" : `faltan ${fmtHM(w.target - w.total)}`));
     tbody.appendChild(tr);
@@ -692,12 +782,64 @@ export function renderTable(weeks) {
   host.appendChild(table);
 }
 
-/* ---------- todo lo que depende del filtro de semanas ---------- */
-let rangeWeeks = 12;
-export function setRangeWeeks(n) { rangeWeeks = n; }
+/* ---------- todo lo que depende del filtro de rango ---------- */
+let rangeMonths = 6;
+export function setRangeMonths(n) { rangeMonths = n; }
+
+function showWeek(date) {
+  calOffset = Math.min(weekOffsetOf(date), store.data.weeks - 1);
+  renderCalendar();
+  document.getElementById("weekCal").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function dayValue(d) {
+  if (missed(d)) return el("span", "dvalue long", "sin fichar");
+  if (d.hours < 0.01 && d.sessions.some(unclosed)) return el("span", "dvalue long", "sin cerrar");
+  return el("span", "dvalue" + (d.hours < 0.01 ? " zero" : "") + (dayError(d) ? " long" : ""),
+    d.hours < 0.01 ? (d.vacation ? "vac." : "—") : fmtHM(d.hours));
+}
+
+let errorsOpen = false;
+
+export function renderErrors() {
+  const box = document.getElementById("errorsBanner");
+  const errors = punchErrors();
+  box.classList.toggle("hidden", errors.length === 0);
+  if (!errors.length) return;
+  const list = el("ul");
+  for (const s of errors) {
+    const item = el("button");
+    item.type = "button";
+    const day = `${DayNames[(s.in.getDay() + 6) % 7]} ${fmtDate(s.in)}`;
+    const [kind, text] = {
+      long: () => [`Jornada de ${fmtShort(s.hours)}`, `${day}${s.count > 1 ? ` · ${s.count} sesiones` : ""}`],
+      off: () => ["Fuera de horario", `${day} ${fmtTime(s.in)} – ${fmtTime(s.out)}${dayKey(s.out) !== dayKey(s.in) ? " (+1)" : ""}`],
+      open: () => ["Sin cerrar", `entrada el ${fmtDate(s.in)} a las ${fmtTime(s.in)}, sin salida`],
+      empty: () => ["Sin fichar", `${day}, con jornada prevista de ${fmtShort(s.expected)}`],
+    }[s.kind]();
+    item.appendChild(el("span", "kind", `${kind} · `));
+    item.append(text);
+    item.addEventListener("click", () => showWeek(s.in));
+    const li = el("li");
+    li.appendChild(item);
+    list.appendChild(li);
+  }
+  const details = el("details");
+  details.open = errorsOpen;
+  details.addEventListener("toggle", () => { errorsOpen = details.open; });
+  const summary = el("summary");
+  summary.appendChild(el("h2", null, `⚠ ${errors.length} ${errors.length === 1 ? "fichaje por corregir" : "fichajes por corregir"}`));
+  details.append(summary,
+    el("p", null, `Entradas sin cerrar de días anteriores, jornadas de más de ${fmtHM(store.data.long_hours)}, fichajes fuera `
+      + `de ${fmtClock(store.data.work_hours[0])} a ${fmtClock(store.data.work_hours[1])} y días con jornada prevista `
+      + "sin ningún fichaje, de todo el historial. Pulsa uno para ver su semana."),
+    list);
+  box.replaceChildren(details);
+}
 
 export function renderAll() {
-  const weeks = buildWeeks(Math.min(rangeWeeks || store.data.weeks, store.data.weeks));
+  const weeks = buildWeeks(Math.min(rangeMonths ? weeksSince(rangeMonths) : store.data.weeks, store.data.weeks));
+  renderErrors();
   renderCalendar();
   renderKpis(weeks);
   renderOverview(weeks);

@@ -71,7 +71,7 @@ def status(client):
                 "order": "check_in desc",
             },
         )
-        if last and last[0]["check_out"]:
+        if last:
             print(f"Último check-out: {local_time(last[0]['check_out']).strftime('%H:%M:%S')}")
 
     local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)

@@ -16,9 +16,12 @@ import { store, LOOPBACK, TickMs } from "./store.js";
 import { busy } from "./ui.js";
 import { setClock, indexSessions } from "./week.js";
 import { isoDay } from "./format.js";
-import { renderHero, renderAll, setRangeWeeks, punchText } from "./render.js";
-import { api, stale, loadAndRender, loadFirst, refreshState } from "./api.js";
+import { renderHero, renderAll, setRangeMonths, punchText } from "./render.js";
+import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
+import { wireLogout } from "./shared.js";
 import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
+
+store.other = location.pathname === "/empleado" ? new URLSearchParams(location.search).get("id") : null;
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
@@ -84,7 +87,7 @@ setInterval(tick, TickMs);
 document.getElementById("rangeSeg").addEventListener("click", e => {
   const btn = e.target.closest("button");
   if (!btn) return;
-  setRangeWeeks(btn.dataset.weeks === "all" ? 0 : Number(btn.dataset.weeks));
+  setRangeMonths(btn.dataset.months === "all" ? 0 : Number(btn.dataset.months));
   for (const b of e.currentTarget.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
   renderAll();
 });
@@ -101,16 +104,6 @@ document.getElementById("refreshBtn").addEventListener("click", async e => {
   try { await loadAndRender(true); } finally { e.target.disabled = false; }
 });
 
-document.getElementById("logoutBtn").addEventListener("click", async e => {
-  e.target.disabled = true;
-  try {
-    await api("/api/logout", {});
-    location.replace("/login");
-  } catch (err) {
-    e.target.textContent = "Error al cerrar sesión";
-    e.target.title = err.message;
-    e.target.disabled = false;
-  }
-});
+wireLogout(document.getElementById("logoutBtn"));
 
 loadFirst();

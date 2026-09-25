@@ -2,6 +2,22 @@
  * From sessions to days and weeks: the clock the page renders with, the per-day index, and each week's
  * hours, target and delta.
  *
+ * - punchErrors lists the punches to fix over the whole history loaded, as the management view flags them:
+ *   sessions still open from before today, days whose total passes long_hours (longDay, however many
+ *   sessions), sessions outside the payload's work_hours (offHours: a check-in before 6:30, a check-out
+ *   after 22:00 or on a later day; listed only on days not already too long), and missed days (a past day
+ *   that expected hours, after its absences and contract, with no session at all). dayError is any of the
+ *   first three on a day.
+ * - A session left open from before today (unclosed) counts 0 h, as Odoo and the management view count it:
+ *   counted up to now, one left open for weeks made a day of hundreds of hours and a balance hundreds of
+ *   hours in favour where the management view read it short. Only today's open session counts live.
+ * - The range selector counts months back from today; weeksSince turns them into the weeks from the one
+ *   holding that date to the current one.
+ * - A week is suspect when a day in it passes the payload's long_hours (longDay): its hours cannot be
+ *   trusted, so the page does not tell it reached its target. It has an error when it is suspect or holds
+ *   a missed, off-hours or unclosed day: either way a punch needs fixing.
+ * - A day expects its contract's hours when the payload lists it (store.contractHours), the current
+ *   schedule's otherwise, and nothing before store.since, the week of the first real punch (data.py says why).
  * - Absence days subtract their expected hours from the week's target. A leave shorter than a day
  *   subtracts just its hours from that day and is kept on the day so the hero and the timeline can show it.
  * - Break sessions count toward the total, same as Odoo's worked_hours. Lunch is checked out, so it is an
@@ -9,7 +25,7 @@
  *   it only until the day has a gap: once lunch is taken, its actual length is what it is.
  */
 import { store, MonthNames } from "./store.js";
-import { fmtHours, fmtHM, dayKey, isoDay, fmtDay } from "./format.js";
+import { fmtHM, dayKey, isoDay, fmtDay, hourOf } from "./format.js";
 
 export function lunchFrom(date) { return store.lunchFrom[(date.getDay() + 6) % 7]; }
 
@@ -22,7 +38,46 @@ export function lunchHours(day) {
   return day.vacation || lunchFrom(day.date) == null ? 0 : store.state.lunch_minutes / 60;
 }
 
-export function targetLabel(w) { return w.target === store.weekTarget ? fmtHours(store.weekTarget) : fmtHM(w.target); }
+export function longDay(d) {
+  return d.hours > store.data.long_hours;
+}
+
+export function offHours(s) {
+  const [from, to] = store.data.work_hours;
+  return hourOf(s.in) < from || Boolean(s.out) && (dayKey(s.out) !== dayKey(s.in) || hourOf(s.out) > to);
+}
+
+export function unclosed(s) {
+  return !s.out && s.in < store.today;
+}
+
+export function dayError(d) {
+  return longDay(d) || d.sessions.some(offHours) || d.sessions.some(unclosed);
+}
+
+export function missed(d) {
+  return d.date < store.today && d.expected > 0 && d.sessions.length === 0;
+}
+
+export function punchErrors() {
+  const open = store.data.sessions
+    .filter(s => !s.out && new Date(s.in) < store.today)
+    .map(s => ({ kind: "open", in: new Date(s.in) }));
+  const days = Array.from({ length: store.data.weeks }, (_, k) => buildWeek(k).days).flat();
+  const closed = days.filter(d => d.sessions.every(s => s.out));
+  const long = closed.filter(longDay).map(d => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
+  const off = closed.filter(d => !longDay(d))
+    .flatMap(d => d.sessions.filter(offHours).map(s => ({ kind: "off", in: s.in, out: s.out })));
+  const empty = days.filter(missed).map(d => ({ kind: "empty", in: d.date, expected: d.expected }));
+  return [...open, ...long, ...off, ...empty].sort((a, b) => b.in - a.in);
+}
+
+export function weekOffsetOf(date) {
+  const monday = d => new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7);
+  return Math.round((monday(store.today) - monday(date)) / (7 * 864e5));
+}
+
+export function targetLabel(w) { return fmtHM(w.target); }
 
 export function setClock(date) {
   store.now = date;
@@ -34,7 +89,7 @@ export function indexSessions() {
   for (const s of store.data.sessions) {
     const inD = new Date(s.in);
     const outD = s.out ? new Date(s.out) : null;
-    const hours = s.hours != null ? s.hours : (store.now - inD) / 3.6e6;
+    const hours = s.hours != null ? s.hours : unclosed({ in: inD, out: outD }) ? 0 : (store.now - inD) / 3.6e6;
     const key = dayKey(inD);
     if (!store.byDay.has(key)) store.byDay.set(key, { hours: 0, rest: 0, sessions: [] });
     const d = store.byDay.get(key);
@@ -52,10 +107,12 @@ export function buildWeek(offset) {
     date.setDate(date.getDate() + i);
     const rec = store.byDay.get(dayKey(date)) || { hours: 0, rest: 0, sessions: [] };
     const auto = store.absMap.get(isoDay(date)) || null;
+    const early = isoDay(date) < store.since;
     const leaves = auto ? [] : store.leaveMap.get(isoDay(date)) || [];
     return {
       date, auto, vacation: !!auto, leaves,
-      expected: auto ? 0 : Math.max(store.expected[i] - leaves.reduce((a, l) => a + l.hours, 0), 0),
+      expected: auto || early ? 0 : Math.max((store.contractHours.get(isoDay(date)) ?? store.expected[i])
+        - leaves.reduce((a, l) => a + l.hours, 0), 0),
       hours: rec.hours,
       rest: rec.rest,
       sessions: rec.sessions,
@@ -72,7 +129,18 @@ export function buildWeek(offset) {
     current: monday <= store.today && store.today <= sunday,
     complete: sunday < store.today,
     allVacation: target <= 0,
+    suspect: days.some(longDay),
+    missedDays: days.filter(missed).length,
+    offDays: days.filter(d => d.sessions.some(offHours)).length,
+    openDays: days.filter(d => d.sessions.some(unclosed)).length,
+    get error() { return this.suspect || this.missedDays > 0 || this.offDays > 0 || this.openDays > 0; },
   };
+}
+
+export function weeksSince(months) {
+  const start = new Date(store.today.getFullYear(), store.today.getMonth() - months, store.today.getDate());
+  const monday = d => new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7);
+  return Math.round((monday(store.today) - monday(start)) / (7 * 864e5)) + 1;
 }
 
 export function buildWeeks(nWeeks) {

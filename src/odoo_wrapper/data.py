@@ -1,9 +1,35 @@
 """The dashboard payload: attendance sessions, expected schedule and absences, read from Odoo and cached.
 
 - build_data loads the employee's full attendance history (from the first hr.attendance, at least MIN_WEEKS)
-  in six calls; the page trims what it shows. The payload is cached per Odoo session for DATA_TTL seconds (a
+  in six calls; the page trims what it shows. Its weeks are counted between calendar dates, not local
+  datetimes: across a daylight-saving change the span is an hour short and the oldest week was dropped.
+  The payload is cached per Odoo session for DATA_TTL seconds (a
   load costs ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into the same dashboard never
   see each other's data, and every entry is dropped on any punch; fresh=True skips the cache («Actualizar»).
+  cached() is that cache for any payload; team.py keys its own per session and period. What the viewer
+  reads about other people (the management view, someone else's week) keeps VIEW_TTL, five minutes: moving
+  between those pages used to reload from Odoo every time, and «Actualizar» still forces a fresh load. The payload's team
+  flag says whether the session reads other people's attendances, so the page links the management view.
+- build_data(client, employee) reads someone else's week instead, for the management view's links: the
+  same payload, loaded by employee id, and it never touches the shared state, which is the viewer's own.
+- Expected hours follow the contract in force each day, as in team.py (fetch_contracts, calendar_on): the
+  payload's schedule is the employee's current calendar, and contract_hours lists only the days whose
+  contract asks for something else ({date: hours}: 0 before the hire date or between contracts, 5 on a
+  25 h contract), so the page changes nothing for someone whose calendar never changed.
+- Nothing is expected either before «since», the Monday of the week of the first punch lasting at least
+  MIN_SESSION (a minute), or this week's for someone with none: a person starts clocking in this Odoo
+  some day, and a test punch of a few seconds months earlier used to turn every day in between into a
+  missed one (months of them for one person). Punches under a minute are taps and tests; the ones from
+  one to five minutes are real short breaks, so the threshold stays at a minute. The history starts there too, at least MIN_WEEKS
+  back; team.py applies the same rule (first_punches).
+- LONG_HOURS is the one threshold for «too long», here and in team.py: a day whose total passes it is a
+  punch error in both views, however many sessions it took. WORK_FROM and WORK_TO bound a normal working
+  day (6:30 to 22:00, generous on purpose; people do start at 7:20 and some finish in the evening): a session that starts earlier, ends
+  later or ends on another day
+  is «off hours», most likely a wrong punch, again in both views. Punch errors to fix are looked for over the whole
+  history, with no time limit (the management view's «Fichajes por corregir», the page's banner).
+- The absence and session helpers take plain rows so team.py builds the same absences and sessions for
+  many employees at once from one query per model.
   The shared state is not part of the payload: it changes between loads, so the server adds it fresh to every
   response.
 - Expected hours come from Odoo: resource.calendar.attendance gives the blocks per weekday, their sum is the
@@ -25,9 +51,15 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 from . import state
+from .client import OdooError, SessionExpired
 
 MIN_WEEKS = 12
+MIN_SESSION = 1 / 60
+LONG_HOURS = 12
+WORK_FROM = 6.5
+WORK_TO = 22
 DATA_TTL = 45
+VIEW_TTL = 300
 _data_lock = threading.Lock()
 _data_cache = {}
 
@@ -78,9 +110,8 @@ def fetch_schedule(client, calendar_id):
     return schedule_from(blocks)
 
 
-def fetch_absences(client, since, calendar_id):
-    absences = {}
-    holidays = client.call_kw(
+def holiday_rows(client, since, until, calendar_ids):
+    return client.call_kw(
         "resource.calendar.leaves",
         "search_read",
         [
@@ -88,31 +119,40 @@ def fetch_absences(client, since, calendar_id):
                 ("resource_id", "=", False),
                 "|",
                 ("calendar_id", "=", False),
-                ("calendar_id", "=", calendar_id or False),
+                ("calendar_id", "in", calendar_ids),
                 ("date_to", ">=", since),
             ]
+            + ([("date_from", "<", until)] if until else [])
         ],
-        {"fields": ["name", "date_from", "date_to"]},
+        {"fields": ["name", "date_from", "date_to", "calendar_id"]},
     )
+
+
+def leave_rows(client, employee_ids, since, until):
+    return client.call_kw(
+        "hr.leave",
+        "search_read",
+        [
+            [
+                ("employee_id", "in", employee_ids),
+                ("state", "=", "validate"),
+                ("request_date_to", ">=", since),
+            ]
+            + ([("request_date_from", "<", until)] if until else [])
+        ],
+        {"fields": ["employee_id", "request_date_from", "request_date_to", "holiday_status_id", "number_of_days",
+                    "number_of_hours", "date_from", "date_to"]},
+    )
+
+
+def absences_from(holidays, leaves):
+    absences = {}
     for h in holidays:
         d0, d1 = local(h["date_from"]).date(), local(h["date_to"]).date()
         for i in range((d1 - d0).days + 1):
             d = d0 + timedelta(days=i)
             if d.weekday() < 5:
                 absences[d.isoformat()] = h["name"]
-    leaves = client.call_kw(
-        "hr.leave",
-        "search_read",
-        [
-            [
-                ("employee_id", "=", client.employee_id),
-                ("state", "=", "validate"),
-                ("request_date_to", ">=", since),
-            ]
-        ],
-        {"fields": ["request_date_from", "request_date_to", "holiday_status_id", "number_of_days",
-                    "number_of_hours", "date_from", "date_to"]},
-    )
     partial = []
     for leave in leaves:
         d0 = date.fromisoformat(leave["request_date_from"])
@@ -133,15 +173,36 @@ def fetch_absences(client, since, calendar_id):
     return [{"date": k, "type": v} for k, v in sorted(absences.items())] + partial
 
 
-def fetch_data(client, fresh=False):
+def fetch_absences(client, since, calendar_id):
+    holidays = holiday_rows(client, since, None, [calendar_id] if calendar_id else [])
+    return absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
+
+
+def session_of(record, reason_by_id):
+    reason = next((reason_by_id[i] for i in record.get("attendance_reason_ids", []) if i in reason_by_id), None)
+    return {
+        "in": local(record["check_in"]).isoformat(),
+        "out": local(record["check_out"]).isoformat() if record["check_out"] else None,
+        "hours": record["worked_hours"] if record["check_out"] else None,
+        "rest": bool(reason and reason["is_rest"]),
+        "reason": reason["name"] if reason else None,
+    }
+
+
+def cached(key, fresh, build, ttl=DATA_TTL):
     with _data_lock:
-        cached = _data_cache.get(client.session_id)
-        if not fresh and cached and time.monotonic() - cached[0] < DATA_TTL:
-            return cached[1]
-    payload = build_data(client)
+        hit = _data_cache.get(key)
+        if not fresh and hit and time.monotonic() - hit[0] < ttl:
+            return hit[1]
+    payload = build()
     with _data_lock:
-        _data_cache[client.session_id] = (time.monotonic(), payload)
+        _data_cache[key] = (time.monotonic(), payload)
     return payload
+
+
+def fetch_data(client, fresh=False, employee=None):
+    key = (client.session_id, employee) if employee else client.session_id
+    return cached(key, fresh, lambda: build_data(client, employee), VIEW_TTL if employee else DATA_TTL)
 
 
 def drop_data_cache():
@@ -149,8 +210,57 @@ def drop_data_cache():
         _data_cache.clear()
 
 
-def build_data(client):
-    client.load_employee()
+def fetch_contracts(client, ids, monday, end):
+    try:
+        rows = client.call_kw(
+            "hr.contract", "search_read",
+            [[("employee_id", "in", ids), ("state", "in", ["open", "close"]), ("date_start", "<", end.isoformat()),
+              "|", ("date_end", "=", False), ("date_end", ">=", monday.isoformat())]],
+            {"fields": ["employee_id", "date_start", "date_end", "resource_calendar_id"], "context": {"active_test": False}},
+        )
+    except SessionExpired:
+        raise
+    except OdooError:
+        return {}
+    contracts = {}
+    for c in rows:
+        contracts.setdefault(c["employee_id"][0], []).append(c)
+    return contracts
+
+
+def calendar_on(contracts, fallback):
+    if not contracts:
+        return lambda iso: fallback
+    def pick(iso):
+        c = next((c for c in contracts if c["date_start"] <= iso and (not c["date_end"] or iso <= c["date_end"])), None)
+        return c and c["resource_calendar_id"] and c["resource_calendar_id"][0]
+    return pick
+
+
+def contract_hours(client, schedule, monday0, end):
+    contracts = fetch_contracts(client, [client.employee_id], monday0, end).get(client.employee_id, [])
+    if not contracts:
+        return {}
+    pick = calendar_on(contracts, client.calendar_id)
+    others = {c["resource_calendar_id"][0] for c in contracts if c["resource_calendar_id"]} - {client.calendar_id}
+    schedules = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
+    schedules[client.calendar_id] = schedule
+    base = schedule["hours"] if schedule else [0] * 7
+    overrides = {}
+    for i in range((end - monday0).days):
+        day = monday0 + timedelta(days=i)
+        own = schedules.get(pick(day.isoformat()))
+        hours = own["hours"][day.weekday()] if own else 0
+        if hours != base[day.weekday()]:
+            overrides[day.isoformat()] = hours
+    return overrides
+
+
+def build_data(client, employee=None):
+    if employee:
+        client.load_other(employee)
+    else:
+        client.load_employee()
     now_local = datetime.now().astimezone()
     cur_monday = week_monday(now_local)
     reason_by_id = {r["id"]: r for r in client.attendance_reasons()}
@@ -163,33 +273,28 @@ def build_data(client):
             "order": "check_in asc",
         },
     )
-    monday0 = min(
-        week_monday(local(records[0]["check_in"])) if records else cur_monday,
-        cur_monday - timedelta(weeks=MIN_WEEKS - 1),
-    )
+    real = [r for r in records if r["worked_hours"] >= MIN_SESSION]
+    since = week_monday(local(real[0]["check_in"])) if real else cur_monday
+    monday0 = min(since, cur_monday - timedelta(weeks=MIN_WEEKS - 1))
 
-    def session(r):
-        reason = next((reason_by_id[i] for i in r.get("attendance_reason_ids", []) if i in reason_by_id), None)
-        return {
-            "in": local(r["check_in"]).isoformat(),
-            "out": local(r["check_out"]).isoformat() if r["check_out"] else None,
-            "hours": r["worked_hours"] if r["check_out"] else None,
-            "rest": bool(reason and reason["is_rest"]),
-            "reason": reason["name"] if reason else None,
-        }
-
-    lunch = state.read_state()["lunch"]
+    schedule = fetch_schedule(client, client.calendar_id)
+    lunch = not employee and state.read_state()["lunch"]
     if lunch and any(local(r["check_in"]) > datetime.fromisoformat(lunch) for r in records):
         state.write_state(lunch=None)
 
     return {
         "employee": client.employee_name,
         "breaks": client.sign_in_reasons()[1] is not None,
+        "team": client.sees_others(),
         "generated_at": now_local.isoformat(),
-        "weeks": (cur_monday - monday0).days // 7 + 1,
-        "sessions": [session(r) for r in records],
+        "weeks": (cur_monday.date() - monday0.date()).days // 7 + 1,
+        "since": since.date().isoformat(),
+        "sessions": [session_of(r, reason_by_id) for r in records],
         "absences": fetch_absences(client, monday0.date().isoformat(), client.calendar_id),
-        "schedule": fetch_schedule(client, client.calendar_id),
+        "schedule": schedule,
+        "long_hours": LONG_HOURS,
+        "work_hours": [WORK_FROM, WORK_TO],
+        "contract_hours": contract_hours(client, schedule, monday0.date(), (cur_monday + timedelta(weeks=1)).date()),
     }
 
 
@@ -222,7 +327,7 @@ def punch(client, action):
             return 409, {"error": "No hay un descanso abierto"}
         client.punch()
         client.punch(normal_id)
-    elif action == "lunch":
+    else:
         if not open_att:
             return 409, {"error": "No hay fichaje abierto"}
         client.punch()

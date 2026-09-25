@@ -10,24 +10,14 @@
  * - Open pages keep up with each other: any punch stamps punched_at in the shared state, the other pages
  *   see it in their next /api/state poll and reload, so clocking in on the phone updates the laptop by
  *   itself. State writes render optimistically and roll back if the request fails.
- * - Any 401 sends the page to /login: the cookie is the Odoo session, and Odoo decides when it is dead.
  */
 import { store, NoSchedule, DataMaxAge, RetryAfter } from "./store.js";
+import { api } from "./shared.js";
 import { busy } from "./ui.js";
 import { setClock, indexSessions } from "./week.js";
 import { fmtDay, fmtTime } from "./format.js";
 import { renderHero, renderAll } from "./render.js";
 import { LastRing } from "./alarms.js";
-
-export async function api(path, body) {
-  const res = await fetch(path, body
-    ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-    : undefined);
-  const json = await res.json();
-  if (res.status === 401) location.replace("/login");
-  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-  return json;
-}
 
 export function stale() {
   return Date.now() - store.loadedAt > DataMaxAge && Date.now() - store.triedAt > RetryAfter;
@@ -51,7 +41,7 @@ export async function saveState(changes) {
 }
 
 export async function refreshState() {
-  if (busy()) return;
+  if (busy() || store.other) return;
   try {
     const res = await fetch("/api/state");
     if (!res.ok) return;
@@ -70,7 +60,8 @@ export async function refreshState() {
 
 export async function loadAndRender(fresh) {
   store.triedAt = Date.now();
-  const data = await api("/api/data" + (fresh ? "?fresh" : ""));
+  const query = [store.other ? `employee=${store.other}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
+  const data = await api("/api/data" + (query ? `?${query}` : ""));
   store.data = data;
   store.loadedAt = Date.now();
   store.state = data.state || store.state;
@@ -78,6 +69,8 @@ export async function loadAndRender(fresh) {
   store.expected = schedule.hours;
   store.lunchFrom = schedule.lunch_from;
   store.weekTarget = store.expected.reduce((a, h) => a + h, 0);
+  store.contractHours = new Map(Object.entries(data.contract_hours || {}));
+  store.since = data.since || "";
   const absences = data.absences || [];
   store.absMap = new Map(absences.filter(a => !a.hours).map(a => [a.date, a.type]));
   store.leaveMap = absences.filter(a => a.hours)
@@ -86,6 +79,7 @@ export async function loadAndRender(fresh) {
   indexSessions();
   document.getElementById("subtitle").textContent =
     `${store.data.employee} · Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
+  document.getElementById("teamLink").classList.toggle("hidden", !store.data.team);
   document.getElementById("loadmsg").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   renderHero();

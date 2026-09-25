@@ -156,6 +156,17 @@ class RpcTest(unittest.TestCase):
         self.assertEqual(odoo.session_info()["username"], "u")
         self.assertEqual(odoo.uid, 4)
 
+    def test_sees_others_asks_for_one_attendance_of_someone_else(self):
+        odoo = client(kw([12]))
+        self.assertTrue(odoo.sees_others())
+        _, params, _ = odoo.opener.calls[0]
+        self.assertEqual(params["args"], [[["employee_id.user_id", "!=", 3]]])
+        self.assertEqual(params["kwargs"], {"limit": 1})
+        odoo = client({"result": {"uid": 9}}, kw([]))
+        odoo.uid = None
+        self.assertFalse(odoo.sees_others())
+        self.assertEqual(odoo.opener.calls[1][1]["args"], [[["employee_id.user_id", "!=", 9]]])
+
     def test_logout_destroys_the_session(self):
         odoo = client({"result": None})
         odoo.logout()
@@ -175,6 +186,14 @@ class EmployeeTest(unittest.TestCase):
         odoo.uid = None
         odoo.load_employee()
         self.assertEqual(odoo.opener.calls[1][1]["args"], [[["user_id", "=", 4]]])
+
+    def test_load_other_reads_that_employee(self):
+        odoo = client(kw([{"id": 9, "name": "Bea", "resource_calendar_id": False}]))
+        odoo.load_other(9)
+        self.assertEqual((odoo.employee_id, odoo.employee_name, odoo.calendar_id), (9, "Bea", None))
+        _, params, _ = odoo.opener.calls[0]
+        self.assertEqual((params["model"], params["method"], params["args"]),
+                         ("hr.employee", "read", [[9], ["name", "resource_calendar_id"]]))
 
     def test_no_employee(self):
         with self.assertRaises(c.OdooError):

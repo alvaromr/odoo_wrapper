@@ -10,6 +10,8 @@
   attendance action; it is how open pages notice each other's punches. The lunch stamp is ignored if not
   from today, cleared by the next punch, and dropped by the data builder as soon as a session starts after
   it, which covers clocking back in from the CLI.
+- OTHER_STATE is what the page gets while looking at someone else's week: nothing of the viewer's own state
+  applies there, and muted keeps the alarms from ringing for another person's day.
 """
 
 import json
@@ -23,6 +25,8 @@ STATE_FILE = os.path.join(STATE_DIR, "state.json")
 LUNCH_DEFAULT = 30
 BREAK_DEFAULT = 15
 MINUTES_MAX = 240
+OTHER_STATE = {"lunch": None, "lunch_minutes": LUNCH_DEFAULT, "break_minutes": BREAK_DEFAULT, "muted": True,
+               "lunch_done": False, "punched_at": None}
 _state_lock = threading.Lock()
 
 
