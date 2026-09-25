@@ -5,7 +5,7 @@
  * - punchErrors lists the punches to fix over the whole history loaded, as the management view flags them:
  *   sessions still open from before today, days whose total passes long_hours (longDay, however many
  *   sessions), sessions outside the payload's work_hours (offHours: a check-in before 6:30, a check-out
- *   after 22:00 or on a later day; listed only on days not already too long), and missed days (a past day
+ *   after work_hours' end, midnight, so on a later day; listed only on days not already too long), and missed days (a past day
  *   that expected hours, after its absences and contract, with no session at all). dayError is any of the
  *   first three on a day.
  * - A session left open from before today (unclosed) counts 0 h, as Odoo and the management view count it:

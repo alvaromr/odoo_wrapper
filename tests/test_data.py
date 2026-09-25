@@ -232,7 +232,7 @@ class BuildDataTest(unittest.TestCase):
         self.assertEqual(payload["absences"], [])
         self.assertFalse(payload["team"])
         self.assertEqual(payload["contract_hours"], {})
-        self.assertEqual((payload["long_hours"], payload["work_hours"]), (12, [6.5, 22]))
+        self.assertEqual((payload["long_hours"], payload["work_hours"]), (12, [6.5, 24]))
 
     def test_without_attendance_reasons(self):
         payload, client = self.build([{"check_in": utc(30), "check_out": False, "worked_hours": 0}], reasons=(None, None))
@@ -246,6 +246,7 @@ class BuildDataTest(unittest.TestCase):
         old = {"check_in": "2025-01-08 08:00:00", "check_out": "2025-01-08 16:00:00", "worked_hours": 8.0, "attendance_reason_ids": []}
         payload, client = self.build([tap, old])
         self.assertEqual(payload["since"], "2025-01-06")
+        self.assertEqual([x["in"][:10] for x in payload["sessions"]], ["2025-01-08"])
         today = date.today()
         expected = (today - timedelta(days=today.weekday()) - date(2025, 1, 6)).days // 7 + 1
         self.assertEqual(payload["weeks"], expected)

@@ -20,13 +20,15 @@
   MIN_SESSION (a minute), or this week's for someone with none: a person starts clocking in this Odoo
   some day, and a test punch of a few seconds months earlier used to turn every day in between into a
   missed one (months of them for one person). Punches under a minute are taps and tests; the ones from
-  one to five minutes are real short breaks, so the threshold stays at a minute. The history starts there too, at least MIN_WEEKS
-  back; team.py applies the same rule (first_punches).
+  one to five minutes are real short breaks, so the threshold stays at a minute. The history starts
+  there too, at least MIN_WEEKS back; team.py applies the same rule (first_punches).
+- A closed punch shorter than MIN_SESSION is dropped as it is read (real_punch), here and in team.py: it
+  adds no hours, marks no day as punched and is never off hours (a 22-second tap at two in the morning was
+  the whole «off hours» error of a normal day). An open one is kept: it is still running.
 - LONG_HOURS is the one threshold for «too long», here and in team.py: a day whose total passes it is a
   punch error in both views, however many sessions it took. WORK_FROM and WORK_TO bound a normal working
-  day (6:30 to 22:00, generous on purpose; people do start at 7:20 and some finish in the evening): a session that starts earlier, ends
-  later or ends on another day
-  is «off hours», most likely a wrong punch, again in both views. Punch errors to fix are looked for over the whole
+  day (6:30 to midnight, generous on purpose; people do start at 7:20 and some work late): a session that
+  starts earlier or ends on another day is «off hours», most likely a wrong punch, again in both views. Punch errors to fix are looked for over the whole
   history, with no time limit (the management view's «Fichajes por corregir», the page's banner).
 - The absence and session helpers take plain rows so team.py builds the same absences and sessions for
   many employees at once from one query per model.
@@ -57,7 +59,7 @@ MIN_WEEKS = 12
 MIN_SESSION = 1 / 60
 LONG_HOURS = 12
 WORK_FROM = 6.5
-WORK_TO = 22
+WORK_TO = 24
 DATA_TTL = 45
 VIEW_TTL = 300
 _data_lock = threading.Lock()
@@ -178,6 +180,10 @@ def fetch_absences(client, since, calendar_id):
     return absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
 
 
+def real_punch(record):
+    return not record["check_out"] or record["worked_hours"] >= MIN_SESSION
+
+
 def session_of(record, reason_by_id):
     reason = next((reason_by_id[i] for i in record.get("attendance_reason_ids", []) if i in reason_by_id), None)
     return {
@@ -289,7 +295,7 @@ def build_data(client, employee=None):
         "generated_at": now_local.isoformat(),
         "weeks": (cur_monday.date() - monday0.date()).days // 7 + 1,
         "since": since.date().isoformat(),
-        "sessions": [session_of(r, reason_by_id) for r in records],
+        "sessions": [session_of(r, reason_by_id) for r in records if real_punch(r)],
         "absences": fetch_absences(client, monday0.date().isoformat(), client.calendar_id),
         "schedule": schedule,
         "long_hours": LONG_HOURS,

@@ -179,6 +179,7 @@ header .sub { color: var(--muted-foreground); font-size: 13px; flex: 1; }
 :is(#tip, .dialog) .t-row { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; padding: 1px 0; }
 :is(#tip, .dialog) .t-row .v { font-weight: 650; font-variant-numeric: tabular-nums; }
 :is(#tip, .dialog) .t-row .k { color: var(--foreground); }
+:is(#tip, .dialog) .t-row.warn :is(.k, .v) { color: var(--status-warning); }
 :is(#tip, .dialog) .t-sep { border-top: 1px solid var(--border); margin: 5px 0; }
 :is(#tip, .dialog) .t-note { font-size: 12px; padding: 1px 0; }
 :is(#tip, .dialog) .t-note.bad { color: var(--destructive); }

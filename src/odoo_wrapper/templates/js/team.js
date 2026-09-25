@@ -11,7 +11,7 @@
  *   short) and blue too many (Demasiadas horas), the blue of hours over in the charts. A cell with both a
  *   target and a punch problem takes the target's colour and still names the error in orange; a month with
  *   weeks both under and over is red.
- * - Hovering a cell (or focusing it) opens the shared tooltip with its sessions, why each flag is there,
+ * - Hovering a cell (or focusing it) opens the shared tooltip with its sessions (an off-hours one in orange, sessionRow), why each flag is there,
  *   in words and with the limits the payload carries, and its change requests with their reason; a click
  *   (or Enter) shows the same in a dialog that stays open, for reading a long reason or copying times:
  *   a click outside does not close it, only «Cerrar» or Escape.
@@ -54,8 +54,9 @@
  *   a strip with a line per day where an error's sessions are orange (an open one solid, running to now)
  *   and a missed day an empty orange-edged box.
  *   The strip runs from the first error shown to the last (midnight to midnight, and now at most), so a
- *   filter that leaves a few rows narrows it to their dates instead of a long empty stretch, though never
- *   under FixMinDays, added before the first, so a lone error still has dated weeks around it; the
+ *   filter that leaves a few rows narrows it to their dates instead of a long empty stretch, with
+ *   FixPadDays more on each side (never past now), so a lone error, or one at either end, has dated weeks
+ *   around it; the
  *   floating + and − change its pixels per day (team.fixDay, FixZoom) and it scrolls sideways under the fixed name and chip columns, opening at today's end. It also scrolls by
  *   dragging it: a press that moves more than DragSlop pixels pans instead of clicking, and a press on a
  *   name link is left alone.
@@ -106,7 +107,7 @@ export const team = { data: null, fixes: null, view: "week", week: null, month: 
   fixKinds: new Set(FixKinds) };
 
 export const FixZoom = { min: 2, max: 96, step: 1.5 };
-const FixMinDays = 14;
+const FixPadDays = 7;
 const DragSlop = 3;
 
 export const Views = {
@@ -208,7 +209,7 @@ function dayDetails(day, limits) {
   return tip => {
     tip.appendChild(el("div", "t-title", dayLabel(day.date)));
     if (!day.sessions.length) tip.appendChild(el("div", "t-note", "Sin fichajes"));
-    for (const s of day.sessions) tip.appendChild(tipRow(sessionSpan(s), s.hours != null ? fmtHM(s.hours) : "en curso"));
+    for (const s of day.sessions) tip.appendChild(sessionRow(s, limits, "en curso"));
     if (balanced(day)) {
       tip.appendChild(el("div", "t-sep"));
       tip.appendChild(tipRow(`Frente a ${fmtHM(day.target)} previstas`, fmtDelta(day.hours - day.target)));
@@ -481,11 +482,17 @@ export function render() {
 
 const FixText = { open: "Sin cerrar", long: "Jornada muy larga", off: "Fuera de horario", empty: "Sin fichar" };
 
+function sessionRow(s, limits, open) {
+  const row = tipRow(sessionSpan(s), s.hours == null ? open : fmtHM(s.hours));
+  if (offSession(s, limits)) row.classList.add("warn");
+  return row;
+}
+
 function fixTip(name, item) {
   return tip => {
     tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date)} ${parseDay(item.date).getFullYear()}`));
     tip.appendChild(el("div", "t-note warn", FixText[item.kind]));
-    for (const s of item.sessions) tip.appendChild(tipRow(sessionSpan(s), s.hours != null ? fmtHM(s.hours) : "abierta"));
+    for (const s of item.sessions) tip.appendChild(sessionRow(s, team.fixes.limits, "abierta"));
     const day = { ...item, flags: [item.kind] };
     for (const text of whyDay(item.kind, day, team.fixes.limits)) tip.appendChild(el("div", "t-note", text));
   };
@@ -567,8 +574,9 @@ export function fixSpan(rows, now = new Date()) {
   const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const first = midnight(starts.length ? new Date(Math.min(...starts)) : now);
   const last = new Date(Math.max(...ends, first));
-  const to = new Date(Math.min(now, +last === +midnight(last) ? last : midnight(last).setDate(last.getDate() + 1)));
-  const from = new Date(Math.min(first, midnight(to).setDate(to.getDate() - FixMinDays)));
+  const end = +last === +midnight(last) ? last : new Date(midnight(last).setDate(last.getDate() + 1));
+  const to = new Date(Math.min(now, new Date(end).setDate(end.getDate() + FixPadDays)));
+  const from = new Date(new Date(first).setDate(first.getDate() - FixPadDays));
   return { from, to, days: Math.max(1, (to - from) / 864e5) };
 }
 

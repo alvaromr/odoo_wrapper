@@ -35,7 +35,8 @@ read, with the problems a reviewer looks for already flagged.
 - Flags per day: "open" an attendance left open before today (forgot to check out), "empty" a past day with a
   target and no attendance (forgot to check in), "long" a day over LONG_DAY hours in total, however many
   sessions it took (two sessions of 6 h and 8 h are as suspicious as one of 14 h), "off" a session outside
-  data.WORK_FROM–WORK_TO (a check-in before 6:30, a check-out after 22:00 or on a later day). Session
+  data.WORK_FROM–WORK_TO (a check-in before 6:30, a check-out after WORK_TO, midnight, so on a later day). Taps under a minute are dropped as
+  they are read (data.real_punch), so they flag nothing. Session
   length is never flagged: sessions of a few seconds are double taps that cost nothing, and the attendance officer asked to
   ignore them. Breaks count in the day's hours like any other session, as they do in the personal payload.
 - The target is checked per week, not per day: a short day is often made up later that week, so only a
@@ -318,7 +319,8 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
             [h for h in holidays if not h["calendar_id"] or h["calendar_id"][0] in own],
             [leave for leave in leaves if leave["employee_id"][0] == employee["id"]],
         )
-        sessions = [data.session_of(r, reason_by_id) for r in records if r["employee_id"][0] == employee["id"]]
+        sessions = [data.session_of(r, reason_by_id) for r in records
+                    if r["employee_id"][0] == employee["id"] and data.real_punch(r)]
         mine = [r for r in requests if user_of[employee["id"]] and r["user"] == user_of[employee["id"]]]
         return employee_row(employee, lambda iso: schedules.get(pick(iso)), absences, sessions, mine, monday, today,
                             weeks, start, stop)

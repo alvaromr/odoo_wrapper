@@ -905,18 +905,18 @@ test("the management view draws one row per person, sorted in Spanish, with its 
   const now = new Date(2025, 5, 30, 12);
   const span = page.run(`(() => { const s = fixSpan([{ items: [{ date: "2025-06-20", sessions: [{ in: new Date(2025, 5, 20, 16).toISOString() }] }] }],
     new Date(${now.getTime()})); return [s.from.getDate(), s.from.getHours(), Math.round(s.days * 10) / 10]; })()`);
-  assert.deepEqual(span, [16, 0, 14.5]);
+  assert.deepEqual(span, [13, 0, 17.5]);
   const old = page.run(`fixSpan([{ items: [{ date: "2020-01-01", sessions: [] }] }], new Date(${now.getTime()})).from.getFullYear()`);
   assert.equal(old, 2019);
-  assert.equal(page.run(`fixSpan([], new Date(${now.getTime()})).days`), 14);
+  assert.equal(page.run(`fixSpan([], new Date(${now.getTime()})).days`), 7.5);
   const closed = page.run(`(() => { const s = fixSpan([{ items: [
     { date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(), out: new Date(2025, 5, 2, 21).toISOString() }] },
     { date: "2025-06-04", sessions: [] }] }], new Date(${now.getTime()}));
     return [s.from.getDate(), s.to.getDate(), s.to.getHours(), s.days]; })()`);
-  assert.deepEqual(closed, [22, 5, 0, 14]);
+  assert.deepEqual(closed, [26, 12, 0, 17]);
   const midnightEnd = page.run(`fixSpan([{ items: [{ date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(),
     out: new Date(2025, 5, 3).toISOString() }] }] }], new Date(${now.getTime()})).days`);
-  assert.equal(midnightEnd, 14);
+  assert.equal(midnightEnd, 15);
   page.run("team.fixes = null; renderFixes()");
   assert.match(doc.getElementById("fixesNote").textContent, /^Buscando fichajes por corregir/);
   doc.getElementById("zoomIn").listeners.click[0]();

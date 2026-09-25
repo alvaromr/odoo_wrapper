@@ -28,7 +28,7 @@ WEEK = [
     att(1, 2, (9, 0), None, 0),
     att(1, 4, (9, 0), (9, 3), 0.05),
     att(1, 4, (9, 3), (9, 4), 0.0167, reasons=(3,)),
-    att(1, 4, (9, 10), (22, 5), 12.83),
+    dict(att(1, 4, (9, 10), (22, 5), 12.83), check_out=at(5, 0, 5)),
     att(3, 1, (9, 0), (15, 0), 6.0),
 ] + [att(3, d, (9, 0), (17, 0), 8.0) for d in (2, 3, 4)]
 LEFT_OPEN = [{"employee_id": [1, "Ana"], "check_in": "2025-02-20 08:00:00"}]
@@ -138,22 +138,29 @@ class BuildTeamTest(unittest.TestCase):
         flags = [d["flags"] for d in self.people["Ana"]["days"]]
         self.assertEqual(flags, [[], ["empty"], ["open"], [], ["long", "off"], [], []])
         self.assertEqual(self.payload["limits"], {"long_day": 12, "under_margin": 1 / 60, "over_margin": 5,
-                                                   "work_from": 6.5, "work_to": 22})
+                                                   "work_from": 6.5, "work_to": 24})
         self.assertTrue(all(d["flags"] == [] for d in self.people["Carl"]["days"]))
 
     def test_a_session_outside_working_hours_is_off(self):
         day = MONDAY + timedelta(days=1)
         flags = lambda *sessions: tm.day_row(day, 8, None, [dt.session_of(s, {}) for s in sessions], [], date.today())["flags"]
         self.assertEqual(flags(att(1, 1, (6, 30), (15, 30), 9.0)), [])
-        self.assertEqual(flags(att(1, 1, (14, 0), (22, 0), 8.0)), [])
+        self.assertEqual(flags(att(1, 1, (16, 0), (23, 59), 8.0)), [])
         self.assertEqual(flags(att(1, 1, (6, 29), (14, 30), 8.0)), ["off"])
-        self.assertEqual(flags(att(1, 1, (14, 0), (22, 1), 8.0)), ["off"])
+        self.assertEqual(flags(dict(att(1, 1, (16, 0), (23, 59), 8.0), check_out=at(2, 0, 1))), ["off"])
         overnight = att(1, 1, (15, 0), None, 0)
         overnight["check_out"] = at(2, 9)
         overnight["worked_hours"] = 18.0
         self.assertEqual(flags(overnight), ["long", "off"])
         self.assertEqual(self.payload["limits"]["work_from"], 6.5)
-        self.assertEqual(self.payload["limits"]["work_to"], 22)
+        self.assertEqual(self.payload["limits"]["work_to"], 24)
+
+    def test_a_tap_under_a_minute_counts_for_nothing(self):
+        tap = att(3, 0, (2, 3), (2, 4), 0.006)
+        payload = tm.build_team(ScriptedClient(rows(**{"hr.attendance": lambda args, kwargs:
+                                                      attendance(args, kwargs) + ([tap] if len(args) == 1 else [])})), MONDAY)
+        carl = next(e for e in payload["employees"] if e["name"] == "Carl")
+        self.assertEqual((carl["days"][0]["sessions"], carl["days"][0]["flags"]), ([], []))
 
     def test_a_short_day_is_no_flag_the_week_decides(self):
         day = MONDAY + timedelta(days=1)
@@ -163,7 +170,7 @@ class BuildTeamTest(unittest.TestCase):
     def test_a_long_day_is_flagged_whatever_its_sessions(self):
         day = MONDAY + timedelta(days=1)
         split = [dt.session_of(att(1, 1, (8, 44), (14, 43), 6.0), {}), dt.session_of(att(1, 1, (15, 7), (23, 45), 8.63), {})]
-        self.assertEqual(tm.day_row(day, 8.5, None, split, [], date.today())["flags"], ["long", "off"])
+        self.assertEqual(tm.day_row(day, 8.5, None, split, [], date.today())["flags"], ["long"])
         self.assertEqual(tm.day_row(day, 8.5, None, split[:1], [], date.today())["flags"], [])
 
     def test_targets_follow_calendar_absences_and_partial_leaves(self):
