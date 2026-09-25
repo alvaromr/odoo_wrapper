@@ -6,15 +6,14 @@
  *
  * - Flags come computed from the server (team.py says what each one means); the page only draws them and
  *   tells two kinds apart by colour: orange a punch error (Sin fichar, Sin cerrar, Jornada muy larga, Fuera de
- *   horario, a sum
- *   that holds one, everything in «Fichajes por corregir»), red hours short (Bajo objetivo, a month or year
- *   short) and blue too many (Demasiadas horas), the blue of hours over in the charts. A cell with both a
- *   target and a punch problem takes the target's colour and still names the error in orange; a month with
- *   weeks both under and over is red.
- * - Hovering a cell (or focusing it) opens the shared tooltip with its sessions (an off-hours one in orange, sessionRow), why each flag is there,
- *   in words and with the limits the payload carries, and its change requests with their reason; a click
- *   (or Enter) shows the same in a dialog that stays open, for reading a long reason or copying times:
- *   a click outside does not close it, only «Cerrar» or Escape.
+ *   horario, a sum that holds one, everything in «Fichajes por corregir»), red a target not met, short or
+ *   over (Bajo objetivo, Demasiadas horas, a month or year short); blue is kept for change requests.
+ *   style.css says how the charts tell short from too many. A cell with both a target and a punch problem
+ *   takes the target's colour and still names the error in orange.
+ * - Hovering a cell (or focusing it) opens the day's details in the shared tooltip, and a click (or Enter)
+ *   the dialog that corrects it; both are dayedit.js, shared with the personal page. A mark in «Fichajes
+ *   por corregir» opens the same dialog for its day (openFixDay), unless it ends a drag. After a write the
+ *   page reloads the period and the fixes (onDaySaved).
  *   Today's open session is not counted yet (Odoo has no worked_hours for it), so the cell says
  *   «en curso» instead of leaving a bare 0h that reads as not clocked in.
  * - A day's attendance change requests also show under its hours, coloured by status (pending stands out,
@@ -41,7 +40,9 @@
  *   week opens it in the week view.
  * - «Año» does the same by months, from the server's monthly summary (team.py): each month's hours against
  *   its target, how many hours short or over, how many of its weeks were under or over and how many days
- *   carry a flag. Months still to come stay blank. A click on a month opens it in the month view.
+ *   carry a flag. Months still to come stay blank. A click on a month opens it in the month view, and on a
+ *   week in the month view that week, both with the search set to that person (drillInto), so only they
+ *   remain.
  * - The arrows and «Hoy» move by the view's own unit; switching view keeps the period in sight (Views).
  * - «Gráficos» shows the same people, under the same filter, as figures (renderCharts, drawn by
  *   teamcharts.js): each person's balance for the period as a diverging bar, and per day, week or month how many people had punch errors (week view) or weeks under
@@ -52,36 +53,40 @@
  *   table, again on «Actualizar»), the same the personal page's banner lists. One row per person so a
  *   repeat offender shows as one row with several marks, most to fix first: chips counting each kind, and
  *   a strip with a line per day where an error's sessions are orange (an open one solid, running to now)
- *   and a missed day an empty orange-edged box.
+ *   and a missed day an empty orange-edged box. A long day draws only the sessions to blame (toBlame: past
+ *   midnight, off hours or over the limit alone), not the normal morning before them, unless none is
+ *   and the day is long only by adding up; the tooltips colour the same sessions (sessionRow).
  *   The strip runs from the first error shown to the last (midnight to midnight, and now at most), so a
  *   filter that leaves a few rows narrows it to their dates instead of a long empty stretch, with
  *   FixPadDays more on each side (never past now), so a lone error, or one at either end, has dated weeks
  *   around it; the
  *   floating + and − change its pixels per day (team.fixDay, FixZoom) and it scrolls sideways under the fixed name and chip columns, opening at today's end. It also scrolls by
  *   dragging it: a press that moves more than DragSlop pixels pans instead of clicking, and a press on a
- *   name link is left alone.
+ *   name link is left alone. The pointer is captured only once it pans: captured from the press, every
+ *   click landed on the strip instead of the mark under it, which then never opened.
  *   «↔» widens the card alone to the whole window and back: the rest of the page reads better narrow, but
  *   the strip is the one thing that gains from the width.
  *   Its own toggles, one per kind of error (FixKinds, all on at first, team.fixKinds), keep only those
  *   errors: a row left with none of the chosen kinds goes, and its chips and marks show only those kinds.
  *   Each counts the people with that kind, whatever the others say, so a toggle turned off still tells
- *   how many it hides. They, and the card's own «Buscar persona» (team.fixSearch), filter this card only,
- *   never the table or the charts.
+ *   how many it hides. They filter this card only, never the table or the charts.
  * - «Ocultar archivados», on by default, leaves out people archived in Odoo (who left) everywhere: rows,
  *   counts, charts and that card (listed). Turned off, they show with their departure date.
  * - The criteria note under the table is written from the payload's limits (criteria), so it can never
  *   drift from what team.py applies.
  * - «Buscar persona» keeps only the people whose name holds the text, ignoring case and accents («lopez»
- *   finds López), as it is typed (named): the one in the toolbar in the table and the charts, the card's
- *   in the card.
- * - The page keeps its view, period, filter, table or charts, the archived toggle, both searches and the kinds of fixes in the URL hash
+ *   finds López), as it is typed (named), everywhere: table, charts and «Fichajes por corregir». It opens
+ *   the toolbar, as the one filter that crosses every section.
+ * - The page keeps its view, period, filter, table or charts, the archived toggle, the search and the kinds of fixes in the URL hash
  *   (stateHash), and in sessionStorage so the dashboard's «Gestión» link, which has no hash, returns to it
  *   too: coming back from someone's page used to reset everything to this week's table.
  * - Rows are sorted by name with Spanish collation (Á next to A), which Odoo's order does not give.
  */
 import { DayNames, MonthNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtTime, isoDay, fmtClock, hourOf, dayKey } from "./format.js";
+import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtTime, isoDay, fmtClock } from "./format.js";
 import { el, api, wireLogout, attachTip, hideTip, tipRow } from "./shared.js";
+import { parseDay, offSession, whyDay, balanced, dayLabel, wrongSession, sessionRow, dayDetails, requestLine, openDay,
+  openDayOf, onDaySaved, wireDayDialog } from "./dayedit.js";
 import { chartCard, divergingBars, groupedColumns, legend, stripAxis, sessionStrip } from "./teamcharts.js";
 
 export const FlagText = {
@@ -91,19 +96,18 @@ export const FlagText = {
 
 export const FixKinds = ["open", "long", "off", "empty"];
 
-export const RequestText = { new: "Borrador", pending: "Pendiente", approved: "Aprobada", refused: "Rechazada" };
-
 export const Filters = {
   issues: { label: "Con incidencias", keep: e => hasFlags(e), none: "Nadie tiene incidencias esta semana" },
   under: { label: "Bajo objetivo", keep: e => e.flags.includes("under"), none: "Nadie bajo objetivo esta semana" },
   over: { label: "Demasiadas horas", keep: e => e.flags.includes("over"), none: "Nadie con demasiadas horas esta semana" },
+  requests: { label: "Con solicitudes", keep: e => e.pending > 0, none: "Nadie tiene solicitudes pendientes esta semana" },
   all: { label: "Todas", keep: () => true, none: "Nadie a la vista" },
 };
 
 const thisDay = () => isoDay(new Date());
 
 export const team = { data: null, fixes: null, view: "week", week: null, month: thisDay().slice(0, 7), year: thisDay().slice(0, 4),
-  filter: "issues", display: "table", hideArchived: true, search: "", fixSearch: "", fixDay: 10,
+  filter: "issues", display: "table", hideArchived: true, search: "", fixDay: 10,
   fixKinds: new Set(FixKinds) };
 
 export const FixZoom = { min: 2, max: 96, step: 1.5 };
@@ -123,11 +127,6 @@ export const Views = {
 export function gapText(balance) {
   if (Math.abs(balance) < 1 / 60) return "Al día";
   return balance < 0 ? `Faltan ${fmtHM(-balance)}` : `Sobran ${fmtHM(balance)}`;
-}
-
-export function parseDay(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
 }
 
 export function shiftDays(iso, days) {
@@ -159,42 +158,6 @@ export function hasFlags(employee) {
     || (employee.months || []).some(m => m.flagged_days > 0);
 }
 
-export function sessionSpan(s) {
-  return `${fmtTime(new Date(s.in))}–${s.out ? fmtTime(new Date(s.out)) : "abierto"}${s.rest ? " descanso" : ""}`;
-}
-
-export function offSession(s, limits) {
-  const [from, to] = [new Date(s.in), s.out && new Date(s.out)];
-  return hourOf(from) < limits.work_from || Boolean(to) && (dayKey(to) !== dayKey(from) || hourOf(to) > limits.work_to);
-}
-
-export function whyDay(kind, day, limits) {
-  if (kind === "open") {
-    return day.sessions.filter(s => !s.out).map(s => `Entrada a las ${fmtTime(new Date(s.in))} sin salida`);
-  }
-  if (kind === "empty") return [`Jornada prevista de ${fmtHM(day.target)} sin fichajes ni ausencia`];
-  if (kind === "off") {
-    return day.sessions.filter(s => offSession(s, limits)).flatMap(s => {
-      const [from, to] = [new Date(s.in), s.out && new Date(s.out)];
-      return [
-        ...(hourOf(from) < limits.work_from ? [`Entrada a las ${fmtTime(from)}, antes de las ${fmtClock(limits.work_from)}`] : []),
-        ...(to && dayKey(to) !== dayKey(from) ? [`Salida otro día, el ${fmtDay(to)} a las ${fmtTime(to)}`]
-          : to && hourOf(to) > limits.work_to ? [`Salida a las ${fmtTime(to)}, después de las ${fmtClock(limits.work_to)}`] : []),
-      ];
-    });
-  }
-  return [`${fmtHM(day.hours)} fichadas en el día, más de ${fmtHM(limits.long_day)}`];
-}
-
-export function balanced(day) {
-  return day.target > 0 && day.sessions.length > 0 && day.sessions.every(s => s.out);
-}
-
-function dayLabel(iso) {
-  const date = parseDay(iso);
-  return `${DayNames[(date.getDay() + 6) % 7]} ${fmtDay(date)}`;
-}
-
 export function whyWeek(kind, employee, limits) {
   const { hours, target } = employee;
   if (kind === "under") return `${fmtHM(hours)} de ${fmtHM(target)} previstas: faltan ${fmtHM(target - hours)}`;
@@ -205,45 +168,11 @@ export function hasData(day) {
   return day.sessions.length > 0 || day.requests.length > 0 || day.flags.length > 0;
 }
 
-function dayDetails(day, limits) {
-  return tip => {
-    tip.appendChild(el("div", "t-title", dayLabel(day.date)));
-    if (!day.sessions.length) tip.appendChild(el("div", "t-note", "Sin fichajes"));
-    for (const s of day.sessions) tip.appendChild(sessionRow(s, limits, "en curso"));
-    if (balanced(day)) {
-      tip.appendChild(el("div", "t-sep"));
-      tip.appendChild(tipRow(`Frente a ${fmtHM(day.target)} previstas`, fmtDelta(day.hours - day.target)));
-    }
-    const notes = day.flags.flatMap(kind => whyDay(kind, day, limits));
-    if (notes.length) tip.appendChild(el("div", "t-sep"));
-    for (const text of notes) tip.appendChild(el("div", "t-note warn", text));
-    for (const r of day.requests) {
-      tip.appendChild(el("div", "t-sep"));
-      tip.appendChild(el("div", `t-note ${r.status}`, requestLine(r)));
-      if (r.reason) tip.appendChild(el("div", "t-note", r.reason));
-    }
-  };
-}
-
-export function requestLine(r) {
-  const span = `${fmtTime(new Date(r.from))}${r.to ? `–${fmtTime(new Date(r.to))}` : ""}`;
-  return `Solicitud ${RequestText[r.status].toLowerCase()} ${span}`;
-}
-
-function openDay(employee, day, limits) {
-  hideTip();
-  document.getElementById("dayDialogTitle").textContent = employee.name;
-  const body = document.getElementById("dayDialogBody");
-  body.replaceChildren();
-  dayDetails(day, limits)(body);
-  document.getElementById("dayDialog").showModal();
-}
-
 function dayCell(employee, day, today, limits) {
   const td = el("td", "day");
   td.tabIndex = 0;
-  td.addEventListener("click", () => openDay(employee, day, limits));
-  td.addEventListener("keydown", e => { if (e.key === "Enter") openDay(employee, day, limits); });
+  td.addEventListener("click", () => openDay(employee, day, limits, team.data.can_edit));
+  td.addEventListener("keydown", e => { if (e.key === "Enter") openDay(employee, day, limits, team.data.can_edit); });
   if (day.date === today) td.classList.add("today");
   if (day.date > today) td.classList.add("future");
   if (day.flags.length) td.classList.add("warn");
@@ -270,7 +199,12 @@ function summary(td, { hours, target, balance, suspect }, running, started = tru
   }
 }
 
-const TargetClass = { under: "bad", over: "over" };
+function drillInto(employee, view, key) {
+  team.search = employee.name;
+  document.getElementById("search").value = employee.name;
+  team.view = view;
+  load(key);
+}
 
 function short(balance, limits) {
   return balance != null && balance <= -limits.under_margin;
@@ -278,8 +212,7 @@ function short(balance, limits) {
 
 function totalCell(employee, limits, today, extra = []) {
   const td = el("td", "total");
-  const [target] = ["under", "over"].filter(f => employee.flags.includes(f));
-  if (target) td.classList.add(TargetClass[target]);
+  if (employee.flags.length) td.classList.add("bad");
   const days = employee.days;
   summary(td, employee, days.at(-1).date >= today, days[0].date < today);
   for (const text of extra) td.appendChild(el("span", "flag warn", text));
@@ -291,7 +224,7 @@ function totalCell(employee, limits, today, extra = []) {
     for (const day of days) tip.appendChild(tipRow(dayLabel(day.date), fmtDelta(day.hours - day.target)));
     if (employee.target == null) return;
     tip.appendChild(el("div", "t-sep"));
-    for (const kind of employee.flags) tip.appendChild(el("div", `t-note ${TargetClass[kind]}`, whyWeek(kind, employee, limits)));
+    for (const kind of employee.flags) tip.appendChild(el("div", "t-note bad", whyWeek(kind, employee, limits)));
     if (!employee.flags.length) tip.appendChild(tipRow(`Semana frente a ${fmtHM(employee.target)}`, fmtDelta(employee.hours - employee.target)));
   });
   return td;
@@ -306,7 +239,7 @@ function weekCell(employee, w, today, limits) {
   td.classList.add("week");
   if (flagged) td.classList.add("warn");
   if (week.monday <= today && today <= shiftDays(week.monday, 6)) td.classList.add("today");
-  const open = () => { hideTip(); team.view = "week"; load(week.monday); };
+  const open = () => { hideTip(); drillInto(employee, "week", week.monday); };
   td.addEventListener("click", open);
   td.addEventListener("keydown", e => { if (e.key === "Enter") open(); });
   return td;
@@ -341,15 +274,14 @@ function yearMonthCell(employee, m, today, limits) {
   if (short(m.balance, limits)) td.classList.add("bad");
   const counts = [
     [m.under, "semana bajo objetivo", "semanas bajo objetivo", "flag"],
-    [m.over, "semana con demasiadas horas", "semanas con demasiadas horas", "flag over"],
+    [m.over, "semana con demasiadas horas", "semanas con demasiadas horas", "flag"],
     [m.flagged_days, "día con errores de fichaje", "días con errores de fichaje", "flag warn"],
   ].filter(([n]) => n > 0);
   for (const [n, one, many, cls] of counts) td.appendChild(el("span", cls, `${n} ${n === 1 ? one : many}`));
-  if (m.under) td.classList.add("bad");
-  else if (m.over) td.classList.add("over");
+  if (m.under || m.over) td.classList.add("bad");
   else if (m.flagged_days) td.classList.add("warn");
   td.tabIndex = 0;
-  const open = () => { team.view = "month"; load(m.month); };
+  const open = () => { hideTip(); drillInto(employee, "month", m.month); };
   td.addEventListener("click", open);
   td.addEventListener("keydown", e => { if (e.key === "Enter") open(); });
   return td;
@@ -411,7 +343,7 @@ export function criteria(limits) {
     + `${fmtClock(limits.work_from)} o una salida después de las ${fmtClock(limits.work_to)} o ya en otro día. Sin fichar: un día pasado con jornada prevista y `
     + "sin fichajes ni ausencia. Sin cerrar: una entrada de un día anterior sin salida. La jornada prevista de cada día es "
     + "la del contrato vigente ese día; vacaciones, festivos y permisos la reducen. Los descansos cuentan como horas. "
-    + "En naranja, errores de fichaje; en rojo, horas de menos; en azul, demasiadas horas.";
+    + "En naranja, errores de fichaje; en rojo, objetivo no cumplido (horas de menos o demasiadas); en azul, solicitudes de cambio.";
 }
 
 export function render() {
@@ -482,12 +414,6 @@ export function render() {
 
 const FixText = { open: "Sin cerrar", long: "Jornada muy larga", off: "Fuera de horario", empty: "Sin fichar" };
 
-function sessionRow(s, limits, open) {
-  const row = tipRow(sessionSpan(s), s.hours == null ? open : fmtHM(s.hours));
-  if (offSession(s, limits)) row.classList.add("warn");
-  return row;
-}
-
 function fixTip(name, item) {
   return tip => {
     tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date)} ${parseDay(item.date).getFullYear()}`));
@@ -510,23 +436,29 @@ function named(e, search) {
 
 export function fixRows(fixes, kinds = team.fixKinds) {
   const count = (r, kind) => r.items.filter(i => i.kind === kind).length;
-  return fixes.employees.filter(e => listed(e) && named(e, team.fixSearch))
+  return fixes.employees.filter(e => listed(e) && named(e, team.search))
     .map(r => ({ ...r, items: r.items.filter(i => kinds.has(i.kind)) })).filter(r => r.items.length)
     .sort((a, b) => count(b, "open") - count(a, "open") || b.items.length - a.items.length || a.name.localeCompare(b.name, "es"));
+}
+
+export function toBlame(sessions, limits) {
+  const wrong = sessions.filter(s => wrongSession(s, limits));
+  return wrong.length ? wrong : sessions;
 }
 
 export function fixMarks(row, now = new Date()) {
   const limits = team.fixes.limits;
   return row.items.flatMap(item => {
     const tip = fixTip(row.name, item);
+    const open = () => openFixDay(row.id, item.date);
     if (item.kind === "empty") {
       const start = parseDay(item.date);
-      return [{ start, end: parseDay(shiftDays(item.date, 1)), cls: "missing", tip }];
+      return [{ start, end: parseDay(shiftDays(item.date, 1)), cls: "missing", tip, open }];
     }
     const sessions = item.kind === "open" ? item.sessions.filter(s => !s.out)
-      : item.kind === "off" ? item.sessions.filter(s => offSession(s, limits)) : item.sessions;
+      : item.kind === "off" ? item.sessions.filter(s => offSession(s, limits)) : toBlame(item.sessions, limits);
     return sessions.map(s => ({ start: new Date(s.in), end: s.out ? new Date(s.out) : now,
-      cls: item.kind === "open" ? "error" : "error late", tip }));
+      cls: item.kind === "open" ? "error" : "error late", tip, open }));
   });
 }
 
@@ -535,8 +467,7 @@ const StateKey = "gestion";
 export function stateHash() {
   const params = new URLSearchParams({ v: team.view, p: Views[team.view].key() || "", f: team.filter,
     d: team.display, a: team.hideArchived ? "1" : "0",
-    k: FixKinds.filter(k => team.fixKinds.has(k)).join(","), ...(team.search ? { q: team.search } : {}),
-    ...(team.fixSearch ? { fq: team.fixSearch } : {}) });
+    k: FixKinds.filter(k => team.fixKinds.has(k)).join(","), ...(team.search ? { q: team.search } : {}) });
   return `#${params}`;
 }
 
@@ -547,9 +478,7 @@ export function readState(hash) {
   if (["table", "charts"].includes(params.get("d"))) team.display = params.get("d");
   if (params.get("a") === "0") team.hideArchived = false;
   team.search = params.get("q") || "";
-  team.fixSearch = params.get("fq") || "";
   document.getElementById("search").value = team.search;
-  document.getElementById("fixSearch").value = team.fixSearch;
   if (params.has("k")) team.fixKinds = new Set(params.get("k").split(",").filter(k => FixKinds.includes(k)));
   return params.get("p") || undefined;
 }
@@ -599,7 +528,7 @@ function renderFixes() {
   note.textContent = `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)}, fichajes fuera de `
     + `${fmtClock(limits.work_from)} a ${fmtClock(limits.work_to)} y días con jornada prevista sin fichar, de todo el `
     + "historial de cada persona y sea cual sea el periodo que estés viendo. Una fila por persona."
-    + (rows.length ? "" : team.fixSearch.trim() ? ` Nadie cuyo nombre contenga «${team.fixSearch.trim()}» con los tipos elegidos.`
+    + (rows.length ? "" : team.search.trim() ? ` Nadie cuyo nombre contenga «${team.search.trim()}» con los tipos elegidos.`
       : " Nadie con los tipos elegidos.");
   for (const button of document.getElementById("fixKinds").querySelectorAll("button")) {
     const kind = button.dataset.kind;
@@ -764,23 +693,25 @@ document.getElementById("fixKinds").addEventListener("click", e => {
   if (team.fixes) renderFixes();
 });
 const fixScroller = document.getElementById("fixes");
-let fixDrag = null;
+let fixDrag = null, fixDragged = false;
 fixScroller.addEventListener("pointerdown", e => {
   if (e.button !== 0 || e.target.closest("a")) return;
-  fixDrag = { x: e.clientX, left: fixScroller.scrollLeft, moved: false };
-  fixScroller.setPointerCapture?.(e.pointerId);
+  fixDrag = { x: e.clientX, left: fixScroller.scrollLeft, moved: false, pointer: e.pointerId };
+  fixDragged = false;
 });
 fixScroller.addEventListener("pointermove", e => {
   if (!fixDrag) return;
   const dx = e.clientX - fixDrag.x;
   if (!fixDrag.moved && Math.abs(dx) > DragSlop) {
     fixDrag.moved = true;
+    fixScroller.setPointerCapture?.(fixDrag.pointer);
     fixScroller.classList.add("dragging");
     hideTip();
   }
   if (fixDrag.moved) fixScroller.scrollLeft = fixDrag.left - dx;
 });
 const endFixDrag = () => {
+  fixDragged = Boolean(fixDrag?.moved);
   fixDrag = null;
   fixScroller.classList.remove("dragging");
 };
@@ -791,15 +722,11 @@ document.getElementById("archivedBtn").addEventListener("click", () => {
   team.hideArchived = !team.hideArchived;
   if (team.data) render();
 });
-document.getElementById("fixSearch").addEventListener("input", e => {
-  team.fixSearch = e.target.value;
-  saveState();
-  if (team.fixes) renderFixes();
-});
 document.getElementById("search").addEventListener("input", e => {
   team.search = e.target.value;
   saveState();
   if (team.data) render();
+  else if (team.fixes) renderFixes();
 });
 addEventListener("resize", () => {
   if (team.data && team.display === "charts") render();
@@ -816,8 +743,18 @@ document.getElementById("filterSeg").addEventListener("click", e => {
   team.filter = button.dataset.filter;
   if (team.data) render();
 });
-const dialog = document.getElementById("dayDialog");
-document.getElementById("dayDialogClose").addEventListener("click", () => dialog.close());
+wireDayDialog();
+onDaySaved(() => load(view().key(), true));
+
+function openFixDay(employeeId, date) {
+  if (fixDragged) {
+    fixDragged = false;
+    return;
+  }
+  return openDayOf(employeeId, date).catch(e => {
+    document.getElementById("fixesNote").textContent = "No se pudo abrir ese día: " + e.message;
+  });
+}
 wireLogout(document.getElementById("logoutBtn"));
 
 load(restoreState());

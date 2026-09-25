@@ -60,9 +60,20 @@ read, with the problems a reviewer looks for already flagged.
 - Attendance change requests (approval.request, Odoo's Approvals app) sit on the day they ask to change: the
   local date of their date_start, owner matched to the employee through its user. The category is found by
   name (REQUEST_CATEGORY, «Modificación de fichaje» in this Odoo), never by id; cancelled ones are left out.
-  They are not flags: a pending one usually explains a flag next to it. Approvals is optional, and a session
+  They are not flags: a pending one usually explains a flag next to it. Each row counts its pending ones
+  in the period (pending), which survives the year's summary, for the page's «Con solicitudes» filter.
+  Someone's own page lists, to whoever may approve them only, every pending request of theirs
+  (requests_to_approve, whatever their date): the employee never sees it, as they are not the approver. Approvals is optional, and a session
   that may not read requests simply gets none, like the attendance reasons in client.py.
-- Read only: nothing here writes to Odoo. The payload is cached per session and period for data.VIEW_TTL,
+- The day dialog writes, and nothing else does: save_attendance changes a punch's check-in and check-out, or
+  creates one, and approve_request approves a change request as the session's user (action_approve, which
+  Odoo allows only to a pending approver, hence can_approve). Odoo validates both (overlaps, rights) and its
+  refusal comes back as a 409 with its words. Shortening a punch that ended on a later day may lose that
+  day's check-in: someone who forgot to check out and did not punch again right away left their next
+  morning's check-in only as this punch's check-out. When no attendance of theirs starts within
+  LOST_ENTRY_MINUTES of the old check-out, the answer carries it as lost_entry and the page says so; it
+  creates nothing on its own (about one long punch in five was like that). Every write drops the cached payloads.
+- The payload is cached per session and period for data.VIEW_TTL,
   longer than the personal one: what someone else punched moves slowly and «Actualizar» forces a reload.
 """
 
@@ -78,6 +89,7 @@ LONG_DAY = data.LONG_HOURS
 UNDER_MARGIN = 1 / 60
 OVER_MARGIN = 5
 REQUEST_CATEGORY = "fichaje"
+LOST_ENTRY_MINUTES = 10
 REQUEST_STATES = ("new", "pending", "approved", "refused")
 
 
@@ -143,7 +155,7 @@ def fetch_fixes(client, fresh=False):
 def fixes_payload(payload):
     def items(e):
         return [{"date": d["date"], "kind": kind, "hours": d["hours"], "target": d["target"],
-                 "sessions": [{k: s[k] for k in ("in", "out", "hours")} for s in d["sessions"]]}
+                 "sessions": [{k: s[k] for k in ("id", "in", "out", "hours")} for s in d["sessions"]]}
                 for d in e["days"] for kind in d["flags"]
                 if kind in FIX_KINDS and not (kind == "off" and "long" in d["flags"])]
     rows = [dict({k: e[k] for k in ("id", "name", "archived", "departure_date")}, items=items(e))
@@ -165,14 +177,14 @@ def plain_text(markup):
     return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", markup or "")).split())
 
 
-def fetch_requests(client, user_ids, monday, end):
+def fetch_requests(client, user_ids, monday=None, end=None, states=REQUEST_STATES):
+    span = [("date_start", ">=", odoo_time(monday)), ("date_start", "<", odoo_time(end))] if monday else []
     try:
         rows = client.call_kw(
             "approval.request", "search_read",
             [[("category_id.name", "ilike", REQUEST_CATEGORY), ("request_owner_id", "in", user_ids),
-              ("request_status", "in", list(REQUEST_STATES)),
-              ("date_start", ">=", odoo_time(monday)), ("date_start", "<", odoo_time(end))]],
-            {"fields": ["request_owner_id", "date_start", "date_end", "reason", "request_status"],
+              ("request_status", "in", list(states))] + span],
+            {"fields": ["request_owner_id", "date_start", "date_end", "reason", "request_status", "user_status"],
              "order": "date_start asc"},
         )
     except SessionExpired:
@@ -180,12 +192,73 @@ def fetch_requests(client, user_ids, monday, end):
     except OdooError:
         return []
     return [{
+        "id": r.get("id"),
         "user": r["request_owner_id"][0],
+        "can_approve": r.get("user_status") == "pending",
         "from": data.local(r["date_start"]).isoformat(),
         "to": data.local(r["date_end"]).isoformat() if r["date_end"] else None,
         "status": r["request_status"],
         "reason": plain_text(r["reason"]),
     } for r in rows]
+
+
+def requests_to_approve(client, employee_id):
+    user = client.call_kw("hr.employee", "read", [[employee_id], ["user_id"]])[0]["user_id"]
+    return [r for r in fetch_requests(client, [user[0]], states=("pending",)) if r["can_approve"]] if user else []
+
+
+def odoo_stamp(iso):
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def lost_entry(client, employee_id, old_out, new_out):
+    if not old_out or data.local(old_out).date() <= data.local(new_out).date():
+        return None
+    until = (datetime.strptime(old_out, "%Y-%m-%d %H:%M:%S") + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+    later = client.call_kw("hr.attendance", "search_count", [[("employee_id", "=", employee_id),
+                                                              ("check_in", ">=", old_out), ("check_in", "<=", until)]])
+    return None if later else data.local(old_out).isoformat()
+
+
+def save_attendance(client, body):
+    try:
+        check_in, check_out = odoo_stamp(body["check_in"]), odoo_stamp(body["check_out"])
+        record, employee = int(body.get("id") or 0), int(body.get("employee") or 0)
+    except (KeyError, TypeError, ValueError):
+        return 400, {"error": "Entrada o salida no válidas"}
+    if check_out <= check_in:
+        return 400, {"error": "La salida tiene que ser posterior a la entrada"}
+    if not record and not employee:
+        return 400, {"error": "Falta el fichaje o la persona"}
+    try:
+        if record:
+            before = client.call_kw("hr.attendance", "read", [[record], ["employee_id", "check_out"]])[0]
+            client.call_kw("hr.attendance", "write", [[record], {"check_in": check_in, "check_out": check_out}])
+            lost = lost_entry(client, before["employee_id"][0], before["check_out"], check_out)
+        else:
+            client.call_kw("hr.attendance", "create", [{"employee_id": employee, "check_in": check_in, "check_out": check_out}])
+            lost = None
+    except SessionExpired:
+        raise
+    except OdooError as error:
+        return 409, {"error": str(error)}
+    data.drop_data_cache()
+    return 200, {"ok": True, "lost_entry": lost}
+
+
+def approve_request(client, request_id):
+    try:
+        request = int(request_id)
+    except (TypeError, ValueError):
+        return 400, {"error": f"Solicitud no válida: {request_id}"}
+    try:
+        client.call_kw("approval.request", "action_approve", [[request]])
+    except SessionExpired:
+        raise
+    except OdooError as error:
+        return 409, {"error": str(error)}
+    data.drop_data_cache()
+    return 200, {"ok": True}
 
 
 def clock(stamp):
@@ -259,6 +332,7 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
             if schedule else None,
             "flags": [flag for flag in ("under", "over") if any(flag in w["flags"] for w in week_rows)],
             "suspect": any("long" in d["flags"] for d in inside),
+            "pending": sum(r["status"] == "pending" for d in inside for r in d["requests"]),
             "weeks": week_rows, "days": days}
 
 

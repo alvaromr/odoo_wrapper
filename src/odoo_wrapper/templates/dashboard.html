@@ -200,7 +200,7 @@
   .tl-row .sess.rest { background: var(--chart-rest); box-shadow: 0 0 0 2px var(--card); }
   .tl-row .sess.long, .dayrow .bar.long { background: var(--chart-error); }
   .errors { border-color: var(--chart-error); background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card);
-    margin-bottom: 16px; }
+    margin-top: 16px; }
   .errors h2 { display: inline; font-size: 14px; font-weight: 650; color: var(--status-warning); }
   .errors summary { cursor: pointer; }
   .errors summary::marker { color: var(--status-warning); }
@@ -211,6 +211,14 @@
     padding: 0; text-align: left; }
   .errors button:hover { text-decoration: underline; }
   .errors .kind { color: var(--status-warning); font-weight: 600; }
+  .errors li { display: flex; align-items: baseline; gap: 10px; }
+  .errors button.fix { border: 1px solid var(--input); border-radius: var(--radius-sm); padding: 1px 8px; font-size: 12px;
+    color: var(--muted-foreground); }
+  .errors button.fix:hover { color: var(--foreground); text-decoration: none; }
+  .errors .req { color: var(--chart-2); font-weight: 600; }
+  .errors .day { font-weight: 600; }
+  .errors.requests { border-color: var(--chart-2); background: var(--card); }
+  .errors.requests h2, .errors.requests summary::marker { color: var(--chart-2); }
   .week-head .total.long { color: var(--status-warning); }
   .week-head .total-warn { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--status-warning); }
   .week-head .total-warn + .total { margin-left: 8px; }
@@ -290,8 +298,8 @@
   <div id="loadmsg">Cargando datos de Odoo…</div>
 
   <div id="app" class="hidden">
-    <section class="card errors hidden" id="errorsBanner"></section>
     <section class="card hero" id="hero"></section>
+    <section class="card errors hidden" id="errorsBanner"></section>
 
     <h2 class="weeks-title">Calendario semanal</h2>
     <section class="card" id="weekCal"></section>

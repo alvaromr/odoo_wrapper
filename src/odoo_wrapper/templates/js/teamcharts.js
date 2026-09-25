@@ -6,7 +6,7 @@
  *   size on a wide screen instead of growing with a stretched viewBox; below MIN_WIDTH it is drawn at that
  *   width and scaled down, as the labels would not fit. Colours are the
  *   style.css tokens by class, never literals: --chart-short for hours missing and targets not met,
- *   --chart-2 for hours over, --chart-error for punch errors. That pair was run through the dataviz palette validator in light and dark (dark
+ *   --chart-over for weeks with too many hours, --chart-surplus for a positive balance, --chart-error for punch errors. That pair was run through the dataviz palette validator in light and dark (dark
  *   --destructive is too light for a mark, hence the separate --chart-short).
  * - One axis per chart, a zero line or baseline, recessive grid. Every mark answers hover and focus with the
  *   shared tooltip; the table tab is the non-visual fallback.
@@ -15,7 +15,8 @@
  *   of names never read as one.
  * - A session strip lays one person's problem marks on a shared time axis (stripAxis): each a bar from its
  *   start to its end with the class the caller gives it (mark.cls), so a repeat offender reads as a row of
- *   marks. Bars have a minimum width, a one-night session is thin.
+ *   marks. Bars have a minimum width, a one-night session is thin. Each mark opens on click or Enter
+ *   (mark.open), as a person's bar does.
  *   Both the axis and every strip draw a faint line at each midnight, stronger on Mondays, so a bar reads
  *   against its days at any zoom; marks wholly outside the range are skipped. Strips are drawn at their
  *   real pixel width (the caller's zoom), not stretched, so labels keep their size and the row scrolls.
@@ -70,7 +71,7 @@ export function divergingBars(items, format, size = WIDTH) {
     group.appendChild(svg("text", { x: labelWidth - 8, y: y + rowHeight / 2 + 4, class: "axis-label", "text-anchor": "end" },
       item.label));
     group.appendChild(svg("rect", { x, y: y + (rowHeight - bar) / 2, width: length, height: bar, rx: 2,
-      class: item.suspect ? "bar error" : short ? "bar short" : "bar over" }));
+      class: item.suspect ? "bar error" : short ? "bar short" : "bar surplus" }));
     group.appendChild(svg("text", {
       x: short ? x - 6 : x + length + 6, y: y + rowHeight / 2 + 4, class: "value-label",
       "text-anchor": short ? "end" : "start",
@@ -171,9 +172,11 @@ export function sessionStrip(from, to, marks, size) {
   for (const mark of marks.filter(m => m.end > from && m.start < to)) {
     const x = Math.max(0, (mark.start - from) / span * size);
     const width = Math.max(4, (Math.min(mark.end, to) - Math.max(mark.start, from)) / span * size);
-    const group = svg("g", { class: "mark", tabindex: 0 });
+    const group = svg("g", { class: "mark link", tabindex: 0 });
     group.appendChild(svg("rect", { x: x - 3, y: 0, width: width + 6, height: 18, class: "hit" }));
     group.appendChild(svg("rect", { x, y: 3, width, height: 12, rx: 2, class: `bar ${mark.cls}` }));
+    group.addEventListener("click", mark.open);
+    group.addEventListener("keydown", e => { if (e.key === "Enter") mark.open(); });
     attachTip(group, mark.tip);
     chart.appendChild(group);
   }

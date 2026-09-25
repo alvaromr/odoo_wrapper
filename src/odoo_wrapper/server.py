@@ -7,8 +7,10 @@ Login and sessions
   request forwards that cookie to Odoo, so each browser holds its own session. config.json keeps url, db
   and user only.
 - Whether a session may read other people (client.sees_others, behind /api/team and /api/data?employee)
-  is remembered per session for SEES_TTL, half an hour: it was one more Odoo call on every request and
-  does not change within a session. Logout forgets it.
+  and whether it may change punches (client.edits_punches, Odoo's own access rights on hr.attendance) are
+  remembered per session for SEES_TTL, half an hour: each was one more Odoo call on every request and
+  does not change within a session. Logout forgets them. Payloads carry can_edit so a page offers no
+  correction it cannot make, and /api/team/attendance answers 403 without it, before reaching Odoo.
 - Validity is Odoo's call. A cookie not seen since the server started is checked once with
   get_session_info and remembered in _sessions with its uid (cleared by every restart, which is fine).
   When Odoo answers code 100 anywhere, the API replies 401, clears the cookie and forgets it; the page sends
@@ -61,12 +63,16 @@ API
   with a stale mute or duration and overwrite the good one.
 - GET /api/data?employee=<id> is that employee's payload, for /empleado?id=<id> (the dashboard page in
   read-only mode, linked from each row of /gestion), with the same 403 as /api/team; it carries no phone
-  block and state.OTHER_STATE instead of the viewer's state.
+  block and state.OTHER_STATE instead of the viewer's state, plus the employee's pending change requests the
+  viewer may approve (team.requests_to_approve), read fresh each time since approving changes them.
 - GET /api/team?week=<any day>[&fresh] is team.py's payload for that day's week (this week by default), and
   ?month=YYYY-MM the one for every week of that month, ?year=YYYY that year summarised by month, ?fixes
   the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
   attendances. The page for it is /gestion.
 - Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
+- POST /api/team/attendance {id | employee, check_in, check_out} (ISO times with their offset) edits or
+  creates someone's punch, and POST /api/team/approve {id} approves a change request (team.save_attendance,
+  team.approve_request); both answer 403 like /api/team, and they are the only writes besides punching.
 """
 
 import json
@@ -108,6 +114,8 @@ LOGIN_LOCK = 30
 LOGIN_LOCK_MAX = 900
 PAIR_TTL = 120
 SEES_TTL = 1800
+NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
+NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
 _sessions = {}
 _sees = {}
 _pairings = {}
@@ -128,13 +136,21 @@ def session_cookie(headers, name=COOKIE_NAME):
     return value if value and set(value) <= SESSION_CHARS else ""
 
 
-def sees_others(client):
-    known = _sees.get(client.session_id)
+def remembered(client, right):
+    known = _sees.setdefault(client.session_id, {}).get(right)
     if known and time.monotonic() - known[0] < SEES_TTL:
         return known[1]
-    answer = client.sees_others()
-    _sees[client.session_id] = (time.monotonic(), answer)
+    answer = getattr(client, right)()
+    _sees[client.session_id][right] = (time.monotonic(), answer)
     return answer
+
+
+def sees_others(client):
+    return remembered(client, "sees_others")
+
+
+def edits_punches(client):
+    return remembered(client, "edits_punches")
 
 
 def session_ok(session_id):
@@ -291,18 +307,21 @@ class Handler(BaseHTTPRequestHandler):
             params = dict(parse_qsl(query, keep_blank_values=True))
             employee = params.get("employee", "")
             if not employee:
-                payload = data.fetch_data(new_client(self.session), fresh="fresh" in params)
-                self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state()))
+                client = new_client(self.session)
+                payload = data.fetch_data(client, fresh="fresh" in params)
+                self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state(),
+                                     can_edit=bool(payload.get("team")) and edits_punches(client)))
                 return
             if not employee.isdigit():
                 self._send(400, {"error": f"Empleado no válido: {employee}"})
                 return
             client = new_client(self.session)
             if not sees_others(client):
-                self._send(403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"})
+                self._send(403, {"error": NOT_TEAM})
                 return
             payload = data.fetch_data(client, fresh="fresh" in params, employee=int(employee))
-            self._send(200, dict(payload, phone=None, state=state.OTHER_STATE))
+            self._send(200, dict(payload, phone=None, state=state.OTHER_STATE, can_edit=edits_punches(client),
+                                 requests=team.requests_to_approve(client, int(employee))))
         elif self.path == "/api/team":
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})
@@ -319,7 +338,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             client = new_client(self.session)
             if not sees_others(client):
-                self._send(403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"})
+                self._send(403, {"error": NOT_TEAM})
                 return
             if year:
                 self._send(200, team.fetch_year(client, year, "fresh" in params))
@@ -327,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
             if "fixes" in params:
                 self._send(200, team.fetch_fixes(client, "fresh" in params))
                 return
-            self._send(200, team.fetch_team(client, span[0], "fresh" in params, *span[1:]))
+            self._send(200, dict(team.fetch_team(client, span[0], "fresh" in params, *span[1:]), can_edit=edits_punches(client)))
         else:
             self._send(404, {"error": "not found"})
 
@@ -420,5 +439,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
         elif self.path == "/api/attendance":
             self._send(*data.punch(new_client(self.session), body.get("action")))
+        elif self.path in ("/api/team/attendance", "/api/team/approve"):
+            client = new_client(self.session)
+            if not sees_others(client):
+                self._send(403, {"error": NOT_TEAM})
+            elif self.path == "/api/team/attendance":
+                self._send(*team.save_attendance(client, body) if edits_punches(client) else (403, {"error": NOT_EDITOR}))
+            else:
+                self._send(*team.approve_request(client, body.get("id")))
         else:
             self._send(404, {"error": "not found"})

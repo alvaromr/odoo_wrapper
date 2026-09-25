@@ -20,6 +20,7 @@ import { renderHero, renderAll, setRangeMonths, punchText } from "./render.js";
 import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
 import { wireLogout } from "./shared.js";
 import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
+import { wireDayDialog, onDaySaved } from "./dayedit.js";
 
 store.other = location.pathname === "/empleado" ? new URLSearchParams(location.search).get("id") : null;
 
@@ -105,5 +106,7 @@ document.getElementById("refreshBtn").addEventListener("click", async e => {
 });
 
 wireLogout(document.getElementById("logoutBtn"));
+wireDayDialog();
+onDaySaved(() => loadAndRender(true));
 
 loadFirst();

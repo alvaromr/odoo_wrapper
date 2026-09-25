@@ -1,6 +1,7 @@
 """Unit tests for the management payload: roster, targets, absences and every flag, against a scripted Odoo."""
 
 import unittest
+import unittest.mock
 from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 
@@ -47,7 +48,8 @@ for e in EMPLOYEES:
     e.setdefault("active", True)
     e.setdefault("departure_date", False)
 REQUESTS = [
-    {"request_owner_id": [11, "ana"], "date_start": at(2, 9), "date_end": at(2, 17, 40), "request_status": "pending",
+    {"id": 51, "request_owner_id": [11, "ana"], "date_start": at(2, 9), "date_end": at(2, 17, 40), "request_status": "pending",
+     "user_status": "pending",
      "reason": "<div>Olvidé fichar&nbsp;la salida</div><div><br></div><div>Salí a las 17:40</div>"},
     {"request_owner_id": [13, "carl"], "date_start": at(1, 9), "date_end": False, "request_status": "approved",
      "reason": False},
@@ -211,16 +213,28 @@ class BuildTeamTest(unittest.TestCase):
         ana, carl = self.people["Ana"], self.people["Carl"]
         self.assertEqual([len(d["requests"]) for d in ana["days"]], [0, 0, 1, 0, 0, 0, 0])
         self.assertEqual(ana["days"][2]["requests"], [{
+            "id": 51, "can_approve": True,
             "from": dt.local(at(2, 9)).isoformat(), "to": dt.local(at(2, 17, 40)).isoformat(),
             "status": "pending", "reason": "Olvidé fichar la salida Salí a las 17:40",
         }])
-        self.assertEqual(carl["days"][1]["requests"], [{"from": dt.local(at(1, 9)).isoformat(), "to": None,
+        self.assertEqual(carl["days"][1]["requests"], [{"id": None, "can_approve": False, "from": dt.local(at(1, 9)).isoformat(), "to": None,
                                                          "status": "approved", "reason": ""}])
         self.assertTrue(all(d["requests"] == [] for d in self.people["Bea"]["days"]))
+        self.assertEqual([self.people[n]["pending"] for n in ("Ana", "Bea", "Carl")], [1, 0, 0])
         domain = next(args for model, args, _ in self.client.calls if model == "approval.request")[0]
         self.assertIn(("request_owner_id", "in", [11, 13]), domain)
         self.assertIn(("category_id.name", "ilike", "fichaje"), domain)
         self.assertEqual(ana["days"][2]["flags"], ["open"])
+
+    def test_someones_page_lists_only_the_pending_requests_the_viewer_may_approve(self):
+        waiting = dict(REQUESTS[0], date_start="2024-01-10 08:00:00")
+        mine = dict(waiting, id=52, user_status="approved")
+        client = ScriptedClient(rows(**{"hr.employee": [{"id": 1, "user_id": [11, "ana"]}], "approval.request": [waiting, mine]}))
+        self.assertEqual([r["id"] for r in tm.requests_to_approve(client, 1)], [51])
+        domain = next(args for model, args, _ in client.calls if model == "approval.request")[0]
+        self.assertEqual(domain[1:], [("request_owner_id", "in", [11]), ("request_status", "in", ["pending"])])
+        nobody = ScriptedClient(rows(**{"hr.employee": [{"id": 1, "user_id": False}]}))
+        self.assertEqual(tm.requests_to_approve(nobody, 1), [])
 
     def test_without_access_to_approvals_there_are_no_requests(self):
         def refuse(args, kwargs):
@@ -373,7 +387,7 @@ class FixesTest(unittest.TestCase):
         self.assertEqual([(i["date"], i["kind"]) for i in ana["items"]],
                          [("2025-03-04", "empty"), ("2025-03-05", "open"), ("2025-03-07", "long")])
         self.assertEqual(ana["items"][2]["sessions"][0]["in"], dt.local(at(4, 9)).isoformat())
-        self.assertEqual(set(ana["items"][2]["sessions"][0]), {"in", "out", "hours"})
+        self.assertEqual(set(ana["items"][2]["sessions"][0]), {"id", "in", "out", "hours"})
         self.assertEqual(ana["archived"], False)
         self.assertEqual(fixes["limits"]["long_day"], 12)
 
@@ -427,3 +441,72 @@ class FetchTeamTest(unittest.TestCase):
         self.assertEqual(tm.fetch_team(client, MONDAY, False, 5, MONDAY, MONDAY + timedelta(weeks=5)), 4)
         self.assertEqual(tm.fetch_team(client, MONDAY, False, 5, MONDAY, MONDAY + timedelta(weeks=5)), 4)
 
+
+
+class WriteTest(unittest.TestCase):
+    def client(self, answers=None, fail=None):
+        calls = []
+
+        def call_kw(model, method, args, kwargs=None):
+            calls.append((model, method, args))
+            if fail and method in fail:
+                raise fail[method]
+            return (answers or {}).get(method)
+        return SimpleNamespace(call_kw=call_kw, calls=calls)
+
+    def iso(self, day, hour, minute=0):
+        return datetime.combine(MONDAY + timedelta(days=day), time(hour, minute)).astimezone().isoformat()
+
+    def test_a_punch_is_corrected_and_the_caches_dropped(self):
+        client = self.client({"read": [{"employee_id": [7, "x"], "check_out": at(0, 17)}]})
+        with unittest.mock.patch.object(dt, "drop_data_cache") as drop:
+            status, body = tm.save_attendance(client, {"id": 31512, "check_in": self.iso(0, 9), "check_out": self.iso(0, 17, 40)})
+        self.assertEqual((status, body), (200, {"ok": True, "lost_entry": None}))
+        self.assertEqual(client.calls[1], ("hr.attendance", "write", [[31512], {"check_in": at(0, 9), "check_out": at(0, 17, 40)}]))
+        drop.assert_called_once()
+
+    def test_shortening_into_the_same_day_warns_when_the_next_check_in_would_be_lost(self):
+        body = {"id": 1, "check_in": self.iso(0, 16, 7), "check_out": self.iso(0, 17, 40)}
+        lonely = self.client({"read": [{"employee_id": [7, "x"], "check_out": at(1, 8, 34)}], "search_count": 0})
+        self.assertEqual(tm.save_attendance(lonely, body)[1]["lost_entry"], dt.local(at(1, 8, 34)).isoformat())
+        domain = lonely.calls[-1][2][0]
+        self.assertEqual(domain, [("employee_id", "=", 7), ("check_in", ">=", at(1, 8, 34)), ("check_in", "<=", at(1, 8, 44))])
+        repunched = self.client({"read": [{"employee_id": [7, "x"], "check_out": at(1, 8, 34)}], "search_count": 1})
+        self.assertIsNone(tm.save_attendance(repunched, body)[1]["lost_entry"])
+        closing = self.client({"read": [{"employee_id": [7, "x"], "check_out": False}]})
+        self.assertIsNone(tm.save_attendance(closing, body)[1]["lost_entry"])
+
+    def test_a_new_punch_is_created_for_the_employee(self):
+        client = self.client()
+        status, _ = tm.save_attendance(client, {"employee": "7", "check_in": "2025-03-04T08:34:00Z", "check_out": "2025-03-04T15:00:00.000Z"})
+        self.assertEqual(status, 200)
+        self.assertEqual(client.calls, [("hr.attendance", "create",
+                                         [{"employee_id": 7, "check_in": "2025-03-04 08:34:00", "check_out": "2025-03-04 15:00:00"}])])
+
+    def test_bad_input_and_odoo_refusals(self):
+        client = self.client()
+        for body in ({}, {"check_in": "x", "check_out": "y"}, {"id": "z", "check_in": self.iso(0, 9), "check_out": self.iso(0, 10)}):
+            self.assertEqual(tm.save_attendance(client, body)[0], 400)
+        self.assertEqual(tm.save_attendance(client, {"id": 1, "check_in": self.iso(0, 10), "check_out": self.iso(0, 9)}),
+                         (400, {"error": "La salida tiene que ser posterior a la entrada"}))
+        self.assertEqual(tm.save_attendance(client, {"check_in": self.iso(0, 9), "check_out": self.iso(0, 10)}),
+                         (400, {"error": "Falta el fichaje o la persona"}))
+        self.assertEqual(client.calls, [])
+        refused = self.client(fail={"create": OdooError("se solapa")})
+        self.assertEqual(tm.save_attendance(refused, {"employee": 7, "check_in": self.iso(0, 9), "check_out": self.iso(0, 10)}),
+                         (409, {"error": "se solapa"}))
+        expired = self.client(fail={"read": SessionExpired("caducada")})
+        with self.assertRaises(SessionExpired):
+            tm.save_attendance(expired, {"id": 1, "check_in": self.iso(0, 9), "check_out": self.iso(0, 10)})
+
+    def test_a_request_is_approved_as_the_session_user(self):
+        client = self.client()
+        with unittest.mock.patch.object(dt, "drop_data_cache") as drop:
+            self.assertEqual(tm.approve_request(client, "552"), (200, {"ok": True}))
+        self.assertEqual(client.calls, [("approval.request", "action_approve", [[552]])])
+        drop.assert_called_once()
+        self.assertEqual(tm.approve_request(client, None)[0], 400)
+        self.assertEqual(tm.approve_request(self.client(fail={"action_approve": OdooError("no eres aprobador")}), 1),
+                         (409, {"error": "no eres aprobador"}))
+        with self.assertRaises(SessionExpired):
+            tm.approve_request(self.client(fail={"action_approve": SessionExpired("caducada")}), 1)

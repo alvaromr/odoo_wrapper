@@ -41,7 +41,8 @@ Opciones:
 
 Si tu usuario de Odoo puede ver fichajes de otras personas, el panel enlaza «Gestión»
 (http://localhost:{server.PORT}/gestion): semana, mes o año de cada persona que Odoo te deja ver,
-con sus incidencias, y desde cada nombre su propio panel, solo de lectura. No escribe nada en Odoo.
+con sus incidencias, y desde cada nombre su propio panel, solo de lectura. El diálogo de cada día
+corrige sus fichajes y aprueba sus solicitudes de cambio en Odoo; nada más escribe en Odoo salvo fichar.
 
 Al guardar cambios en el código se reinicia solo; no hace falta pararlo. Si el puerto {server.PORT}
 está ocupado es que ya hay otro dashboard: recarga esa página en vez de arrancar otro.

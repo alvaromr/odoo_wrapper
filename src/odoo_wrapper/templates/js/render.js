@@ -11,7 +11,7 @@
  *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
  * - Every sentence quoting the schedule is generated from it (scheduleSentence).
- * - The banner above the hero lists this person's punch errors (week.js's punchErrors), whoever is looking
+ * - The banner under the hero lists this person's punch errors (week.js's punchErrors), whoever is looking
  *   and whatever their rights: it reads only this page's own sessions. Each one opens its week. It folds
  *   (closed by default, the count in its title) and keeps whatever the viewer left it at across repaints. A missed day
  *   also reads «sin fichar» in orange in both calendar views instead of a bare dash. In the weekly chart a
@@ -36,6 +36,12 @@
  * - A session left open since an earlier day is not today's work: the hero estimates no leave time from it
  *   and its last-punch line says, in orange, since when it is open (leftOpen). The punch buttons still follow
  *   the real open attendance, which is what Odoo will close.
+ * - For a session that may change punches (the payload's can_edit), each day in the banner has «Corregir»,
+ *   which opens it in the correcting dialog of dayedit.js, as the management view does; saving reloads this
+ *   page. A day with a request the viewer may approve has «Revisar» instead when they may not correct. On someone else's page, whoever may approve their pending change
+ *   requests gets them in the same banner (the payload's requests; the employee never sees them), in
+ *   blue, grouped with the punch errors of their day: one line and one «Corregir» per day, whose dialog
+ *   also approves the request.
  * - Colours: never hardcode one here. Two call sites build the token name at runtime (var(--${…})) and go
  *   silently colourless when a token is renamed; the palette and its rules are in style.css.
  */
@@ -44,7 +50,8 @@ import {
   buildWeek, buildWeeks, weekRangeLabel, lunchHours, lunchOpen, targetLabel, weeksSince, punchErrors, weekOffsetOf,
   missed, longDay, offHours, dayError, unclosed,
 } from "./week.js";
-import { fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey } from "./format.js";
+import { fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey, isoDay } from "./format.js";
+import { openDayOf } from "./dayedit.js";
 import { el, api, attachTip, tipRow } from "./shared.js";
 import { fillBar, minutesField, bellIcon, qrIcon, actionButton } from "./ui.js";
 import { saveState } from "./api.js";
@@ -801,38 +808,74 @@ function dayValue(d) {
 
 let errorsOpen = false;
 
+function errorPiece(s) {
+  return {
+    long: () => ["kind", `Jornada de ${fmtShort(s.hours)}`, s.count > 1 ? `en ${s.count} sesiones` : ""],
+    off: () => ["kind", "Fuera de horario", `${fmtTime(s.in)} – ${fmtTime(s.out)}${dayKey(s.out) !== dayKey(s.in) ? " (+1)" : ""}`],
+    open: () => ["kind", "Sin cerrar", `entrada a las ${fmtTime(s.in)}, sin salida`],
+    empty: () => ["kind", "Sin fichar", `con jornada prevista de ${fmtShort(s.expected)}`],
+  }[s.kind]();
+}
+
+function requestPiece(r) {
+  const span = `${fmtTime(new Date(r.from))}${r.to ? `–${fmtTime(new Date(r.to))}` : ""}`;
+  return ["req", "Solicitud pendiente", `${span}${r.reason ? ` · ${r.reason}` : ""}`];
+}
+
 export function renderErrors() {
   const box = document.getElementById("errorsBanner");
   const errors = punchErrors();
-  box.classList.toggle("hidden", errors.length === 0);
-  if (!errors.length) return;
+  const requests = store.data.requests || [];
+  box.classList.toggle("hidden", !errors.length && !requests.length);
+  box.classList.toggle("requests", !errors.length);
+  if (!errors.length && !requests.length) return;
+  const days = new Map();
+  const on = at => {
+    const key = isoDay(at);
+    if (!days.has(key)) days.set(key, { date: new Date(at.getFullYear(), at.getMonth(), at.getDate()), pieces: [] });
+    return days.get(key).pieces;
+  };
+  for (const s of errors) on(s.in).push(errorPiece(s));
+  for (const r of requests) on(new Date(r.from)).push(requestPiece(r));
   const list = el("ul");
-  for (const s of errors) {
+  for (const [key, { date, pieces }] of [...days].sort(([a], [b]) => b.localeCompare(a))) {
     const item = el("button");
     item.type = "button";
-    const day = `${DayNames[(s.in.getDay() + 6) % 7]} ${fmtDate(s.in)}`;
-    const [kind, text] = {
-      long: () => [`Jornada de ${fmtShort(s.hours)}`, `${day}${s.count > 1 ? ` · ${s.count} sesiones` : ""}`],
-      off: () => ["Fuera de horario", `${day} ${fmtTime(s.in)} – ${fmtTime(s.out)}${dayKey(s.out) !== dayKey(s.in) ? " (+1)" : ""}`],
-      open: () => ["Sin cerrar", `entrada el ${fmtDate(s.in)} a las ${fmtTime(s.in)}, sin salida`],
-      empty: () => ["Sin fichar", `${day}, con jornada prevista de ${fmtShort(s.expected)}`],
-    }[s.kind]();
-    item.appendChild(el("span", "kind", `${kind} · `));
-    item.append(text);
-    item.addEventListener("click", () => showWeek(s.in));
+    item.appendChild(el("span", "day", `${DayNames[(date.getDay() + 6) % 7]} ${fmtDate(date)}`));
+    for (const [cls, kind, text] of pieces) {
+      item.append(" · ");
+      item.appendChild(el("span", cls, kind));
+      if (text) item.append(` ${text}`);
+    }
+    item.addEventListener("click", () => showWeek(date));
     const li = el("li");
     li.appendChild(item);
+    if (store.data.can_edit || pieces.some(([cls]) => cls === "req")) {
+      const fix = el("button", "fix", store.data.can_edit ? "Corregir" : "Revisar");
+      fix.type = "button";
+      fix.addEventListener("click", () => openDayOf(Number(store.other) || store.data.employee_id, key).catch(e => {
+        fix.textContent = "No se pudo abrir";
+        fix.title = e.message;
+      }));
+      li.appendChild(fix);
+    }
     list.appendChild(li);
   }
   const details = el("details");
   details.open = errorsOpen;
   details.addEventListener("toggle", () => { errorsOpen = details.open; });
   const summary = el("summary");
-  summary.appendChild(el("h2", null, `⚠ ${errors.length} ${errors.length === 1 ? "fichaje por corregir" : "fichajes por corregir"}`));
+  const n = errors.length, m = requests.length;
+  summary.appendChild(el("h2", null, [
+    n ? `⚠ ${n} ${n === 1 ? "fichaje por corregir" : "fichajes por corregir"}` : "",
+    m ? `${m} ${m === 1 ? "solicitud pendiente" : "solicitudes pendientes"}` : "",
+  ].filter(Boolean).join(" · ")));
   details.append(summary,
     el("p", null, `Entradas sin cerrar de días anteriores, jornadas de más de ${fmtHM(store.data.long_hours)}, fichajes fuera `
       + `de ${fmtClock(store.data.work_hours[0])} a ${fmtClock(store.data.work_hours[1])} y días con jornada prevista `
-      + "sin ningún fichaje, de todo el historial. Pulsa uno para ver su semana."),
+      + "sin ningún fichaje, de todo el historial"
+      + (m ? ", y las solicitudes de cambio pendientes de tu aprobación" : "")
+      + ", un día por línea. Pulsa uno para ver su semana."),
     list);
   box.replaceChildren(details);
 }

@@ -25,7 +25,7 @@
   .fixes .chart-note { padding-right: 108px; }
   .fix-scroll { overflow-x: auto; cursor: grab; touch-action: pan-y; }
   .fix-scroll.dragging { cursor: grabbing; user-select: none; }
-  .fix-scroll a { cursor: pointer; }
+  .fix-scroll a, .fix-scroll .mark.link { cursor: pointer; }
   .fix-grid { display: grid; grid-template-columns: 220px 270px max-content; row-gap: 6px; align-items: center;
     width: max-content; }
   .fix-grid > :nth-child(3n+1), .fix-grid > :nth-child(3n+2) { position: sticky; z-index: 1; background: var(--card);
@@ -86,20 +86,17 @@
   td.today { background: var(--muted); }
   td.future { color: var(--subtle-foreground); }
   td.warn { background: var(--warning-wash); }
-  td.over { background: var(--over-wash); }
   td.bad { background: var(--destructive-wash); }
   td.total.warn:last-child { background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card); }
-  td.total.over:last-child { background: linear-gradient(var(--over-wash), var(--over-wash)), var(--card); }
   td.total.bad:last-child { background: linear-gradient(var(--destructive-wash), var(--destructive-wash)), var(--card); }
   .hours { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
   .meta { font-size: 11.5px; color: var(--muted-foreground); }
   .flag { display: block; font-size: 11.5px; font-weight: 600; color: var(--destructive); }
   .flag.warn { color: var(--status-warning); }
-  .flag.over, #tip .t-note.over, .dialog .t-note.over { color: var(--chart-2); }
   .req { display: block; font-size: 11.5px; color: var(--muted-foreground); margin-top: 2px; }
-  :is(.req, #tip .t-note, .dialog .t-note).pending { color: var(--chart-2); font-weight: 600; }
-  :is(.req, #tip .t-note, .dialog .t-note).approved { color: var(--status-success); }
-  :is(.req, #tip .t-note, .dialog .t-note).refused { text-decoration: line-through; }
+  .req.pending { color: var(--chart-2); font-weight: 600; }
+  .req.approved { color: var(--status-success); }
+  .req.refused { text-decoration: line-through; }
   .empty-state { padding: 28px 20px; color: var(--muted-foreground); text-align: center; }
   #loadmsg { color: var(--muted-foreground); padding: 40px 0; text-align: center; }
   .legend { font-size: 12px; color: var(--muted-foreground); margin: 10px 2px; }
@@ -109,7 +106,8 @@
   .chart-title { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
   .chart svg { display: block; width: 100%; height: auto; margin-top: 12px; }
   .chart .bar.short { fill: var(--chart-short); }
-  .chart .bar.over { fill: var(--chart-2); }
+  .chart .bar.over { fill: var(--chart-over); }
+  .chart .bar.surplus { fill: var(--chart-surplus); }
   .chart .bar.error { fill: var(--chart-error); }
   .chart .hit { fill: transparent; }
   .chart .mark:hover .hit, .chart .mark:focus-visible .hit { fill: var(--muted); }
@@ -124,18 +122,10 @@
   .legend-item { display: inline-flex; align-items: center; gap: 6px; }
   .swatch { width: 10px; height: 10px; border-radius: 2px; }
   .swatch.short { background: var(--chart-short); }
-  .swatch.over { background: var(--chart-2); }
+  .swatch.over { background: var(--chart-over); }
   .swatch.error { background: var(--chart-error); }
   #tip .t-row .k .swatch { display: inline-block; margin-right: 6px; vertical-align: -1px; }
   #tip .t-name { padding-left: 16px; color: var(--muted-foreground); }
-  dialog.dialog {
-    margin: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
-    color: var(--foreground); padding: 18px 20px; width: min(440px, calc(100vw - 32px));
-  }
-  dialog.dialog::backdrop { background: color-mix(in srgb, var(--background) 65%, transparent); }
-  .dialog h2 { font-size: 15px; font-weight: 650; margin-bottom: 8px; }
-  .dialog .t-row, .dialog .t-note { font-size: 13.5px; }
-  .dialog .actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -150,6 +140,7 @@
   </header>
 
   <div class="toolbar">
+    <input class="search" id="search" type="search" placeholder="Buscar persona" aria-label="Buscar persona por nombre" autocomplete="off">
     <button class="hdr-btn" id="prevWeek" type="button" aria-label="Anterior">‹</button>
     <span class="week" id="weekLabel"></span>
     <button class="hdr-btn" id="nextWeek" type="button" aria-label="Siguiente">›</button>
@@ -169,10 +160,10 @@
       <button type="button" data-filter="issues" aria-pressed="true">Con incidencias</button>
       <button type="button" data-filter="under">Bajo objetivo</button>
       <button type="button" data-filter="over">Demasiadas horas</button>
+      <button type="button" data-filter="requests" title="Con solicitudes de cambio pendientes">Con solicitudes</button>
       <button type="button" data-filter="all">Todas</button>
     </div>
     <button class="hdr-btn" id="archivedBtn" type="button" aria-pressed="true">Ocultar archivados</button>
-    <input class="search" id="search" type="search" placeholder="Buscar persona" aria-label="Buscar persona por nombre" autocomplete="off">
   </div>
 
   <div id="loadmsg">Cargando datos de Odoo…</div>
@@ -191,7 +182,6 @@
       <button type="button" data-kind="off" aria-pressed="true">Fuera de horario</button>
       <button type="button" data-kind="empty" aria-pressed="true">Sin fichar</button>
     </div>
-    <input class="search" id="fixSearch" type="search" placeholder="Buscar persona" aria-label="Buscar persona en los fichajes por corregir" autocomplete="off">
     </div>
     <div class="fix-wrap">
       <div class="fix-zoom">
@@ -203,14 +193,9 @@
     </div>
   </section>
   <p class="legend criteria" id="criteria"></p>
-  <p class="legend">Cada celda: horas fichadas y, debajo, la ausencia si la hay. Pasa el ratón por una celda, o haz clic en ella, para ver sus fichajes, el porqué de cada marca y el motivo de sus solicitudes de modificación. Sábado y domingo solo aparecen si alguien tiene algo en ellos. En «Mes», cada semana se evalúa entera (haz clic en ella para abrirla) y la columna Mes suma solo los días de ese mes. En «Año», cada mes igual; haz clic en uno para abrirlo.</p>
+  <p class="legend">Cada celda: horas fichadas y, debajo, la ausencia si la hay. Pasa el ratón por una celda, o haz clic en ella, para ver sus fichajes, el porqué de cada marca y el motivo de sus solicitudes de modificación. Sábado y domingo solo aparecen si alguien tiene algo en ellos. En «Mes», cada semana se evalúa entera (haz clic en ella para abrirla solo con esa persona) y la columna Mes suma solo los días de ese mes. En «Año», cada mes igual; haz clic en uno para abrirlo solo con esa persona.</p>
 </div>
 <div id="tip" role="tooltip"></div>
-<dialog class="dialog" id="dayDialog" aria-labelledby="dayDialogTitle">
-  <h2 id="dayDialogTitle"></h2>
-  <div id="dayDialogBody"></div>
-  <div class="actions"><button class="btn ghost" id="dayDialogClose" type="button">Cerrar</button></div>
-</dialog>
 <script type="module" src="/js/team.js"></script>
 </body>
 </html>

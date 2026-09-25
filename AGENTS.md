@@ -24,8 +24,8 @@ src/odoo_wrapper/
   qr.py              hand-written QR encoder
   templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
                      (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
-                     as ES modules (store, format, week, ui, api, render, alarms, app, shared, team, teamcharts),
-                     app.js and team.js the only ones each page loads, shared.js what both use, store.js
+                     as ES modules (store, format, week, ui, api, render, alarms, app, shared, dayedit, team, teamcharts),
+                     app.js and team.js the only ones each page loads, shared.js and dayedit.js (the day dialog) what both use, store.js
                      the dashboard's shared state, served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance  (.claude/skills in the repo points there; symlink it into
@@ -145,6 +145,10 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   each day), `hr.employee` with `active_test` off (`active`, `departure_date` for people who left) and
   `approval.request` (attendance change requests, found by category name). Which employees a session sees is
   left to Odoo's record rules; `data.py` and `team.py` headers have the details.
+- The management view's day dialog is the only other writer: it `write`s or `create`s `hr.attendance` (check_in,
+  check_out) and calls `approval.request.action_approve` as the session's user, both only if Odoo's rights allow
+  them. Neither can be tested reversibly against a real Odoo: an attendance keeps a tracking message for every
+  change, even one undone, and approving notifies the employee. Test them against the scripted client only.
 
 ## Known limitations, already investigated
 

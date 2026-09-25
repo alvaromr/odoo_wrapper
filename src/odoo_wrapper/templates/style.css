@@ -10,7 +10,10 @@
  * missing in the management charts (its dark step is darker than --destructive,
  * which is too light for a mark there; validated with the dataviz validator).
  * Orange (--chart-error marks, --status-warning text, --warning-wash) is a punch
- * error (a check-in or check-out missing or forgotten); red is a target not met.
+ * error (a check-in or check-out missing or forgotten); red is a target not met, short or with too many
+ * hours alike. In the management charts too many hours is a paler red (--chart-over) beside hours short,
+ * and a positive balance is neutral (--chart-surplus): it is no flag until it passes the margin. Its
+ * blue is kept for change requests, which used to share it with too many hours.
  * Light and dark both ship; the page follows prefers-color-scheme.
  *
  * Breaks: in the day and week meters and the calendar rows each break is drawn
@@ -52,7 +55,8 @@
   --success-border: color-mix(in srgb, var(--status-success) 25%, transparent);
   --destructive-wash: color-mix(in srgb, var(--destructive) 10%, transparent);
   --warning-wash: color-mix(in srgb, var(--chart-error) 14%, transparent);
-  --over-wash: color-mix(in srgb, var(--chart-2) 12%, transparent);
+  --chart-over: color-mix(in srgb, var(--chart-short) 50%, var(--card));
+  --chart-surplus: var(--muted-foreground);
 
   --radius: 10px;
   --radius-sm: 6px;
@@ -198,3 +202,26 @@ header .sub { color: var(--muted-foreground); font-size: 13px; flex: 1; }
 @media (prefers-reduced-motion: reduce) {
   #loadbar::before { animation: none; width: 100%; opacity: 0.6; }
 }
+
+/* ---------- the day dialog (dayedit.js), on both pages ---------- */
+dialog.dialog {
+  margin: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+  color: var(--foreground); padding: 18px 20px; width: min(440px, calc(100vw - 32px));
+}
+dialog.dialog::backdrop { background: color-mix(in srgb, var(--background) 65%, transparent); }
+.dialog h2 { font-size: 15px; font-weight: 650; margin-bottom: 8px; }
+.dialog .t-row, .dialog .t-note { font-size: 13.5px; }
+.dialog .dialog-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.editor { display: grid; gap: 6px; margin: 4px 0 8px; }
+.edit-row { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.edit-row input { border: 1px solid var(--input); background: transparent; color: var(--foreground); font: inherit;
+  font-variant-numeric: tabular-nums; border-radius: var(--radius-sm); padding: 3px 6px; }
+.edit-row.warn input { border-color: var(--chart-error); color: var(--status-warning); }
+.edit-row .meta { color: var(--muted-foreground); font-size: 12px; }
+.edit-actions { display: flex; gap: 8px; }
+.dialog .btn.small { padding: 4px 10px; font-size: 12.5px; }
+.dialog-note { font-size: 13px; color: var(--status-warning); margin-top: 8px; }
+.dialog-note:empty { display: none; }
+:is(#tip, .dialog) .t-note.pending { color: var(--chart-2); font-weight: 600; }
+:is(#tip, .dialog) .t-note.approved { color: var(--status-success); }
+:is(#tip, .dialog) .t-note.refused { text-decoration: line-through; }

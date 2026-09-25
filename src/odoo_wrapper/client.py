@@ -219,6 +219,15 @@ class OdooClient:
             self.session_info()
         return bool(self.call_kw("hr.attendance", "search", [[("employee_id.user_id", "!=", self.uid)]], {"limit": 1}))
 
+    def edits_punches(self):
+        try:
+            return all(self.call_kw("hr.attendance", "check_access_rights", [op], {"raise_exception": False})
+                       for op in ("write", "create"))
+        except SessionExpired:
+            raise
+        except OdooError:
+            return False
+
     def logout(self):
         self.jsonrpc("/web/session/destroy", {})
 

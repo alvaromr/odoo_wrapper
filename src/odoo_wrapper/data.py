@@ -187,6 +187,7 @@ def real_punch(record):
 def session_of(record, reason_by_id):
     reason = next((reason_by_id[i] for i in record.get("attendance_reason_ids", []) if i in reason_by_id), None)
     return {
+        "id": record.get("id"),
         "in": local(record["check_in"]).isoformat(),
         "out": local(record["check_out"]).isoformat() if record["check_out"] else None,
         "hours": record["worked_hours"] if record["check_out"] else None,
@@ -290,6 +291,7 @@ def build_data(client, employee=None):
 
     return {
         "employee": client.employee_name,
+        "employee_id": client.employee_id,
         "breaks": client.sign_in_reasons()[1] is not None,
         "team": client.sees_others(),
         "generated_at": now_local.isoformat(),

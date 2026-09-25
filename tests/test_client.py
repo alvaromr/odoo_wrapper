@@ -167,6 +167,16 @@ class RpcTest(unittest.TestCase):
         self.assertFalse(odoo.sees_others())
         self.assertEqual(odoo.opener.calls[1][1]["args"], [[["employee_id.user_id", "!=", 9]]])
 
+    def test_edits_punches_asks_odoo_for_write_and_create_on_attendances(self):
+        odoo = client(kw(True), kw(True))
+        self.assertTrue(odoo.edits_punches())
+        self.assertEqual([(p["model"], p["method"], p["args"]) for _, p, _ in odoo.opener.calls],
+                         [("hr.attendance", "check_access_rights", ["write"]), ("hr.attendance", "check_access_rights", ["create"])])
+        self.assertFalse(client(kw(True), kw(False)).edits_punches())
+        self.assertFalse(client({"error": {"code": 200, "message": "Odoo Server Error", "data": {"message": "no"}}}).edits_punches())
+        with self.assertRaises(c.SessionExpired):
+            client({"error": {"code": 100}}).edits_punches()
+
     def test_logout_destroys_the_session(self):
         odoo = client({"result": None})
         odoo.logout()

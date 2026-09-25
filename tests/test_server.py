@@ -217,16 +217,40 @@ class HandlerTest(unittest.TestCase):
 
     def test_someone_elses_data(self):
         self.assertEqual(self.get("/api/data?employee=x")[0], 400)
-        with patch.object(sv, "new_client") as client, patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch:
+        with patch.object(sv, "new_client") as client, patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch, \
+                patch.object(sv.team, "requests_to_approve", return_value=[{"id": 552}]) as requests:
             client.return_value.sees_others.return_value = False
             self.assertEqual(self.get("/api/data?employee=9")[0], 403)
             fetch.assert_not_called()
             client.return_value.sees_others.return_value = True
+            client.return_value.edits_punches.return_value = False
             sv._sees.clear()
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
-            self.assertEqual((payload["phone"], payload["state"]), (None, st.OTHER_STATE))
+            self.assertEqual((payload["phone"], payload["state"], payload["requests"], payload["can_edit"]),
+                             (None, st.OTHER_STATE, [{"id": 552}], False))
+            requests.assert_called_with(client.return_value, 9)
             fetch.assert_called_with(client.return_value, fresh=True, employee=9)
+
+    def test_team_writes(self):
+        self.assertEqual(self.post("/api/team/attendance", {}, cookie=None)[0], 401)
+        with patch.object(sv, "new_client") as client, patch.object(sv.team, "save_attendance", return_value=(200, {"ok": True})) as save, \
+                patch.object(sv.team, "approve_request", return_value=(409, {"error": "no"})) as approve:
+            client.return_value.sees_others.return_value = False
+            self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_TEAM}))
+            self.assertEqual(self.post("/api/team/approve", {"id": 1})[0], 403)
+            save.assert_not_called()
+            client.return_value.sees_others.return_value = True
+            client.return_value.edits_punches.return_value = False
+            sv._sees.clear()
+            self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_EDITOR}))
+            save.assert_not_called()
+            client.return_value.edits_punches.return_value = True
+            sv._sees.clear()
+            self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (200, {"ok": True}))
+            save.assert_called_once_with(client.return_value, {"id": 1})
+            self.assertEqual(self.post("/api/team/approve", {"id": 552})[:3:2], (409, {"error": "no"}))
+            approve.assert_called_once_with(client.return_value, 552)
 
     def test_team_api(self):
         self.assertEqual(self.get("/api/team", cookie=None)[0], 401)
@@ -237,8 +261,9 @@ class HandlerTest(unittest.TestCase):
             self.assertEqual((status, payload), (403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"}))
             fetch.assert_not_called()
             client.return_value.sees_others.return_value = True
+            client.return_value.edits_punches.return_value = True
             sv._sees.clear()
-            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1})
+            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1, "can_edit": True})
             fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
             self.get("/api/team")
             fetch.assert_called_with(client.return_value, sv.team.monday_of(sv.date.today()), False)
@@ -267,6 +292,7 @@ class HandlerTest(unittest.TestCase):
         with patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch:
             status, _, payload = self.get("/api/data?fresh")
             self.assertEqual(status, 200)
+            self.assertIs(payload["can_edit"], False)
             self.assertEqual(payload["state"]["break_minutes"], st.BREAK_DEFAULT)
             self.assertIsNone(payload["phone"])
             self.assertEqual((fetch.call_args.args[0].session_id, fetch.call_args.kwargs), ("sid", {"fresh": True}))
