@@ -44,7 +44,8 @@
   .fix-name { color: var(--foreground); text-decoration: none; font-weight: 550; font-size: 13px; }
   .fix-name:hover { text-decoration: underline; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground); }
+  .chip { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--muted-foreground); }
   .chip.warn { color: var(--status-warning); border-color: var(--chart-error); }
   .fixes svg { display: block; }
   .fix-grid .chips { flex-wrap: wrap; }
@@ -68,7 +69,8 @@
   .scroll { overflow-x: auto; }
   table { border-collapse: collapse; width: 100%; min-width: 860px; }
   th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
-  thead th { font-size: 11px; font-weight: 550; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-foreground); white-space: nowrap; }
+  thead th { font-size: 11px; font-weight: 550; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted-foreground); white-space: nowrap; }
   thead th.today { color: var(--foreground); }
   tbody tr:last-child td { border-bottom: 0; }
   td.name { font-weight: 550; white-space: nowrap; }
@@ -88,7 +90,8 @@
   td.warn { background: var(--warning-wash); }
   td.bad { background: var(--destructive-wash); }
   td.total.warn:last-child { background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card); }
-  td.total.bad:last-child { background: linear-gradient(var(--destructive-wash), var(--destructive-wash)), var(--card); }
+  td.total.bad:last-child {
+    background: linear-gradient(var(--destructive-wash), var(--destructive-wash)), var(--card); }
   .hours { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
   .meta { font-size: 11.5px; color: var(--muted-foreground); }
   .flag { display: block; font-size: 11.5px; font-weight: 600; color: var(--destructive); }
@@ -140,7 +143,8 @@
   </header>
 
   <div class="toolbar">
-    <input class="search" id="search" type="search" placeholder="Buscar persona" aria-label="Buscar persona por nombre" autocomplete="off">
+    <input class="search" id="search" type="search" placeholder="Buscar persona" aria-label="Buscar persona por nombre"
+           autocomplete="off">
     <button class="hdr-btn" id="prevWeek" type="button" aria-label="Anterior">‹</button>
     <span class="week" id="weekLabel"></span>
     <button class="hdr-btn" id="nextWeek" type="button" aria-label="Siguiente">›</button>
@@ -187,13 +191,20 @@
       <div class="fix-zoom">
         <button type="button" id="zoomOut" aria-label="Alejar la franja">−</button>
         <button type="button" id="zoomIn" aria-label="Acercar la franja">+</button>
-        <button type="button" id="wideBtn" aria-pressed="false" aria-label="Ampliar a todo el ancho" title="Ampliar a todo el ancho">↔</button>
+        <button type="button" id="wideBtn" aria-pressed="false" aria-label="Ampliar a todo el ancho"
+                title="Ampliar a todo el ancho">↔</button>
       </div>
       <div class="fix-scroll" id="fixes"></div>
     </div>
   </section>
   <p class="legend criteria" id="criteria"></p>
-  <p class="legend">Cada celda: horas fichadas y, debajo, la ausencia si la hay. Pasa el ratón por una celda, o haz clic en ella, para ver sus fichajes, el porqué de cada marca y el motivo de sus solicitudes de modificación. Sábado y domingo solo aparecen si alguien tiene algo en ellos. En «Mes», cada semana se evalúa entera (haz clic en ella para abrirla solo con esa persona) y la columna Mes suma solo los días de ese mes. En «Año», cada mes igual; haz clic en uno para abrirlo solo con esa persona.</p>
+  <p class="legend">
+    Cada celda: horas fichadas y, debajo, la ausencia si la hay. Pasa el ratón por una celda, o haz clic en ella,
+    para ver sus fichajes, el porqué de cada marca y el motivo de sus solicitudes de modificación. Sábado y domingo
+    solo aparecen si alguien tiene algo en ellos. En «Mes», cada semana se evalúa entera (haz clic en ella para
+    abrirla solo con esa persona) y la columna Mes suma solo los días de ese mes. En «Año», cada mes igual; haz clic
+    en uno para abrirlo solo con esa persona.
+  </p>
 </div>
 <div id="tip" role="tooltip"></div>
 <script type="module" src="/js/team.js"></script>

@@ -113,8 +113,8 @@ class HandlerTest(unittest.TestCase):
         c.save_config(**CONFIG)
         sv._sessions["sid"] = 3
         self.addCleanup(sv._sessions.clear)
-        sv._sees.clear()
-        self.addCleanup(sv._sees.clear)
+        sv._rights.clear()
+        self.addCleanup(sv._rights.clear)
         sv._login_fails.clear()
         self.addCleanup(sv._login_fails.clear)
         self.addCleanup(dt.drop_data_cache)
@@ -213,7 +213,7 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(client.calls, 2)
         with patch.object(sv, "new_client") as other:
             self.post("/api/logout", {})
-        self.assertNotIn("sid", sv._sees)
+        self.assertNotIn("sid", sv._rights)
 
     def test_someone_elses_data(self):
         self.assertEqual(self.get("/api/data?employee=x")[0], 400)
@@ -224,7 +224,7 @@ class HandlerTest(unittest.TestCase):
             fetch.assert_not_called()
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = False
-            sv._sees.clear()
+            sv._rights.clear()
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
             self.assertEqual((payload["phone"], payload["state"], payload["requests"], payload["can_edit"]),
@@ -234,19 +234,19 @@ class HandlerTest(unittest.TestCase):
 
     def test_team_writes(self):
         self.assertEqual(self.post("/api/team/attendance", {}, cookie=None)[0], 401)
-        with patch.object(sv, "new_client") as client, patch.object(sv.team, "save_attendance", return_value=(200, {"ok": True})) as save, \
-                patch.object(sv.team, "approve_request", return_value=(409, {"error": "no"})) as approve:
+        with patch.object(sv, "new_client") as client, patch.object(sv.corrections, "save_attendance", return_value=(200, {"ok": True})) as save, \
+                patch.object(sv.corrections, "approve_request", return_value=(409, {"error": "no"})) as approve:
             client.return_value.sees_others.return_value = False
             self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_TEAM}))
             self.assertEqual(self.post("/api/team/approve", {"id": 1})[0], 403)
             save.assert_not_called()
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = False
-            sv._sees.clear()
+            sv._rights.clear()
             self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_EDITOR}))
             save.assert_not_called()
             client.return_value.edits_punches.return_value = True
-            sv._sees.clear()
+            sv._rights.clear()
             self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (200, {"ok": True}))
             save.assert_called_once_with(client.return_value, {"id": 1})
             self.assertEqual(self.post("/api/team/approve", {"id": 552})[:3:2], (409, {"error": "no"}))
@@ -262,7 +262,7 @@ class HandlerTest(unittest.TestCase):
             fetch.assert_not_called()
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = True
-            sv._sees.clear()
+            sv._rights.clear()
             self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1, "can_edit": True})
             fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
             self.get("/api/team")

@@ -199,21 +199,21 @@
   .tl-row.today .sess { background: var(--chart-1); }
   .tl-row .sess.rest { background: var(--chart-rest); box-shadow: 0 0 0 2px var(--card); }
   .tl-row .sess.long, .dayrow .bar.long { background: var(--chart-error); }
-  .errors { border-color: var(--chart-error); background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card);
-    margin-top: 16px; }
+  .errors { border-color: var(--chart-error); margin-top: 16px;
+    background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card); }
   .errors h2 { display: inline; font-size: 14px; font-weight: 650; color: var(--status-warning); }
   .errors summary { cursor: pointer; }
   .errors summary::marker { color: var(--status-warning); }
   .errors details[open] summary { margin-bottom: 2px; }
   .errors p { font-size: 12.5px; color: var(--muted-foreground); margin: 2px 0 10px; }
   .errors ul { list-style: none; display: grid; gap: 4px; }
-  .errors button { border: 0; background: none; color: var(--foreground); font: inherit; font-size: 13px; cursor: pointer;
-    padding: 0; text-align: left; }
+  .errors button { border: 0; background: none; color: var(--foreground); font: inherit; font-size: 13px;
+    cursor: pointer; padding: 0; text-align: left; }
   .errors button:hover { text-decoration: underline; }
   .errors .kind { color: var(--status-warning); font-weight: 600; }
   .errors li { display: flex; align-items: baseline; gap: 10px; }
-  .errors button.fix { border: 1px solid var(--input); border-radius: var(--radius-sm); padding: 1px 8px; font-size: 12px;
-    color: var(--muted-foreground); }
+  .errors button.fix { border: 1px solid var(--input); border-radius: var(--radius-sm); padding: 1px 8px;
+    font-size: 12px; color: var(--muted-foreground); }
   .errors button.fix:hover { color: var(--foreground); text-decoration: none; }
   .errors .req { color: var(--chart-2); font-weight: 600; }
   .errors .day { font-weight: 600; }

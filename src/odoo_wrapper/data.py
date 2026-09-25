@@ -1,15 +1,15 @@
 """The dashboard payload: attendance sessions, expected schedule and absences, read from Odoo and cached.
 
-- build_data loads the employee's full attendance history (from the first hr.attendance, at least MIN_WEEKS)
-  in six calls; the page trims what it shows. Its weeks are counted between calendar dates, not local
-  datetimes: across a daylight-saving change the span is an hour short and the oldest week was dropped.
-  The payload is cached per Odoo session for DATA_TTL seconds (a
-  load costs ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into the same dashboard never
-  see each other's data, and every entry is dropped on any punch; fresh=True skips the cache («Actualizar»).
-  cached() is that cache for any payload; team.py keys its own per session and period. What the viewer
-  reads about other people (the management view, someone else's week) keeps VIEW_TTL, five minutes: moving
-  between those pages used to reload from Odoo every time, and «Actualizar» still forces a fresh load. The payload's team
-  flag says whether the session reads other people's attendances, so the page links the management view.
+- build_data loads the employee's full attendance history (from the first hr.attendance, at least MIN_WEEKS) in six
+  calls; the page trims what it shows. Its weeks are counted between calendar dates, not local datetimes: across a
+  daylight-saving change the span is an hour short and the oldest week was dropped. The payload is cached per Odoo
+  session for DATA_TTL seconds (a load costs ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into
+  the same dashboard never see each other's data, and every entry is dropped on any punch; fresh=True skips the
+  cache («Actualizar»). cached() is that cache for any payload; team.py keys its own per session and period. What
+  the viewer reads about other people (the management view, someone else's week) keeps VIEW_TTL, five minutes:
+  moving between those pages used to reload from Odoo every time, and «Actualizar» still forces a fresh load. The
+  payload's team flag says whether the session reads other people's attendances, so the page links the management
+  view.
 - build_data(client, employee) reads someone else's week instead, for the management view's links: the
   same payload, loaded by employee id, and it never touches the shared state, which is the viewer's own.
 - Expected hours follow the contract in force each day, as in team.py (fetch_contracts, calendar_on): the
@@ -25,11 +25,11 @@
 - A closed punch shorter than MIN_SESSION is dropped as it is read (real_punch), here and in team.py: it
   adds no hours, marks no day as punched and is never off hours (a 22-second tap at two in the morning was
   the whole «off hours» error of a normal day). An open one is kept: it is still running.
-- LONG_HOURS is the one threshold for «too long», here and in team.py: a day whose total passes it is a
-  punch error in both views, however many sessions it took. WORK_FROM and WORK_TO bound a normal working
-  day (6:30 to midnight, generous on purpose; people do start at 7:20 and some work late): a session that
-  starts earlier or ends on another day is «off hours», most likely a wrong punch, again in both views. Punch errors to fix are looked for over the whole
-  history, with no time limit (the management view's «Fichajes por corregir», the page's banner).
+- LONG_HOURS is the one threshold for «too long», here and in team.py: a day whose total passes it is a punch error
+  in both views, however many sessions it took. WORK_FROM and WORK_TO bound a normal working day (6:30 to midnight,
+  generous on purpose; people do start at 7:20 and some work late): a session that starts earlier or ends on
+  another day is «off hours», most likely a wrong punch, again in both views. Punch errors to fix are looked for
+  over the whole history, with no time limit (the management view's «Fichajes por corregir», the page's banner).
 - The absence and session helpers take plain rows so team.py builds the same absences and sessions for
   many employees at once from one query per model.
   The shared state is not part of the payload: it changes between loads, so the server adds it fresh to every
@@ -223,7 +223,8 @@ def fetch_contracts(client, ids, monday, end):
             "hr.contract", "search_read",
             [[("employee_id", "in", ids), ("state", "in", ["open", "close"]), ("date_start", "<", end.isoformat()),
               "|", ("date_end", "=", False), ("date_end", ">=", monday.isoformat())]],
-            {"fields": ["employee_id", "date_start", "date_end", "resource_calendar_id"], "context": {"active_test": False}},
+            {"fields": ["employee_id", "date_start", "date_end", "resource_calendar_id"],
+             "context": {"active_test": False}},
         )
     except SessionExpired:
         raise

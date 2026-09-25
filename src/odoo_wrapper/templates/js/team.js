@@ -44,82 +44,46 @@
  *   week in the month view that week, both with the search set to that person (drillInto), so only they
  *   remain.
  * - The arrows and «Hoy» move by the view's own unit; switching view keeps the period in sight (Views).
- * - «Gráficos» shows the same people, under the same filter, as figures (renderCharts, drawn by
- *   teamcharts.js): each person's balance for the period as a diverging bar, and per day, week or month how many people had punch errors (week view) or weeks under
- *   or over target (month and year views, finished weeks only), each column naming its people on hover.
- *   The charts are drawn at their card's width, and again on resize, so their text keeps its size.
- * - «Fichajes por corregir», under the table or charts, is what to chase whatever the period shown: the
- *   punch-error days of each person's whole history (team.fetch_fixes, loaded once on its own after the
- *   table, again on «Actualizar»), the same the personal page's banner lists. One row per person so a
- *   repeat offender shows as one row with several marks, most to fix first: chips counting each kind, and
- *   a strip with a line per day where an error's sessions are orange (an open one solid, running to now)
- *   and a missed day an empty orange-edged box. A long day draws only the sessions to blame (toBlame: past
- *   midnight, off hours or over the limit alone), not the normal morning before them, unless none is
- *   and the day is long only by adding up; the tooltips colour the same sessions (sessionRow).
- *   The strip runs from the first error shown to the last (midnight to midnight, and now at most), so a
- *   filter that leaves a few rows narrows it to their dates instead of a long empty stretch, with
- *   FixPadDays more on each side (never past now), so a lone error, or one at either end, has dated weeks
- *   around it; the
- *   floating + and − change its pixels per day (team.fixDay, FixZoom) and it scrolls sideways under the fixed name and chip columns, opening at today's end. It also scrolls by
- *   dragging it: a press that moves more than DragSlop pixels pans instead of clicking, and a press on a
- *   name link is left alone. The pointer is captured only once it pans: captured from the press, every
- *   click landed on the strip instead of the mark under it, which then never opened.
- *   «↔» widens the card alone to the whole window and back: the rest of the page reads better narrow, but
- *   the strip is the one thing that gains from the width.
- *   Its own toggles, one per kind of error (FixKinds, all on at first, team.fixKinds), keep only those
- *   errors: a row left with none of the chosen kinds goes, and its chips and marks show only those kinds.
- *   Each counts the people with that kind, whatever the others say, so a toggle turned off still tells
- *   how many it hides. They filter this card only, never the table or the charts.
- * - «Ocultar archivados», on by default, leaves out people archived in Odoo (who left) everywhere: rows,
- *   counts, charts and that card (listed). Turned off, they show with their departure date.
+ * - «Gráficos» shows the same people, under the same filter, as figures (renderCharts, drawn by teamcharts.js):
+ *   each person's balance for the period as a diverging bar, and per day, week or month how many people had punch
+ *   errors (week view) or weeks under or over target (month and year views, finished weeks only), each column
+ *   naming its people on hover. The charts are drawn at their card's width, and again on resize, so their text
+ *   keeps its size.
+ * - «Fichajes por corregir», under the table or charts, is teamfixes.js; the page's shared state and the
+ *   filters on people (archived, name search) are teamstate.js.
  * - The criteria note under the table is written from the payload's limits (criteria), so it can never
  *   drift from what team.py applies.
- * - «Buscar persona» keeps only the people whose name holds the text, ignoring case and accents («lopez»
- *   finds López), as it is typed (named), everywhere: table, charts and «Fichajes por corregir». It opens
- *   the toolbar, as the one filter that crosses every section.
- * - The page keeps its view, period, filter, table or charts, the archived toggle, the search and the kinds of fixes in the URL hash
- *   (stateHash), and in sessionStorage so the dashboard's «Gestión» link, which has no hash, returns to it
- *   too: coming back from someone's page used to reset everything to this week's table.
+ * - The page keeps its view, period, filter, table or charts, the archived toggle, the search and the kinds of
+ *   fixes in the URL hash (stateHash), and in sessionStorage so the dashboard's «Gestión» link, which has no hash,
+ *   returns to it too: coming back from someone's page used to reset everything to this week's table.
  * - Rows are sorted by name with Spanish collation (Á next to A), which Odoo's order does not give.
  */
 import { DayNames, MonthNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtTime, isoDay, fmtClock } from "./format.js";
+import { fmtHM, fmtDelta, fmtDay, fmtTime, isoDay, fmtClock, parseDay, shiftDays, plural } from "./format.js";
 import { el, api, wireLogout, attachTip, hideTip, tipRow } from "./shared.js";
-import { parseDay, offSession, whyDay, balanced, dayLabel, wrongSession, sessionRow, dayDetails, requestLine, openDay,
-  openDayOf, onDaySaved, wireDayDialog } from "./dayedit.js";
-import { chartCard, divergingBars, groupedColumns, legend, stripAxis, sessionStrip } from "./teamcharts.js";
-
-export const FlagText = {
-  open: "Sin cerrar", empty: "Sin fichar", long: "Jornada muy larga", off: "Fuera de horario", under: "Bajo objetivo",
-  over: "Demasiadas horas",
-};
-
-export const FixKinds = ["open", "long", "off", "empty"];
+import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireDayDialog } from "./dayedit.js";
+import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
+import { team, FixKinds, FlagText, thisDay, listed, named } from "./teamstate.js";
+import { renderFixes, loadFixes, wireFixes } from "./teamfixes.js";
 
 export const Filters = {
   issues: { label: "Con incidencias", keep: e => hasFlags(e), none: "Nadie tiene incidencias esta semana" },
   under: { label: "Bajo objetivo", keep: e => e.flags.includes("under"), none: "Nadie bajo objetivo esta semana" },
-  over: { label: "Demasiadas horas", keep: e => e.flags.includes("over"), none: "Nadie con demasiadas horas esta semana" },
-  requests: { label: "Con solicitudes", keep: e => e.pending > 0, none: "Nadie tiene solicitudes pendientes esta semana" },
+  over: { label: "Demasiadas horas", keep: e => e.flags.includes("over"),
+    none: "Nadie con demasiadas horas esta semana" },
+  requests: { label: "Con solicitudes", keep: e => e.pending > 0,
+    none: "Nadie tiene solicitudes pendientes esta semana" },
   all: { label: "Todas", keep: () => true, none: "Nadie a la vista" },
 };
-
-const thisDay = () => isoDay(new Date());
-
-export const team = { data: null, fixes: null, view: "week", week: null, month: thisDay().slice(0, 7), year: thisDay().slice(0, 4),
-  filter: "issues", display: "table", hideArchived: true, search: "", fixDay: 10,
-  fixKinds: new Set(FixKinds) };
-
-export const FixZoom = { min: 2, max: 96, step: 1.5 };
-const FixPadDays = 7;
-const DragSlop = 3;
 
 export const Views = {
   week: { key: () => team.week, step: n => shiftWeek(team.week, n), now: () => undefined, noun: "esta semana",
     anchor: () => team.week, keep: data => { team.week = data.week; }, keyOf: anchor => anchor },
-  month: { key: () => team.month, step: n => shiftMonth(team.month, n), now: () => thisDay().slice(0, 7), noun: "este mes",
-    anchor: () => `${team.month}-01`, keep: data => { team.month = data.start.slice(0, 7); }, keyOf: anchor => anchor.slice(0, 7) },
-  year: { key: () => team.year, step: n => String(Number(team.year) + n), now: () => thisDay().slice(0, 4), noun: "este año",
+  month: { key: () => team.month, step: n => shiftMonth(team.month, n), now: () => thisDay().slice(0, 7),
+    noun: "este mes", anchor: () => `${team.month}-01`, keep: data => { team.month = data.start.slice(0, 7); },
+    keyOf: anchor => anchor.slice(0, 7) },
+  year: { key: () => team.year, step: n => String(Number(team.year) + n), now: () => thisDay().slice(0, 4),
+    noun: "este año",
     anchor: () => team.year === thisDay().slice(0, 4) ? thisDay() : `${team.year}-01-01`,
     keep: data => { team.year = String(data.year); }, keyOf: anchor => anchor.slice(0, 4) },
 };
@@ -127,12 +91,6 @@ export const Views = {
 export function gapText(balance) {
   if (Math.abs(balance) < 1 / 60) return "Al día";
   return balance < 0 ? `Faltan ${fmtHM(-balance)}` : `Sobran ${fmtHM(balance)}`;
-}
-
-export function shiftDays(iso, days) {
-  const d = parseDay(iso);
-  d.setDate(d.getDate() + days);
-  return isoDay(d);
 }
 
 export function shiftWeek(iso, weeks) {
@@ -161,7 +119,8 @@ export function hasFlags(employee) {
 export function whyWeek(kind, employee, limits) {
   const { hours, target } = employee;
   if (kind === "under") return `${fmtHM(hours)} de ${fmtHM(target)} previstas: faltan ${fmtHM(target - hours)}`;
-  return `${fmtHM(hours)} de ${fmtHM(target)} previstas: sobran ${fmtHM(hours - target)}, más de ${fmtHM(limits.over_margin)}`;
+  return `${fmtHM(hours)} de ${fmtHM(target)} previstas: sobran ${fmtHM(hours - target)}, `
+    + `más de ${fmtHM(limits.over_margin)}`;
 }
 
 export function hasData(day) {
@@ -190,7 +149,9 @@ function dayCell(employee, day, today, limits) {
 export const SuspectText = "⚠ incluye una jornada muy larga: suma no fiable";
 
 function summary(td, { hours, target, balance, suspect }, running, started = true) {
-  if (target != null && started) td.appendChild(el("span", "gap", `${gapText(balance)}${running ? " hasta ayer" : ""}`));
+  if (target != null && started) {
+    td.appendChild(el("span", "gap", `${gapText(balance)}${running ? " hasta ayer" : ""}`));
+  }
   td.appendChild(el("span", "hours", fmtHM(hours)));
   td.appendChild(el("span", "meta", target == null ? " sin horario" : ` de ${fmtHM(target)}`));
   if (suspect) {
@@ -225,7 +186,9 @@ function totalCell(employee, limits, today, extra = []) {
     if (employee.target == null) return;
     tip.appendChild(el("div", "t-sep"));
     for (const kind of employee.flags) tip.appendChild(el("div", "t-note bad", whyWeek(kind, employee, limits)));
-    if (!employee.flags.length) tip.appendChild(tipRow(`Semana frente a ${fmtHM(employee.target)}`, fmtDelta(employee.hours - employee.target)));
+    if (!employee.flags.length) {
+      tip.appendChild(tipRow(`Semana frente a ${fmtHM(employee.target)}`, fmtDelta(employee.hours - employee.target)));
+    }
   });
   return td;
 }
@@ -235,7 +198,7 @@ function weekCell(employee, w, today, limits) {
   const days = employee.days.slice(7 * w, 7 * w + 7);
   const flagged = days.filter(d => d.flags.length).length;
   const td = totalCell({ ...week, days }, limits, today,
-    flagged ? [`${flagged} ${flagged === 1 ? "día" : "días"} con errores de fichaje`] : []);
+    flagged ? [`${plural(flagged, "día", "días")} con errores de fichaje`] : []);
   td.classList.add("week");
   if (flagged) td.classList.add("warn");
   if (week.monday <= today && today <= shiftDays(week.monday, 6)) td.classList.add("today");
@@ -277,7 +240,7 @@ function yearMonthCell(employee, m, today, limits) {
     [m.over, "semana con demasiadas horas", "semanas con demasiadas horas", "flag"],
     [m.flagged_days, "día con errores de fichaje", "días con errores de fichaje", "flag warn"],
   ].filter(([n]) => n > 0);
-  for (const [n, one, many, cls] of counts) td.appendChild(el("span", cls, `${n} ${n === 1 ? one : many}`));
+  for (const [n, one, many, cls] of counts) td.appendChild(el("span", cls, plural(n, one, many)));
   if (m.under || m.over) td.classList.add("bad");
   else if (m.flagged_days) td.classList.add("warn");
   td.tabIndex = 0;
@@ -338,12 +301,13 @@ function nameCell(employee) {
 
 export function criteria(limits) {
   return `Bajo objetivo: una semana terminada con ${fmtHM(limits.under_margin)} o más por debajo de su `
-    + `jornada prevista. Demasiadas horas: una semana terminada con más de ${fmtHM(limits.over_margin)} por encima de ella. `
-    + `Jornada muy larga: más de ${fmtHM(limits.long_day)} fichadas en un día. Fuera de horario: una entrada antes de las `
-    + `${fmtClock(limits.work_from)} o una salida después de las ${fmtClock(limits.work_to)} o ya en otro día. Sin fichar: un día pasado con jornada prevista y `
-    + "sin fichajes ni ausencia. Sin cerrar: una entrada de un día anterior sin salida. La jornada prevista de cada día es "
-    + "la del contrato vigente ese día; vacaciones, festivos y permisos la reducen. Los descansos cuentan como horas. "
-    + "En naranja, errores de fichaje; en rojo, objetivo no cumplido (horas de menos o demasiadas); en azul, solicitudes de cambio.";
+    + `jornada prevista. Demasiadas horas: una semana terminada con más de ${fmtHM(limits.over_margin)} `
+    + `por encima de ella. Jornada muy larga: más de ${fmtHM(limits.long_day)} fichadas en un día. Fuera de horario: `
+    + `una entrada antes de las ${fmtClock(limits.work_from)} o una salida después de las ${fmtClock(limits.work_to)} `
+    + "o ya en otro día. Sin fichar: un día pasado con jornada prevista y sin fichajes ni ausencia. Sin cerrar: una "
+    + "entrada de un día anterior sin salida. La jornada prevista de cada día es la del contrato vigente ese día; "
+    + "vacaciones, festivos y permisos la reducen. Los descansos cuentan como horas. En naranja, errores de fichaje; "
+    + "en rojo, objetivo no cumplido (horas de menos o demasiadas); en azul, solicitudes de cambio.";
 }
 
 export function render() {
@@ -361,11 +325,12 @@ export function render() {
   document.getElementById("criteria").textContent = criteria(data.limits);
   const generated = new Date(data.generated_at);
   document.getElementById("subtitle").textContent =
-    `${people.length} ${people.length === 1 ? "persona" : "personas"} · actualizado el ${fmtDay(generated)} a las ${fmtTime(generated)}`;
+    `${plural(people.length, "persona", "personas")} · actualizado el ${fmtDay(generated)} `
+    + `a las ${fmtTime(generated)}`;
   const archivedButton = document.getElementById("archivedBtn");
   const archived = data.employees.filter(e => e.archived).length;
   archivedButton.setAttribute("aria-pressed", String(team.hideArchived));
-  archivedButton.textContent = team.hideArchived && archived ? `Ocultar archivados (${archived})` : "Ocultar archivados";
+  archivedButton.textContent = `Ocultar archivados${team.hideArchived && archived ? ` (${archived})` : ""}`;
 
   for (const button of document.getElementById("filterSeg").querySelectorAll("button")) {
     const filter = Filters[button.dataset.filter];
@@ -412,56 +377,6 @@ export function render() {
   saveState();
 }
 
-const FixText = { open: "Sin cerrar", long: "Jornada muy larga", off: "Fuera de horario", empty: "Sin fichar" };
-
-function fixTip(name, item) {
-  return tip => {
-    tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date)} ${parseDay(item.date).getFullYear()}`));
-    tip.appendChild(el("div", "t-note warn", FixText[item.kind]));
-    for (const s of item.sessions) tip.appendChild(sessionRow(s, team.fixes.limits, "abierta"));
-    const day = { ...item, flags: [item.kind] };
-    for (const text of whyDay(item.kind, day, team.fixes.limits)) tip.appendChild(el("div", "t-note", text));
-  };
-}
-
-const folded = text => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-
-function listed(e) {
-  return !(team.hideArchived && e.archived);
-}
-
-function named(e, search) {
-  return folded(e.name).includes(folded(search.trim()));
-}
-
-export function fixRows(fixes, kinds = team.fixKinds) {
-  const count = (r, kind) => r.items.filter(i => i.kind === kind).length;
-  return fixes.employees.filter(e => listed(e) && named(e, team.search))
-    .map(r => ({ ...r, items: r.items.filter(i => kinds.has(i.kind)) })).filter(r => r.items.length)
-    .sort((a, b) => count(b, "open") - count(a, "open") || b.items.length - a.items.length || a.name.localeCompare(b.name, "es"));
-}
-
-export function toBlame(sessions, limits) {
-  const wrong = sessions.filter(s => wrongSession(s, limits));
-  return wrong.length ? wrong : sessions;
-}
-
-export function fixMarks(row, now = new Date()) {
-  const limits = team.fixes.limits;
-  return row.items.flatMap(item => {
-    const tip = fixTip(row.name, item);
-    const open = () => openFixDay(row.id, item.date);
-    if (item.kind === "empty") {
-      const start = parseDay(item.date);
-      return [{ start, end: parseDay(shiftDays(item.date, 1)), cls: "missing", tip, open }];
-    }
-    const sessions = item.kind === "open" ? item.sessions.filter(s => !s.out)
-      : item.kind === "off" ? item.sessions.filter(s => offSession(s, limits)) : toBlame(item.sessions, limits);
-    return sessions.map(s => ({ start: new Date(s.in), end: s.out ? new Date(s.out) : now,
-      cls: item.kind === "open" ? "error" : "error late", tip, open }));
-  });
-}
-
 const StateKey = "gestion";
 
 export function stateHash() {
@@ -495,81 +410,6 @@ function restoreState() {
   return readState(location.hash || saved);
 }
 
-export function fixSpan(rows, now = new Date()) {
-  const items = rows.flatMap(r => r.items);
-  const starts = items.flatMap(i => i.sessions.length ? i.sessions.map(s => new Date(s.in)) : [parseDay(i.date)]);
-  const ends = items.flatMap(i => i.sessions.length ? i.sessions.map(s => s.out ? new Date(s.out) : now)
-    : [parseDay(shiftDays(i.date, 1))]);
-  const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const first = midnight(starts.length ? new Date(Math.min(...starts)) : now);
-  const last = new Date(Math.max(...ends, first));
-  const end = +last === +midnight(last) ? last : new Date(midnight(last).setDate(last.getDate() + 1));
-  const to = new Date(Math.min(now, new Date(end).setDate(end.getDate() + FixPadDays)));
-  const from = new Date(new Date(first).setDate(first.getDate() - FixPadDays));
-  return { from, to, days: Math.max(1, (to - from) / 864e5) };
-}
-
-export function tickStep(pxPerDay) {
-  return pxPerDay >= 40 ? 1 : pxPerDay >= 20 ? 2 : pxPerDay >= 6 ? 7 : 14;
-}
-
-function renderFixes() {
-  const note = document.getElementById("fixesNote");
-  const scroller = document.getElementById("fixes");
-  if (!team.fixes) {
-    note.textContent = "Buscando fichajes por corregir en todo el historial…";
-    scroller.replaceChildren();
-    return;
-  }
-  const all = fixRows(team.fixes, new Set(FixKinds));
-  const rows = fixRows(team.fixes);
-  const limits = team.fixes.limits;
-  document.getElementById("openCard").classList.toggle("hidden", !team.fixes.employees.some(listed));
-  note.textContent = `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)}, fichajes fuera de `
-    + `${fmtClock(limits.work_from)} a ${fmtClock(limits.work_to)} y días con jornada prevista sin fichar, de todo el `
-    + "historial de cada persona y sea cual sea el periodo que estés viendo. Una fila por persona."
-    + (rows.length ? "" : team.search.trim() ? ` Nadie cuyo nombre contenga «${team.search.trim()}» con los tipos elegidos.`
-      : " Nadie con los tipos elegidos.");
-  for (const button of document.getElementById("fixKinds").querySelectorAll("button")) {
-    const kind = button.dataset.kind;
-    button.textContent = `${FlagText[kind]} (${all.filter(r => r.items.some(i => i.kind === kind)).length})`;
-    button.setAttribute("aria-pressed", String(team.fixKinds.has(kind)));
-  }
-  const { from, to, days } = fixSpan(rows);
-  const size = Math.round(days * team.fixDay);
-  const step = tickStep(team.fixDay);
-  const ticks = [];
-  const first = new Date(from);
-  if (step >= 7) first.setDate(first.getDate() + (8 - first.getDay()) % 7);
-  for (const d = first; d <= to; d.setDate(d.getDate() + step)) {
-    ticks.push({ at: new Date(d), label: step === 1 ? `${DayNames[(d.getDay() + 6) % 7]} ${d.getDate()}` : fmtDay(d) });
-  }
-  document.getElementById("zoomIn").disabled = team.fixDay >= FixZoom.max;
-  document.getElementById("zoomOut").disabled = team.fixDay <= FixZoom.min;
-  const grid = el("div", "fix-grid");
-  grid.append(el("span", "label", "Persona"), el("span", "label", "Pendiente"), stripAxis(from, to, ticks, size));
-  for (const row of rows) {
-    const link = el("a", "fix-name", row.name);
-    link.href = `/empleado?id=${row.id}`;
-    const chips = el("div", "chips");
-    for (const item of row.items.filter(i => i.kind === "open")) {
-      const since = new Date(item.sessions.find(s => !s.out).in);
-      chips.appendChild(el("span", "chip warn", `Abierta desde el ${fmtDate(since)} ${fmtTime(since)}`));
-    }
-    const of = kind => row.items.filter(i => i.kind === kind);
-    const long = of("long");
-    if (long.length) {
-      chips.appendChild(el("span", "chip", `${long.length} ${long.length === 1 ? "jornada muy larga" : "jornadas muy largas"} · `
-        + fmtHM(long.reduce((sum, i) => sum + i.hours, 0))));
-    }
-    if (of("off").length) chips.appendChild(el("span", "chip", `${of("off").length} fuera de horario`));
-    if (of("empty").length) chips.appendChild(el("span", "chip", `${of("empty").length} sin fichar`));
-    grid.append(link, chips, sessionStrip(from, to, fixMarks(row, to), size));
-  }
-  scroller.replaceChildren(grid);
-  scroller.scrollLeft = scroller.scrollWidth;
-}
-
 const Series = {
   flagged: { key: "flagged", label: "Personas con errores de fichaje", cls: "error" },
   under: { key: "under", label: "Bajo objetivo", cls: "short" },
@@ -578,23 +418,26 @@ const Series = {
 
 function periods(data, rows, today) {
   const sorted = rows.slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
-  const who = tests => Object.fromEntries(Object.entries(tests).map(([key, test]) => [key, sorted.filter(test).map(e => e.name)]));
+  const each = (object, fn) => Object.fromEntries(Object.entries(object).map(([key, value]) => [key, fn(value)]));
   const period = (base, tests) => {
-    const people = who(tests);
-    return { ...base, people, values: Object.fromEntries(Object.entries(people).map(([key, names]) => [key, names.length])) };
+    const people = each(tests, test => sorted.filter(test).map(e => e.name));
+    return { ...base, people, values: each(people, names => names.length) };
   };
   if (team.view === "year") {
     return MonthNames.map((name, i) => period({
       label: name, title: monthLabel(`${team.year}-${String(i + 1).padStart(2, "0")}`),
       month: `${team.year}-${String(i + 1).padStart(2, "0")}`,
-    }, { under: e => e.months[i].under > 0, over: e => e.months[i].over > 0 })).filter(p => p.month <= today.slice(0, 7));
+    }, { under: e => e.months[i].under > 0, over: e => e.months[i].over > 0 }))
+      .filter(p => p.month <= today.slice(0, 7));
   }
   if (team.view === "month") {
-    return (data.employees[0]?.weeks || []).map((w, i) => period({ label: fmtDay(parseDay(w.monday)), title: weekRange(w.monday) },
+    return (data.employees[0]?.weeks || []).map((w, i) => period(
+      { label: fmtDay(parseDay(w.monday)), title: weekRange(w.monday) },
       { under: e => e.weeks[i].flags.includes("under"), over: e => e.weeks[i].flags.includes("over") }));
   }
   return [0, 1, 2, 3, 4, 5, 6].filter(i => i < 5 || rows.some(e => hasData(e.days[i]))).map(i =>
-    period({ label: DayNames[i], title: dayLabel(shiftDays(data.week, i)) }, { flagged: e => e.days[i].flags.length > 0 }));
+    period({ label: DayNames[i], title: dayLabel(shiftDays(data.week, i)) },
+      { flagged: e => e.days[i].flags.length > 0 }));
 }
 
 function renderCharts(data, rows, today) {
@@ -606,7 +449,8 @@ function renderCharts(data, rows, today) {
 
   const people = chartCard(`Saldo de cada persona en ${noun}`,
     `Horas de fichajes cerrados menos jornada prevista${running ? ", hasta ayer: hoy aún no cuenta" : ""}. `
-    + "Una entrada sin cerrar no suma horas, así que resta como si faltaran. A la izquierda faltan, a la derecha sobran.");
+    + "Una entrada sin cerrar no suma horas, así que resta como si faltaran. "
+    + "A la izquierda faltan, a la derecha sobran.");
   const items = judged.slice().sort((a, b) => a.balance - b.balance).map(e => ({
     label: e.name, value: e.balance, suspect: Boolean(e.suspect), href: `/empleado?id=${e.id}`,
     rows: [["Fichadas", fmtHM(e.hours)], ["Previstas", fmtHM(e.target)], ["Saldo", gapText(e.balance)],
@@ -614,13 +458,16 @@ function renderCharts(data, rows, today) {
   }));
   box.appendChild(people);
   const width = people.children[0].clientWidth || undefined;
-  people.appendChild(items.length ? divergingBars(items, v => fmtDelta(v), width) : el("p", "chart-note", "Nadie con jornada prevista"));
+  people.appendChild(items.length ? divergingBars(items, v => fmtDelta(v), width)
+    : el("p", "chart-note", "Nadie con jornada prevista"));
   if (items.some(i => i.suspect)) {
-    people.appendChild(el("p", "chart-note", "⚠ Saldo no fiable: incluye una jornada muy larga, casi siempre una salida sin fichar."));
+    people.appendChild(el("p", "chart-note",
+      "⚠ Saldo no fiable: incluye una jornada muy larga, casi siempre una salida sin fichar."));
   }
 
   const series = team.view === "week" ? [Series.flagged] : [Series.under, Series.over];
-  const timeline = chartCard(team.view === "week" ? "Personas con incidencias cada día" : "Personas con semanas fuera de objetivo",
+  const timeline = chartCard(
+    team.view === "week" ? "Personas con incidencias cada día" : "Personas con semanas fuera de objetivo",
     team.view === "week" ? "Días sin fichar, sin cerrar, fuera de horario o con una jornada muy larga."
       : "Cada semana se cuenta entera y solo si ya ha terminado.");
   if (series.length > 1) timeline.appendChild(legend(series));
@@ -645,24 +492,18 @@ export async function load(key, fresh) {
   }
 }
 
-export async function loadFixes(fresh) {
-  try {
-    team.fixes = await api(`/api/team?fixes${fresh ? "&fresh" : ""}`);
-    renderFixes();
-  } catch (e) {
-    document.getElementById("fixesNote").textContent = "No se pudieron cargar los fichajes por corregir: " + e.message;
-  }
-}
-
 async function busyWhile(button, work) {
   button.disabled = true;
   try { await work(); } finally { button.disabled = false; }
 }
 
 const view = () => Views[team.view];
-document.getElementById("prevWeek").addEventListener("click", e => busyWhile(e.currentTarget, () => load(view().step(-1))));
-document.getElementById("nextWeek").addEventListener("click", e => busyWhile(e.currentTarget, () => load(view().step(1))));
-document.getElementById("thisWeek").addEventListener("click", e => busyWhile(e.currentTarget, () => load(view().now())));
+const periodButtons = [
+  ["prevWeek", () => view().step(-1)], ["nextWeek", () => view().step(1)], ["thisWeek", () => view().now()],
+];
+for (const [id, key] of periodButtons) {
+  document.getElementById(id).addEventListener("click", e => busyWhile(e.currentTarget, () => load(key())));
+}
 document.getElementById("refreshBtn").addEventListener("click", e =>
   busyWhile(e.currentTarget, () => load(view().key(), true)));
 document.getElementById("viewSeg").addEventListener("click", e => {
@@ -672,52 +513,6 @@ document.getElementById("viewSeg").addEventListener("click", e => {
   team.view = button.dataset.view;
   load(view().keyOf(anchor));
 });
-const zoomFixes = factor => {
-  team.fixDay = Math.min(FixZoom.max, Math.max(FixZoom.min, team.fixDay * factor));
-  if (team.fixes) renderFixes();
-};
-document.getElementById("zoomIn").addEventListener("click", () => zoomFixes(FixZoom.step));
-document.getElementById("wideBtn").addEventListener("click", e => {
-  const wide = document.getElementById("openCard").classList.toggle("wide");
-  const label = wide ? "Volver al ancho normal" : "Ampliar a todo el ancho";
-  e.currentTarget.setAttribute("aria-pressed", String(wide));
-  e.currentTarget.setAttribute("aria-label", label);
-  e.currentTarget.title = label;
-});
-document.getElementById("fixKinds").addEventListener("click", e => {
-  const button = e.target.closest("button");
-  if (!button) return;
-  const kind = button.dataset.kind;
-  if (!team.fixKinds.delete(kind)) team.fixKinds.add(kind);
-  saveState();
-  if (team.fixes) renderFixes();
-});
-const fixScroller = document.getElementById("fixes");
-let fixDrag = null, fixDragged = false;
-fixScroller.addEventListener("pointerdown", e => {
-  if (e.button !== 0 || e.target.closest("a")) return;
-  fixDrag = { x: e.clientX, left: fixScroller.scrollLeft, moved: false, pointer: e.pointerId };
-  fixDragged = false;
-});
-fixScroller.addEventListener("pointermove", e => {
-  if (!fixDrag) return;
-  const dx = e.clientX - fixDrag.x;
-  if (!fixDrag.moved && Math.abs(dx) > DragSlop) {
-    fixDrag.moved = true;
-    fixScroller.setPointerCapture?.(fixDrag.pointer);
-    fixScroller.classList.add("dragging");
-    hideTip();
-  }
-  if (fixDrag.moved) fixScroller.scrollLeft = fixDrag.left - dx;
-});
-const endFixDrag = () => {
-  fixDragged = Boolean(fixDrag?.moved);
-  fixDrag = null;
-  fixScroller.classList.remove("dragging");
-};
-fixScroller.addEventListener("pointerup", endFixDrag);
-fixScroller.addEventListener("pointercancel", endFixDrag);
-document.getElementById("zoomOut").addEventListener("click", () => zoomFixes(1 / FixZoom.step));
 document.getElementById("archivedBtn").addEventListener("click", () => {
   team.hideArchived = !team.hideArchived;
   if (team.data) render();
@@ -744,17 +539,9 @@ document.getElementById("filterSeg").addEventListener("click", e => {
   if (team.data) render();
 });
 wireDayDialog();
+wireFixes(saveState);
 onDaySaved(() => load(view().key(), true));
 
-function openFixDay(employeeId, date) {
-  if (fixDragged) {
-    fixDragged = false;
-    return;
-  }
-  return openDayOf(employeeId, date).catch(e => {
-    document.getElementById("fixesNote").textContent = "No se pudo abrir ese día: " + e.message;
-  });
-}
 wireLogout(document.getElementById("logoutBtn"));
 
 load(restoreState());

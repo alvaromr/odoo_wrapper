@@ -2,12 +2,12 @@
  * The chart builders of the management view's «Gráficos» tab: a diverging bar per person and
  * grouped columns per period. They only draw what team.js hands them; which figures to show is its call.
  *
- * - Hand-written SVG, no library, drawn at the width the caller measures (the card's), so text keeps its
- *   size on a wide screen instead of growing with a stretched viewBox; below MIN_WIDTH it is drawn at that
- *   width and scaled down, as the labels would not fit. Colours are the
- *   style.css tokens by class, never literals: --chart-short for hours missing and targets not met,
- *   --chart-over for weeks with too many hours, --chart-surplus for a positive balance, --chart-error for punch errors. That pair was run through the dataviz palette validator in light and dark (dark
- *   --destructive is too light for a mark, hence the separate --chart-short).
+ * - Hand-written SVG, no library, drawn at the width the caller measures (the card's), so text keeps its size on a
+ *   wide screen instead of growing with a stretched viewBox; below MIN_WIDTH it is drawn at that width and scaled
+ *   down, as the labels would not fit. Colours are the style.css tokens by class, never literals: --chart-short
+ *   for hours missing and targets not met, --chart-over for weeks with too many hours, --chart-surplus for a
+ *   positive balance, --chart-error for punch errors. That pair was run through the dataviz palette validator in
+ *   light and dark (dark --destructive is too light for a mark, hence the separate --chart-short).
  * - One axis per chart, a zero line or baseline, recessive grid. Every mark answers hover and focus with the
  *   shared tooltip; the table tab is the non-visual fallback.
  * - A column's tooltip names the people behind each count (period.people), not only the number: each
@@ -68,8 +68,8 @@ export function divergingBars(items, format, size = WIDTH) {
       group.addEventListener("keydown", e => { if (e.key === "Enter") location.assign(item.href); });
     }
     group.appendChild(svg("rect", { x: 0, y, width, height: rowHeight, class: "hit" }));
-    group.appendChild(svg("text", { x: labelWidth - 8, y: y + rowHeight / 2 + 4, class: "axis-label", "text-anchor": "end" },
-      item.label));
+    const labelAt = { x: labelWidth - 8, y: y + rowHeight / 2 + 4, class: "axis-label", "text-anchor": "end" };
+    group.appendChild(svg("text", labelAt, item.label));
     group.appendChild(svg("rect", { x, y: y + (rowHeight - bar) / 2, width: length, height: bar, rx: 2,
       class: item.suspect ? "bar error" : short ? "bar short" : "bar surplus" }));
     group.appendChild(svg("text", {
@@ -107,12 +107,14 @@ export function groupedColumns(periods, series, size = WIDTH) {
       const value = period.values[s.key];
       const x = x0 + j * (bar + 2);
       if (value > 0) {
-        group.appendChild(svg("rect", { x, y: y(value), width: bar, height: top + plot - y(value), rx: 2, class: `bar ${s.cls}` }));
-        group.appendChild(svg("text", { x: x + bar / 2, y: y(value) - 4, class: "value-label", "text-anchor": "middle" }, value));
+        const tall = top + plot - y(value);
+        group.appendChild(svg("rect", { x, y: y(value), width: bar, height: tall, rx: 2, class: `bar ${s.cls}` }));
+        const label = { x: x + bar / 2, y: y(value) - 4, class: "value-label", "text-anchor": "middle" };
+        group.appendChild(svg("text", label, value));
       }
     });
-    group.appendChild(svg("text", { x: left + i * slot + slot / 2, y: height - 8, class: "axis-label", "text-anchor": "middle" },
-      period.label));
+    const labelAt = { x: left + i * slot + slot / 2, y: height - 8, class: "axis-label", "text-anchor": "middle" };
+    group.appendChild(svg("text", labelAt, period.label));
     attachTip(group, tip => {
       tip.appendChild(el("div", "t-title", period.title || period.label));
       series.forEach((s, i) => {

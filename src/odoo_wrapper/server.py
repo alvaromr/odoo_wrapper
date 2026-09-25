@@ -71,8 +71,8 @@ API
   attendances. The page for it is /gestion.
 - Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
 - POST /api/team/attendance {id | employee, check_in, check_out} (ISO times with their offset) edits or
-  creates someone's punch, and POST /api/team/approve {id} approves a change request (team.save_attendance,
-  team.approve_request); both answer 403 like /api/team, and they are the only writes besides punching.
+  creates someone's punch, and POST /api/team/approve {id} approves a change request (see
+  corrections.py); both answer 403 like /api/team, and they are the only writes besides punching.
 """
 
 import json
@@ -88,7 +88,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
 
-from . import data, lan, process, state, team
+from . import corrections, data, lan, process, state, team
 from .client import (
     CONFIG_KEYS, AccessDenied, OdooClient, OdooDown, OdooError, SessionExpired, TotpRequired,
     load_config, read_config, save_config,
@@ -117,7 +117,7 @@ SEES_TTL = 1800
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
 _sessions = {}
-_sees = {}
+_rights = {}
 _pairings = {}
 _login_fails = {}
 _login_lock = threading.Lock()
@@ -137,11 +137,11 @@ def session_cookie(headers, name=COOKIE_NAME):
 
 
 def remembered(client, right):
-    known = _sees.setdefault(client.session_id, {}).get(right)
+    known = _rights.setdefault(client.session_id, {}).get(right)
     if known and time.monotonic() - known[0] < SEES_TTL:
         return known[1]
     answer = getattr(client, right)()
-    _sees[client.session_id][right] = (time.monotonic(), answer)
+    _rights[client.session_id][right] = (time.monotonic(), answer)
     return answer
 
 
@@ -334,7 +334,8 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     span = (team.monday_of(date.fromisoformat(params["week"]) if params.get("week") else date.today()),)
             except ValueError:
-                self._send(400, {"error": f"Periodo no válido: {params.get('year') or params.get('month') or params['week']}"})
+                period = params.get("year") or params.get("month") or params["week"]
+                self._send(400, {"error": f"Periodo no válido: {period}"})
                 return
             client = new_client(self.session)
             if not sees_others(client):
@@ -346,7 +347,8 @@ class Handler(BaseHTTPRequestHandler):
             if "fixes" in params:
                 self._send(200, team.fetch_fixes(client, "fresh" in params))
                 return
-            self._send(200, dict(team.fetch_team(client, span[0], "fresh" in params, *span[1:]), can_edit=edits_punches(client)))
+            payload = team.fetch_team(client, span[0], "fresh" in params, *span[1:])
+            self._send(200, dict(payload, can_edit=edits_punches(client)))
         else:
             self._send(404, {"error": "not found"})
 
@@ -394,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
             except SessionExpired:
                 pass
         _sessions.pop(session_id, None)
-        _sees.pop(session_id, None)
+        _rights.pop(session_id, None)
         revoke_pairings(session_id)
         data.drop_data_cache()
         self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])
@@ -444,8 +446,9 @@ class Handler(BaseHTTPRequestHandler):
             if not sees_others(client):
                 self._send(403, {"error": NOT_TEAM})
             elif self.path == "/api/team/attendance":
-                self._send(*team.save_attendance(client, body) if edits_punches(client) else (403, {"error": NOT_EDITOR}))
+                refused = (403, {"error": NOT_EDITOR})
+                self._send(*corrections.save_attendance(client, body) if edits_punches(client) else refused)
             else:
-                self._send(*team.approve_request(client, body.get("id")))
+                self._send(*corrections.approve_request(client, body.get("id")))
         else:
             self._send(404, {"error": "not found"})

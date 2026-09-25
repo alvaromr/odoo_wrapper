@@ -14,6 +14,7 @@ export function fmtHM(h) {
   const H = Math.floor(totalMin / 60), M = totalMin % 60;
   return sign + [H || !M ? `${H}h` : "", M ? `${M}m` : ""].filter(Boolean).join(" ");
 }
+export function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
 export function fmtDelta(h) { return (h >= 0 ? "+" : "") + fmtHM(h); }
 export function fmtShort(h) { return Math.round(h * 60) > 0 ? fmtHM(h) : "0m"; }
 export function fmtClock(h) {
@@ -24,6 +25,15 @@ export function fmtDay(d) { return `${d.getDate()} ${MonthNames[d.getMonth()]}`;
 export function fmtDate(d) { return `${fmtDay(d)} ${d.getFullYear()}`; }
 export function fmtTime(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
 export function dayKey(d) { return d.toDateString(); }
+export function parseDay(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+export function shiftDays(iso, days) {
+  const d = parseDay(iso);
+  d.setDate(d.getDate() + days);
+  return isoDay(d);
+}
 export function isoDay(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

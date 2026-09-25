@@ -8,28 +8,23 @@
  * - The tooltip lists the day's sessions (an off-hours or over-long one in orange, sessionRow), why each
  *   flag is there, in words and with the limits the payload carries, and its change requests with their
  *   reason.
- * - The dialog shows the same, read only unless the session may change punches (the payload's can_edit,
- *   Odoo's own rights, which server.py also enforces): then each punch's check-in and check-out are time fields (punchEditor),
- *   «Añadir fichaje» adds an empty one, and «Guardar cambios» sends only what changed, both times on the
- *   day's own date except a check-out left as it was, which keeps its day. A pending change request the
+ * - The dialog shows the same, read only unless the session may change punches (the payload's can_edit, Odoo's own
+ *   rights, which server.py also enforces): then each punch's check-in and check-out are time fields
+ *   (punchEditor), «Añadir fichaje» adds an empty one, and «Guardar cambios» sends only what changed, both times
+ *   on the day's own date except a check-out left as it was, which keeps its day. A pending change request the
  *   session may approve gets «Aprobar solicitud». Both write to Odoo, so both ask for a second click
- *   (confirmButton), and both reload the page and reopen the day as it now is (refreshDay), read from
- *   that day's week. When shortening a punch loses the next day's check-in (team.py, lost_entry) the note
- *   under the day says which one to add there; nothing is created on its own.
+ *   (confirmButton), and both reload the page and reopen the day as it now is (refreshDay), read from that day's
+ *   week. When shortening a punch loses the next day's check-in (team.py, lost_entry) the note under the day says
+ *   which one to add there; nothing is created on its own.
  * - The dialog stays open, for reading a long reason or copying times: a click outside does not close it,
  *   only «Cerrar» or Escape, and neither while a write is on its way (holdDialog): its answer reopens the day,
  *   which reopened a dialog already closed.
  */
 import { DayNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtTime, fmtClock, hourOf, dayKey } from "./format.js";
+import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtTime, fmtClock, hourOf, dayKey, parseDay } from "./format.js";
 import { el, api, hideTip, tipRow } from "./shared.js";
 
 export const RequestText = { new: "Borrador", pending: "Pendiente", approved: "Aprobada", refused: "Rechazada" };
-
-export function parseDay(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
 
 export function sessionSpan(s) {
   return `${fmtTime(new Date(s.in))}–${s.out ? fmtTime(new Date(s.out)) : "abierto"}${s.rest ? " descanso" : ""}`;
@@ -48,10 +43,12 @@ export function whyDay(kind, day, limits) {
   if (kind === "off") {
     return day.sessions.filter(s => offSession(s, limits)).flatMap(s => {
       const [from, to] = [new Date(s.in), s.out && new Date(s.out)];
+      const early = `Entrada a las ${fmtTime(from)}, antes de las ${fmtClock(limits.work_from)}`;
+      const late = to && `Salida a las ${fmtTime(to)}, después de las ${fmtClock(limits.work_to)}`;
       return [
-        ...(hourOf(from) < limits.work_from ? [`Entrada a las ${fmtTime(from)}, antes de las ${fmtClock(limits.work_from)}`] : []),
+        ...(hourOf(from) < limits.work_from ? [early] : []),
         ...(to && dayKey(to) !== dayKey(from) ? [`Salida otro día, el ${fmtDay(to)} a las ${fmtTime(to)}`]
-          : to && hourOf(to) > limits.work_to ? [`Salida a las ${fmtTime(to)}, después de las ${fmtClock(limits.work_to)}`] : []),
+          : to && hourOf(to) > limits.work_to ? [late] : []),
       ];
     });
   }
@@ -96,8 +93,9 @@ export function dayDetails(day, limits, { employee = null, title = true, session
       tip.appendChild(el("div", `t-note ${r.status}`, requestLine(r)));
       if (r.reason) tip.appendChild(el("div", "t-note", r.reason));
       if (employee && r.can_approve) {
-        tip.appendChild(confirmButton("Aprobar solicitud", "No se pudo aprobar", () => api("/api/team/approve", { id: r.id })
-          .then(() => refreshDay(employee, day.date, "Solicitud aprobada."))));
+        const approve = () => api("/api/team/approve", { id: r.id })
+          .then(() => refreshDay(employee, day.date, "Solicitud aprobada."));
+        tip.appendChild(confirmButton("Aprobar solicitud", "No se pudo aprobar", approve));
       }
     }
   };
@@ -177,7 +175,9 @@ export function punchEditor(employee, day, limits) {
     const row = el("div", "edit-row" + (s && offSession(s, limits) ? " warn" : ""));
     const start = timeField(s?.in, "Entrada"), end = timeField(s?.out, "Salida");
     row.append(start, "–", end);
-    if (s?.out && dayKey(new Date(s.out)) !== dayKey(new Date(s.in))) row.appendChild(el("span", "meta", `salida el ${fmtDate(new Date(s.out))}`));
+    if (s?.out && dayKey(new Date(s.out)) !== dayKey(new Date(s.in))) {
+      row.appendChild(el("span", "meta", `salida el ${fmtDate(new Date(s.out))}`));
+    }
     if (s?.rest) row.appendChild(el("span", "meta", "descanso"));
     box.insertBefore(row, actions);
     entries.push({ s, start, end });
@@ -194,8 +194,9 @@ export function punchEditor(employee, day, limits) {
       const answer = await api("/api/team/attendance", change);
       if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
     }
-    await refreshDay(employee.id, day.date, ["Guardado.", ...lost.map(d => `La salida original, ${fmtDate(d)} a las ${fmtTime(d)}, `
-      + "era probablemente la entrada de ese día: añádela allí.")].join(" "));
+    const warnings = lost.map(d => `La salida original, ${fmtDate(d)} a las ${fmtTime(d)}, `
+      + "era probablemente la entrada de ese día: añádela allí.");
+    await refreshDay(employee.id, day.date, ["Guardado.", ...warnings].join(" "));
   }));
   box.appendChild(actions);
   day.sessions.forEach(addRow);
@@ -214,7 +215,8 @@ export function wireDayDialog() {
   dialog.setAttribute("aria-labelledby", "dayDialogTitle");
   const title = el("h2"), body = el("div"), note = el("p", "dialog-note"), actions = el("div", "dialog-actions");
   const close = el("button", "btn ghost", "Cerrar");
-  [title.id, body.id, note.id, close.id, close.type] = ["dayDialogTitle", "dayDialogBody", "dayDialogNote", "dayDialogClose", "button"];
+  [title.id, body.id, note.id, close.id] = ["dayDialogTitle", "dayDialogBody", "dayDialogNote", "dayDialogClose"];
+  close.type = "button";
   note.setAttribute("role", "status");
   close.addEventListener("click", () => dialog.close());
   dialog.addEventListener("cancel", e => { if (close.disabled) e.preventDefault(); });

@@ -11,37 +11,37 @@
  *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
  * - Every sentence quoting the schedule is generated from it (scheduleSentence).
- * - The banner under the hero lists this person's punch errors (week.js's punchErrors), whoever is looking
- *   and whatever their rights: it reads only this page's own sessions. Each one opens its week. It folds
- *   (closed by default, the count in its title) and keeps whatever the viewer left it at across repaints. A missed day
- *   also reads «sin fichar» in orange in both calendar views instead of a bare dash. In the weekly chart a
- *   week with a punch error (a too long session or a missed day) is orange, with a thin orange line just
- *   under the axis so a week with nothing punched still shows it (under it, not on it: on it, it read as a
- *   few hours punched), and its tooltip says why. The chart's grid keeps
- *   about six lines whatever the tallest week: a 230 h week used to draw one every 10 h. Its scale leaves
- *   out suspect weeks, which run to the top: one forgotten check-out flattened every other column. A click (or Enter) on
- *   a column opens that week in the calendar, as a banner entry does (showWeek). The average and balance
- *   tiles turn orange with a note when a finished week they count has a punch error: they cannot be trusted.
- *   «Horario habitual» averages only days without a punch error: a check-out on the next morning read as
- *   leaving at 8:36, and an open entry or an off-hours punch skewed the mean the same way.
- * - A session longer than the payload's long_hours is drawn orange (a punch error, style.css) in the
- *   timeline, and so is its day's total in both calendar views: it is nearly always a forgotten check-out. A session that ends on a later day
- *   runs to midnight on its check-in day, labelled with the days it spans («15:00 – 09:00 (+1)»); its end
- *   hour used to come before its start and left a sliver. A week holding such a session never claims its
- *   target reached: the hero, the week card's badge and the table say a punch needs checking instead, the
- *   card's total says its sum cannot be trusted, and the day's bar is red in «Objetivo» too. A week with a
- *   missed day says a punch needs checking the same way (week.error).
- * - «Objetivo» scales its bars to the week shown, leaving out its long days, which run to the edge: scaled to
- *   the longest day of the whole history, one forgotten check-out of hundreds of hours shrank every normal day to a sliver.
+ * - The banner under the hero lists this person's punch errors (week.js's punchErrors), whoever is looking and
+ *   whatever their rights: it reads only this page's own sessions. Each one opens its week. It folds (closed by
+ *   default, the count in its title) and keeps whatever the viewer left it at across repaints. A missed day also
+ *   reads «sin fichar» in orange in both calendar views instead of a bare dash. In the weekly chart a week with a
+ *   punch error (a too long session or a missed day) is orange, with a thin orange line just under the axis so a
+ *   week with nothing punched still shows it (under it, not on it: on it, it read as a few hours punched), and its
+ *   tooltip says why. The chart's grid keeps about six lines whatever the tallest week: a 230 h week used to draw
+ *   one every 10 h. Its scale leaves out suspect weeks, which run to the top: one forgotten check-out flattened
+ *   every other column. A click (or Enter) on a column opens that week in the calendar, as a banner entry does
+ *   (showWeek). The average and balance tiles turn orange with a note when a finished week they count has a punch
+ *   error: they cannot be trusted. «Horario habitual» averages only days without a punch error: a check-out on the
+ *   next morning read as leaving at 8:36, and an open entry or an off-hours punch skewed the mean the same way.
+ * - A session longer than the payload's long_hours is drawn orange (a punch error, style.css) in the timeline, and
+ *   so is its day's total in both calendar views: it is nearly always a forgotten check-out. A session that ends
+ *   on a later day runs to midnight on its check-in day, labelled with the days it spans («15:00 – 09:00 (+1)»);
+ *   its end hour used to come before its start and left a sliver. A week holding such a session never claims its
+ *   target reached: the hero, the week card's badge and the table say a punch needs checking instead, the card's
+ *   total says its sum cannot be trusted, and the day's bar is red in «Objetivo» too. A week with a missed day
+ *   says a punch needs checking the same way (week.error).
+ * - «Objetivo» scales its bars to the week shown, leaving out its long days, which run to the edge: scaled to the
+ *   longest day of the whole history, one forgotten check-out of hundreds of hours shrank every normal day to a
+ *   sliver.
  * - A session left open since an earlier day is not today's work: the hero estimates no leave time from it
  *   and its last-punch line says, in orange, since when it is open (leftOpen). The punch buttons still follow
  *   the real open attendance, which is what Odoo will close.
- * - For a session that may change punches (the payload's can_edit), each day in the banner has «Corregir»,
- *   which opens it in the correcting dialog of dayedit.js, as the management view does; saving reloads this
- *   page. A day with a request the viewer may approve has «Revisar» instead when they may not correct. On someone else's page, whoever may approve their pending change
- *   requests gets them in the same banner (the payload's requests; the employee never sees them), in
- *   blue, grouped with the punch errors of their day: one line and one «Corregir» per day, whose dialog
- *   also approves the request.
+ * - For a session that may change punches (the payload's can_edit), each day in the banner has «Corregir», which
+ *   opens it in the correcting dialog of dayedit.js, as the management view does; saving reloads this page. A day
+ *   with a request the viewer may approve has «Revisar» instead when they may not correct. On someone else's page,
+ *   whoever may approve their pending change requests gets them in the same banner (the payload's requests; the
+ *   employee never sees them), in blue, grouped with the punch errors of their day: one line and one «Corregir»
+ *   per day, whose dialog also approves the request.
  * - Colours: never hardcode one here. Two call sites build the token name at runtime (var(--${…})) and go
  *   silently colourless when a token is renamed; the palette and its rules are in style.css.
  */
@@ -50,7 +50,9 @@ import {
   buildWeek, buildWeeks, weekRangeLabel, lunchHours, lunchOpen, targetLabel, weeksSince, punchErrors, weekOffsetOf,
   missed, longDay, offHours, dayError, unclosed,
 } from "./week.js";
-import { fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey, isoDay } from "./format.js";
+import {
+  fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey, isoDay, plural,
+} from "./format.js";
 import { openDayOf } from "./dayedit.js";
 import { el, api, attachTip, tipRow } from "./shared.js";
 import { fillBar, minutesField, bellIcon, qrIcon, actionButton } from "./ui.js";
@@ -77,7 +79,9 @@ export function leftOpen(ev) {
 
 export function punchText(ev) {
   const elapsed = (Date.now() - ev.at) / 3.6e6;
-  if (leftOpen(ev)) return `Entrada del ${fmtDay(ev.at)} a las ${fmtTime(ev.at)} sin cerrar · hace ${fmtShort(elapsed)}`;
+  if (leftOpen(ev)) {
+    return `Entrada del ${fmtDay(ev.at)} a las ${fmtTime(ev.at)} sin cerrar · hace ${fmtShort(elapsed)}`;
+  }
   const label = ev.out
     ? ev.rest ? "Fin del descanso a las" : "Última salida a las"
     : ev.rest ? "En descanso desde las" : "Entrada a las";
@@ -345,12 +349,13 @@ export function renderKpis(weeks) {
   if (!done.length) return;
   const balance = done.reduce((a, w) => a + w.delta, 0);
   const wrong = done.filter(w => w.error).length;
-  const unreliable = n => el("div", "foot warn", `⚠ No fiable: ${n} ${n === 1 ? "semana" : "semanas"} con `
+  const unreliable = n => el("div", "foot warn", `⚠ No fiable: ${plural(n, "semana", "semanas")} con `
     + "fichajes incorrectos (jornadas muy largas, entradas sin cerrar, fuera de horario o días sin fichar)");
   const wrongWorking = working.filter(w => w.error).length;
   const averageTile = tile("Media semanal",
     working.length ? fmtHM(working.reduce((a, w) => a + w.total, 0) / working.length) : "—",
-    `${working.length} ${working.length === 1 ? "semana laborable completa" : "semanas laborables completas"}`, wrongWorking ? "status-warning" : null);
+    plural(working.length, "semana laborable completa", "semanas laborables completas"),
+    wrongWorking ? "status-warning" : null);
   if (wrongWorking) averageTile.appendChild(unreliable(wrongWorking));
   kpis.appendChild(averageTile);
   const balanceTile = tile("Balance frente al objetivo", fmtDelta(balance),
@@ -370,7 +375,7 @@ export function renderKpis(weeks) {
   const exit = avgTime(worked.filter(d => d.sessions.at(-1).out).map(d => minsOf(d.sessions.at(-1).out)));
   if (entry && exit) {
     kpis.appendChild(tile("Horario habitual", `${entry} – ${exit}`,
-      `entrada y salida medias · ${worked.length} ${worked.length === 1 ? "día" : "días"}`));
+      `entrada y salida medias · ${plural(worked.length, "día", "días")}`));
   }
 }
 
@@ -396,8 +401,8 @@ export function renderOverview(weeks) {
   const adjusted = weeks.some(w => w.target !== store.weekTarget && w.target > 0);
   document.getElementById("overviewCaption").textContent =
     "Cada columna es una semana; la actual, en azul claro; abajo, en morado, el descanso fichado; en naranja, "
-    + "las semanas con un error de fichaje (una jornada muy larga, una entrada sin cerrar, un fichaje fuera de horario o"
-    + " un día sin fichar). Pulsa una para verla arriba."
+    + "las semanas con un error de fichaje (una jornada muy larga, una entrada sin cerrar, un fichaje fuera "
+    + "de horario o un día sin fichar). Pulsa una para verla arriba."
     + (adjusted ? " Las semanas con ausencias o permisos llevan su objetivo ajustado como marca horizontal." : "");
 
   const BaseW = 940, MinBand = 38, H = 250, MinSegH = 3;
@@ -473,19 +478,20 @@ export function renderOverview(weeks) {
       if (w.target !== store.weekTarget) t.appendChild(tipRow("Objetivo (con ausencias)", targetLabel(w)));
       if (w.suspect) t.appendChild(el("div", "t-note warn", "Incluye una jornada muy larga: suma no fiable"));
       if (w.offDays) {
-        t.appendChild(el("div", "t-note warn", `${w.offDays} ${w.offDays === 1 ? "día" : "días"} con fichajes fuera de horario`));
+        t.appendChild(el("div", "t-note warn", `${plural(w.offDays, "día", "días")} con fichajes fuera de horario`));
       }
       if (w.missedDays) {
-        t.appendChild(el("div", "t-note warn", `${w.missedDays} ${w.missedDays === 1 ? "día" : "días"} sin fichar`));
+        t.appendChild(el("div", "t-note warn", `${plural(w.missedDays, "día", "días")} sin fichar`));
       }
       if (w.openDays) {
-        t.appendChild(el("div", "t-note warn", `${w.openDays} ${w.openDays === 1 ? "día" : "días"} con una entrada sin cerrar`));
+        t.appendChild(el("div", "t-note warn", `${plural(w.openDays, "día", "días")} con una entrada sin cerrar`));
       }
       if (w.allVacation && w.total < 0.01) {
         t.appendChild(tipRow("Vacaciones", "toda la semana"));
       } else if (w.complete) {
         const r2 = tipRow(w.delta >= 0 ? "Sobre objetivo" : "Bajo objetivo", fmtDelta(w.delta));
-        r2.querySelector(".v").style.color = `var(--${w.suspect ? "status-warning" : w.delta >= 0 ? "status-success" : "destructive"})`;
+        const tone = w.suspect ? "status-warning" : w.delta >= 0 ? "status-success" : "destructive";
+        r2.querySelector(".v").style.color = `var(--${tone})`;
         t.appendChild(r2);
       } else {
         t.appendChild(tipRow("Para el objetivo", fmtHM(Math.max(w.target - w.total, 0))));
@@ -706,17 +712,21 @@ export function renderTimeline(card, w) {
       const start = joined ? hourOf(prev.out) : hourOf(s.in), end = endHour(s);
       const days = spanDays(s);
       const later = days > 0 ? ` (+${days})` : "";
+      const text = s.rest ? "" : `${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) + later : "…"}`;
       const block = el("div", "sess" + (s.rest ? " rest" : "") + (joined && !s.rest ? " join-l" : "")
-        + (longDay(d) || offHours(s) ? " long" : ""), s.rest ? "" : `${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) + later : "…"}`);
+        + (longDay(d) || offHours(s) ? " long" : ""), text);
       block.tabIndex = 0;
       attachTip(block, t => {
         t.appendChild(el("div", "t-title",
           `${DayNames[i]} ${fmtDay(d.date)} · ${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) : "en curso"}`));
         t.appendChild(tipRow(s.rest ? "Descanso" : "Trabajo", fmtHM(s.hours)));
-        if (days > 0) t.appendChild(el("div", "t-note", `Termina ${days === 1 ? "al día siguiente" : `${days} días después`}`));
+        if (days > 0) {
+          t.appendChild(el("div", "t-note", `Termina ${days === 1 ? "al día siguiente" : `${days} días después`}`));
+        }
         if (longDay(d)) {
           t.appendChild(el("div", "t-note warn",
-            `Jornada muy larga: ${fmtHM(d.hours)} en el día, más de ${fmtHM(store.data.long_hours)}, casi siempre una salida sin fichar`));
+            `Jornada muy larga: ${fmtHM(d.hours)} en el día, más de ${fmtHM(store.data.long_hours)}, `
+            + "casi siempre una salida sin fichar"));
         }
         if (offHours(s)) {
           const [from, to] = store.data.work_hours;
@@ -811,7 +821,8 @@ let errorsOpen = false;
 function errorPiece(s) {
   return {
     long: () => ["kind", `Jornada de ${fmtShort(s.hours)}`, s.count > 1 ? `en ${s.count} sesiones` : ""],
-    off: () => ["kind", "Fuera de horario", `${fmtTime(s.in)} – ${fmtTime(s.out)}${dayKey(s.out) !== dayKey(s.in) ? " (+1)" : ""}`],
+    off: () => ["kind", "Fuera de horario",
+      `${fmtTime(s.in)} – ${fmtTime(s.out)}${dayKey(s.out) !== dayKey(s.in) ? " (+1)" : ""}`],
     open: () => ["kind", "Sin cerrar", `entrada a las ${fmtTime(s.in)}, sin salida`],
     empty: () => ["kind", "Sin fichar", `con jornada prevista de ${fmtShort(s.expected)}`],
   }[s.kind]();
@@ -867,12 +878,13 @@ export function renderErrors() {
   const summary = el("summary");
   const n = errors.length, m = requests.length;
   summary.appendChild(el("h2", null, [
-    n ? `⚠ ${n} ${n === 1 ? "fichaje por corregir" : "fichajes por corregir"}` : "",
-    m ? `${m} ${m === 1 ? "solicitud pendiente" : "solicitudes pendientes"}` : "",
+    n ? `⚠ ${plural(n, "fichaje por corregir", "fichajes por corregir")}` : "",
+    m ? plural(m, "solicitud pendiente", "solicitudes pendientes") : "",
   ].filter(Boolean).join(" · ")));
   details.append(summary,
-    el("p", null, `Entradas sin cerrar de días anteriores, jornadas de más de ${fmtHM(store.data.long_hours)}, fichajes fuera `
-      + `de ${fmtClock(store.data.work_hours[0])} a ${fmtClock(store.data.work_hours[1])} y días con jornada prevista `
+    el("p", null, "Entradas sin cerrar de días anteriores, jornadas de más de "
+      + `${fmtHM(store.data.long_hours)}, fichajes fuera de ${fmtClock(store.data.work_hours[0])} a `
+      + `${fmtClock(store.data.work_hours[1])} y días con jornada prevista `
       + "sin ningún fichaje, de todo el historial"
       + (m ? ", y las solicitudes de cambio pendientes de tu aprobación" : "")
       + ", un día por línea. Pulsa uno para ver su semana."),

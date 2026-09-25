@@ -3,11 +3,11 @@
  * hours, target and delta.
  *
  * - punchErrors lists the punches to fix over the whole history loaded, as the management view flags them:
- *   sessions still open from before today, days whose total passes long_hours (longDay, however many
- *   sessions), sessions outside the payload's work_hours (offHours: a check-in before 6:30, a check-out
- *   after work_hours' end, midnight, so on a later day; listed only on days not already too long), and missed days (a past day
- *   that expected hours, after its absences and contract, with no session at all). dayError is any of the
- *   first three on a day.
+ *   sessions still open from before today, days whose total passes long_hours (longDay, however many sessions),
+ *   sessions outside the payload's work_hours (offHours: a check-in before 6:30, a check-out after work_hours'
+ *   end, midnight, so on a later day; listed only on days not already too long), and missed days (a past day that
+ *   expected hours, after its absences and contract, with no session at all). dayError is any of the first three
+ *   on a day.
  * - A session left open from before today (unclosed) counts 0 h, as Odoo and the management view count it:
  *   counted up to now, one left open for weeks made a day of hundreds of hours and a balance hundreds of
  *   hours in favour where the management view read it short. Only today's open session counts live.
@@ -65,7 +65,8 @@ export function punchErrors() {
     .map(s => ({ kind: "open", in: new Date(s.in) }));
   const days = Array.from({ length: store.data.weeks }, (_, k) => buildWeek(k).days).flat();
   const closed = days.filter(d => d.sessions.every(s => s.out));
-  const long = closed.filter(longDay).map(d => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
+  const long = closed.filter(longDay)
+    .map(d => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
   const off = closed.filter(d => !longDay(d))
     .flatMap(d => d.sessions.filter(offHours).map(s => ({ kind: "off", in: s.in, out: s.out })));
   const empty = days.filter(missed).map(d => ({ kind: "empty", in: d.date, expected: d.expected }));

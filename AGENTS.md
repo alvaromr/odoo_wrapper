@@ -18,15 +18,17 @@ src/odoo_wrapper/
   server.py          pages, JSON API, Odoo sessions as the login, same-site guard
   data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
   team.py            the management view's payload: one week of everyone the session can read, flagged
+  corrections.py     the day dialog's writes: correcting and adding punches, approving change requests
   state.py           the shared state file (lunch stamp, durations, mute)
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
   qr.py              hand-written QR encoder
   templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
                      (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
-                     as ES modules (store, format, week, ui, api, render, alarms, app, shared, dayedit, team, teamcharts),
-                     app.js and team.js the only ones each page loads, shared.js and dayedit.js (the day dialog) what both use, store.js
-                     the dashboard's shared state, served at /style.css and /js/<name>
+                     as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
+                     week, ui, api, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
+                     team) and what both use (shared, dayedit: the day dialog); store.js and teamstate.js hold each
+                     page's state. Served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance  (.claude/skills in the repo points there; symlink it into
                      ~/.claude/skills to use it from other projects)
@@ -39,10 +41,10 @@ Don't duplicate — each fact has one home:
 - **`bin/odoo` with no arguments** and **`bin/odoo-dashboard --help`** — everything about using each tool:
   commands, flags, files, what clocks for real.
 - **The header of each module** — why it behaves as it does: `server.py` (sessions, same-site guard, API),
-  `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and
-  what each flag means), `state.py` (the shared state), `lan.py` (phone
-  access and its certificate), `process.py` (log, self-restart, ports), `cli.py` (the commands), each file
-  in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
+  `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and what each
+  flag means), `corrections.py` (what the day dialog writes and when it warns), `state.py` (the shared state),
+  `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports), `cli.py` (the commands),
+  each file in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
 - **The skill** — only when an agent should reach for the CLI and what to confirm first.
 - **`README.md`** — human quickstart only.
@@ -83,10 +85,10 @@ Start with the unit tests:
 
 ```bash
 python3 -m unittest discover -s tests   # the Python suite
-python3 tests/report_coverage.py        # the same with coverage; fails unless every line and branch ran (branches: Python ≥ 3.14)
+python3 tests/report_coverage.py        # the same with coverage: every line and branch (branches: Python ≥ 3.14)
 node --test tests/app.test.mjs          # the page's logic (Node ≥ 18, nothing to install)
 node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=100 \
-     --test-coverage-branches=100 --test-coverage-functions=100 tests/app.test.mjs   # the same with coverage (Node ≥ 22)
+     --test-coverage-branches=100 --test-coverage-functions=100 tests/app.test.mjs  # with coverage (Node ≥ 22)
 ```
 
 Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes
@@ -145,7 +147,7 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   each day), `hr.employee` with `active_test` off (`active`, `departure_date` for people who left) and
   `approval.request` (attendance change requests, found by category name). Which employees a session sees is
   left to Odoo's record rules; `data.py` and `team.py` headers have the details.
-- The management view's day dialog is the only other writer: it `write`s or `create`s `hr.attendance` (check_in,
+- The day dialog (`corrections.py`) is the only other writer: it `write`s or `create`s `hr.attendance` (check_in,
   check_out) and calls `approval.request.action_approve` as the session's user, both only if Odoo's rights allow
   them. Neither can be tested reversibly against a real Odoo: an attendance keeps a tracking message for every
   change, even one undone, and approving notifies the employee. Test them against the scripted client only.

@@ -33,12 +33,12 @@ read, with the problems a reviewer looks for already flagged.
   A day's target is its calendar hours, zero on a full-day absence, minus the hours of a partial leave. An
   employee without a calendar has no target, so is never flagged as missing a day or hours.
 - Flags per day: "open" an attendance left open before today (forgot to check out), "empty" a past day with a
-  target and no attendance (forgot to check in), "long" a day over LONG_DAY hours in total, however many
-  sessions it took (two sessions of 6 h and 8 h are as suspicious as one of 14 h), "off" a session outside
-  data.WORK_FROM–WORK_TO (a check-in before 6:30, a check-out after WORK_TO, midnight, so on a later day). Taps under a minute are dropped as
-  they are read (data.real_punch), so they flag nothing. Session
-  length is never flagged: sessions of a few seconds are double taps that cost nothing, and the attendance officer asked to
-  ignore them. Breaks count in the day's hours like any other session, as they do in the personal payload.
+  target and no attendance (forgot to check in), "long" a day over LONG_DAY hours in total, however many sessions
+  it took (two sessions of 6 h and 8 h are as suspicious as one of 14 h), "off" a session outside
+  data.WORK_FROM–WORK_TO (a check-in before 6:30, a check-out after WORK_TO, midnight, so on a later day). Taps
+  under a minute are dropped as they are read (data.real_punch), so they flag nothing. Session length is never
+  flagged: sessions of a few seconds are double taps that cost nothing, and the attendance officer asked to ignore
+  them. Breaks count in the day's hours like any other session, as they do in the personal payload.
 - The target is checked per week, not per day: a short day is often made up later that week, so only a
   finished week is judged, "under" below its target by UNDER_MARGIN or more and "over" above it by more
   than OVER_MARGIN (the page shows each day's balance as information, not as a flag). Both are relative to
@@ -51,29 +51,21 @@ read, with the problems a reviewer looks for already flagged.
   personal page's own threshold: no minute may be missing, and a week read «al día» in one view and short
   in the other when it was six.
 - What is left to fix goes out apart (fetch_fixes, /api/team?fixes): the same build over the whole history, from
-  the first attendance the session can read to this week, keeping only the punch-error days («open»,
-  «empty», «long», «off»; «off» not on a day already «long») with their sessions, per employee. Before
-  a person's first real punch no day expects anything, so none is missed (thousands of phantom days
-  otherwise). It is the same list the personal page's banner shows for one person, and it is built by the same flags as the
-  table, so the two cannot disagree. Being the heaviest load, the page asks for it on its own, after the
-  table, and it is cached like the rest.
-- Attendance change requests (approval.request, Odoo's Approvals app) sit on the day they ask to change: the
-  local date of their date_start, owner matched to the employee through its user. The category is found by
-  name (REQUEST_CATEGORY, «Modificación de fichaje» in this Odoo), never by id; cancelled ones are left out.
-  They are not flags: a pending one usually explains a flag next to it. Each row counts its pending ones
-  in the period (pending), which survives the year's summary, for the page's «Con solicitudes» filter.
-  Someone's own page lists, to whoever may approve them only, every pending request of theirs
-  (requests_to_approve, whatever their date): the employee never sees it, as they are not the approver. Approvals is optional, and a session
-  that may not read requests simply gets none, like the attendance reasons in client.py.
-- The day dialog writes, and nothing else does: save_attendance changes a punch's check-in and check-out, or
-  creates one, and approve_request approves a change request as the session's user (action_approve, which
-  Odoo allows only to a pending approver, hence can_approve). Odoo validates both (overlaps, rights) and its
-  refusal comes back as a 409 with its words. Shortening a punch that ended on a later day may lose that
-  day's check-in: someone who forgot to check out and did not punch again right away left their next
-  morning's check-in only as this punch's check-out. When no attendance of theirs starts within
-  LOST_ENTRY_MINUTES of the old check-out, the answer carries it as lost_entry and the page says so; it
-  creates nothing on its own (about one long punch in five was like that). Every write drops the cached payloads.
-- The payload is cached per session and period for data.VIEW_TTL,
+  the first attendance the session can read to this week, keeping only the punch-error days («open», «empty»,
+  «long», «off»; «off» not on a day already «long») with their sessions, per employee. Before a person's first real
+  punch no day expects anything, so none is missed (thousands of phantom days otherwise). It is the same list the
+  personal page's banner shows for one person, and it is built by the same flags as the table, so the two cannot
+  disagree. Being the heaviest load, the page asks for it on its own, after the table, and it is cached like the
+  rest.
+- Attendance change requests (approval.request, Odoo's Approvals app) sit on the day they ask to change: the local
+  date of their date_start, owner matched to the employee through its user. The category is found by name
+  (REQUEST_CATEGORY, «Modificación de fichaje» in this Odoo), never by id; cancelled ones are left out. They are
+  not flags: a pending one usually explains a flag next to it. Each row counts its pending ones in the period
+  (pending), which survives the year's summary, for the page's «Con solicitudes» filter. Someone's own page lists,
+  to whoever may approve them only, every pending request of theirs (requests_to_approve, whatever their date): the
+  employee never sees it, as they are not the approver. Approvals is optional, and a session that may not read
+  requests simply gets none, like the attendance reasons in client.py.
+- Read only: the day dialog's writes are corrections.py. The payload is cached per session and period for data.VIEW_TTL,
   longer than the personal one: what someone else punched moves slowly and «Actualizar» forces a reload.
 """
 
@@ -89,7 +81,6 @@ LONG_DAY = data.LONG_HOURS
 UNDER_MARGIN = 1 / 60
 OVER_MARGIN = 5
 REQUEST_CATEGORY = "fichaje"
-LOST_ENTRY_MINUTES = 10
 REQUEST_STATES = ("new", "pending", "approved", "refused")
 
 
@@ -145,7 +136,8 @@ FIX_KINDS = ("open", "empty", "long", "off")
 
 def fetch_fixes(client, fresh=False):
     def build():
-        first = client.call_kw("hr.attendance", "search_read", [[]], {"fields": ["check_in"], "order": "check_in asc", "limit": 1})
+        first = client.call_kw("hr.attendance", "search_read", [[]],
+                               {"fields": ["check_in"], "order": "check_in asc", "limit": 1})
         today = datetime.now().astimezone().date()
         monday = monday_of(data.local(first[0]["check_in"]).date() if first else today)
         return fixes_payload(build_team(client, monday, (monday_of(today) - monday).days // 7 + 1))
@@ -168,7 +160,8 @@ def year_payload(payload, year):
     today = payload["generated_at"][:10]
     months = [f"{year}-{m:02d}" for m in range(1, 13)]
     return dict(payload, year=year, employees=[
-        {k: v for k, v in e.items() if k not in ("days", "weeks")} | {"months": [month_row(m, e, today) for m in months]}
+        {k: v for k, v in e.items() if k not in ("days", "weeks")}
+        | {"months": [month_row(m, e, today) for m in months]}
         for e in payload["employees"]
     ])
 
@@ -207,60 +200,6 @@ def requests_to_approve(client, employee_id):
     return [r for r in fetch_requests(client, [user[0]], states=("pending",)) if r["can_approve"]] if user else []
 
 
-def odoo_stamp(iso):
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def lost_entry(client, employee_id, old_out, new_out):
-    if not old_out or data.local(old_out).date() <= data.local(new_out).date():
-        return None
-    until = (datetime.strptime(old_out, "%Y-%m-%d %H:%M:%S") + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
-    later = client.call_kw("hr.attendance", "search_count", [[("employee_id", "=", employee_id),
-                                                              ("check_in", ">=", old_out), ("check_in", "<=", until)]])
-    return None if later else data.local(old_out).isoformat()
-
-
-def save_attendance(client, body):
-    try:
-        check_in, check_out = odoo_stamp(body["check_in"]), odoo_stamp(body["check_out"])
-        record, employee = int(body.get("id") or 0), int(body.get("employee") or 0)
-    except (KeyError, TypeError, ValueError):
-        return 400, {"error": "Entrada o salida no válidas"}
-    if check_out <= check_in:
-        return 400, {"error": "La salida tiene que ser posterior a la entrada"}
-    if not record and not employee:
-        return 400, {"error": "Falta el fichaje o la persona"}
-    try:
-        if record:
-            before = client.call_kw("hr.attendance", "read", [[record], ["employee_id", "check_out"]])[0]
-            client.call_kw("hr.attendance", "write", [[record], {"check_in": check_in, "check_out": check_out}])
-            lost = lost_entry(client, before["employee_id"][0], before["check_out"], check_out)
-        else:
-            client.call_kw("hr.attendance", "create", [{"employee_id": employee, "check_in": check_in, "check_out": check_out}])
-            lost = None
-    except SessionExpired:
-        raise
-    except OdooError as error:
-        return 409, {"error": str(error)}
-    data.drop_data_cache()
-    return 200, {"ok": True, "lost_entry": lost}
-
-
-def approve_request(client, request_id):
-    try:
-        request = int(request_id)
-    except (TypeError, ValueError):
-        return 400, {"error": f"Solicitud no válida: {request_id}"}
-    try:
-        client.call_kw("approval.request", "action_approve", [[request]])
-    except SessionExpired:
-        raise
-    except OdooError as error:
-        return 409, {"error": str(error)}
-    data.drop_data_cache()
-    return 200, {"ok": True}
-
-
 def clock(stamp):
     return int(stamp[11:13]) + int(stamp[14:16]) / 60
 
@@ -295,7 +234,8 @@ def week_row(monday, days, schedule, today):
         ("under", judged and hours <= target - UNDER_MARGIN),
         ("over", judged and hours > target + OVER_MARGIN),
     ) if hit]
-    balance = round(sum(d["hours"] - d["target"] for d in days if d["date"] < today.isoformat()), 2) if schedule else None
+    past = [d for d in days if d["date"] < today.isoformat()]
+    balance = round(sum(d["hours"] - d["target"] for d in past), 2) if schedule else None
     return {"monday": monday.isoformat(), "hours": hours, "target": target, "balance": balance, "flags": flags,
             "suspect": any("long" in d["flags"] for d in days)}
 
@@ -339,10 +279,12 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
 def first_punches(client, ids):
     rows = client.call_kw(
         "hr.attendance", "read_group",
-        [[("employee_id", "in", ids), ("worked_hours", ">=", data.MIN_SESSION)], ["employee_id", "check_in:min"], ["employee_id"]],
+        [[("employee_id", "in", ids), ("worked_hours", ">=", data.MIN_SESSION)],
+         ["employee_id", "check_in:min"], ["employee_id"]],
         {"lazy": True},
     )
-    return {r["employee_id"][0]: monday_of(data.local(r["check_in"]).date()).isoformat() for r in rows if r["employee_id"]}
+    return {r["employee_id"][0]: monday_of(data.local(r["check_in"]).date()).isoformat()
+            for r in rows if r["employee_id"]}
 
 
 def build_team(client, monday, weeks=1, start=None, stop=None):
@@ -364,8 +306,9 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
         e["since"] = since.get(e["id"], monday_of(today).isoformat())
     calendar_of = {e["id"]: e["resource_calendar_id"] and e["resource_calendar_id"][0] for e in employees}
     contracts = data.fetch_contracts(client, ids, monday, end)
-    calendar_ids = sorted({cid for cid in calendar_of.values() if cid}
-                          | {c["resource_calendar_id"][0] for cs in contracts.values() for c in cs if c["resource_calendar_id"]})
+    contract_calendars = {c["resource_calendar_id"][0] for cs in contracts.values() for c in cs
+                          if c["resource_calendar_id"]}
+    calendar_ids = sorted({cid for cid in calendar_of.values() if cid} | contract_calendars)
     blocks = client.call_kw(
         "resource.calendar.attendance", "search_read", [[("calendar_id", "in", calendar_ids)]],
         {"fields": ["calendar_id", "dayofweek", "hour_from", "hour_to", "day_period"]},
