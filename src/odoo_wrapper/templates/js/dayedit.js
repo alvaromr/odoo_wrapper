@@ -21,7 +21,7 @@
  *   which reopened a dialog already closed.
  */
 import { DayNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtTime, fmtClock, hourOf, dayKey, parseDay } from "./format.js";
+import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtYear, fmtTime, fmtClock, hourOf, dayKey, parseDay } from "./format.js";
 import { el, api, hideTip, tipRow } from "./shared.js";
 
 export const RequestText = { new: "Borrador", pending: "Pendiente", approved: "Aprobada", refused: "Rechazada" };
@@ -59,9 +59,9 @@ export function balanced(day) {
   return day.target > 0 && day.sessions.length > 0 && day.sessions.every(s => s.out);
 }
 
-export function dayLabel(iso) {
+export function dayLabel(iso, year = false) {
   const date = parseDay(iso);
-  return `${DayNames[(date.getDay() + 6) % 7]} ${fmtDay(date)}`;
+  return `${DayNames[(date.getDay() + 6) % 7]} ${year ? fmtDate(date) : fmtDay(date) + fmtYear(date)}`;
 }
 
 export function wrongSession(s, limits) {

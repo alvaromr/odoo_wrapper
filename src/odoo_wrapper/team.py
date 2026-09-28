@@ -6,8 +6,9 @@ read, with the problems a reviewer looks for already flagged.
   load per week. Each employee carries its days, its weeks (hours, target and flags of each) and the
   aggregate of the days between start and stop: the week itself, or only the month's own days when a week
   spills over into the next or previous month. The balance counts only days already over, so a period in
-  progress does not owe the hours of days still to come. The employee's flags are those of any of its
-  weeks, for the page's filters.
+  progress does not owe the hours of days still to come; due is the target of those same days, so the page
+  can show a period in progress as hours against target up to yesterday, the sum its balance is. The
+  employee's flags are those of any of its weeks.
 - A week, month or employee total holding a «long» day is marked suspect: that day's hours are a
   forgotten check-out, not work, so the sum and its balance cannot be trusted and the page says so.
 - The year goes out summarised by month (year_payload), without its days: a year of days for every
@@ -18,11 +19,10 @@ read, with the problems a reviewer looks for already flagged.
   can read from LOOKBACK_WEEKS before the period to its end, so an attendance officer sees everyone and a team lead
   only whoever Odoo's record rules let them read (their own team). /api/team answers 403 when the session reads
   nobody else's attendances (client.sees_others), and the dashboard shows its link only then.
-- People who left are Odoo's call too: an employee who left is archived (hr.employee active false) with a
-  departure_date, while their attendances stay. They show only in the weeks they were still there, that is
-  when their departure falls on or after the week's Monday, and the days after it expect nothing; archived
-  without a date means gone. Every employee row, and every attendance left open, says whether its employee
-  is archived: the page hides them by default and shows them, with their departure date, on demand.
+- People who left are left out: an employee archived in Odoo (hr.employee active false) keeps their attendances,
+  but shows in no period, not even the weeks they still worked. Only the current staff is reviewed. Showing them
+  took their departure_date, which only an HR officer may read (a team lead reading their team's attendances got
+  an access error for the whole read, seen in real data).
 - Each day expects the hours of the contract in force that day (hr.contract in state open or close, its
   resource.calendar): before the hire date, or between two contracts, nothing is expected. The employee's
   own calendar is only the current one, so it used to charge a mid-year hire for the whole year and a
@@ -40,8 +40,11 @@ read, with the problems a reviewer looks for already flagged.
   flagged: sessions of a few seconds are double taps that cost nothing, and the attendance officer asked to ignore
   them. Breaks count in the day's hours like any other session, as they do in the personal payload.
 - The target is checked per week, not per day: a short day is often made up later that week, so only a
-  finished week is judged, "under" below its target by UNDER_MARGIN or more and "over" above it by more
-  than OVER_MARGIN (the page shows each day's balance as information, not as a flag). Both are relative to
+  finished week without punch errors is judged (a day with any flag makes its hours a guess: a missing punch
+  reads as hours short, a forgotten check-out as too many; the error is what to fix, in orange), "under"
+  below its target by UNDER_MARGIN or more and "over" above it by more than OVER_MARGIN (the page shows each
+  day's balance as information, not as a flag). Each total counts its flagged days (flagged_days), so the page
+  judges it by the same rule. Both limits are relative to
   each person's own week, 40 h on a full week and less with a holiday, a leave or a shorter contract: the
   attendance officer's rule is «under 40 h, over 45 h», and fixed numbers would flag every week with a
   holiday. The payload carries these limits so the page can explain each flag in words without restating
@@ -124,6 +127,7 @@ def month_row(month, employee, today):
         "hours": round(sum(d["hours"] for d in days), 2),
         "target": round(sum(d["target"] for d in days), 2) if schedule else None,
         "balance": round(sum(d["hours"] - d["target"] for d in days if d["date"] < today), 2) if schedule else None,
+        "due": round(sum(d["target"] for d in days if d["date"] < today), 2) if schedule else None,
         "under": sum("under" in w["flags"] for w in weeks),
         "over": sum("over" in w["flags"] for w in weeks),
         "flagged_days": sum(bool(d["flags"]) for d in days),
@@ -136,7 +140,7 @@ FIX_KINDS = ("open", "empty", "long", "off")
 
 def fetch_fixes(client, fresh=False):
     def build():
-        first = client.call_kw("hr.attendance", "search_read", [[]],
+        first = client.call_kw("hr.attendance", "search_read", [[("employee_id.active", "=", True)]],
                                {"fields": ["check_in"], "order": "check_in asc", "limit": 1})
         today = datetime.now().astimezone().date()
         monday = monday_of(data.local(first[0]["check_in"]).date() if first else today)
@@ -150,7 +154,7 @@ def fixes_payload(payload):
                  "sessions": [{k: s[k] for k in ("id", "in", "out", "hours")} for s in d["sessions"]]}
                 for d in e["days"] for kind in d["flags"]
                 if kind in FIX_KINDS and not (kind == "off" and "long" in d["flags"])]
-    rows = [dict({k: e[k] for k in ("id", "name", "archived", "departure_date")}, items=items(e))
+    rows = [dict({k: e[k] for k in ("id", "name")}, items=items(e))
             for e in payload["employees"]]
     return {"generated_at": payload["generated_at"], "limits": payload["limits"],
             "employees": [r for r in rows if r["items"]]}
@@ -229,15 +233,17 @@ def day_row(day, target, absence, sessions, requests, today):
 def week_row(monday, days, schedule, today):
     hours = round(sum(d["hours"] for d in days), 2)
     target = round(sum(d["target"] for d in days), 2) if schedule else None
-    judged = bool(schedule) and monday + timedelta(days=7) <= today
+    suspect = any("long" in d["flags"] for d in days)
+    judged = bool(schedule) and monday + timedelta(days=7) <= today and not any(d["flags"] for d in days)
     flags = [flag for flag, hit in (
         ("under", judged and hours <= target - UNDER_MARGIN),
         ("over", judged and hours > target + OVER_MARGIN),
     ) if hit]
     past = [d for d in days if d["date"] < today.isoformat()]
     balance = round(sum(d["hours"] - d["target"] for d in past), 2) if schedule else None
-    return {"monday": monday.isoformat(), "hours": hours, "target": target, "balance": balance, "flags": flags,
-            "suspect": any("long" in d["flags"] for d in days)}
+    due = round(sum(d["target"] for d in past), 2) if schedule else None
+    return {"monday": monday.isoformat(), "hours": hours, "target": target, "balance": balance, "due": due,
+            "flags": flags, "suspect": suspect}
 
 
 def employee_row(employee, schedule_on, absences, sessions, requests, monday, today, weeks=1, start=None, stop=None):
@@ -258,20 +264,20 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
         iso = day.isoformat()
         day_schedule = schedule_on(iso)
         expected = day_schedule["hours"][day.weekday()] if day_schedule else 0
-        gone = employee["departure_date"] and iso > employee["departure_date"]
-        target = 0 if iso in full or gone or iso < employee["since"] else max(0, expected - partial.get(iso, 0))
+        target = 0 if iso in full or iso < employee["since"] else max(0, expected - partial.get(iso, 0))
         days.append(day_row(day, target, full.get(iso), sessions_on.get(iso, []), requests_on.get(iso, []), today))
     week_rows = [week_row(monday + timedelta(weeks=w), days[7 * w:7 * w + 7], schedule, today) for w in range(weeks)]
     start, stop = (start or monday).isoformat(), (stop or monday + timedelta(weeks=weeks)).isoformat()
     inside = [d for d in days if start <= d["date"] < stop]
-    return {"id": employee["id"], "name": employee["name"], "archived": not employee.get("active", True),
-            "departure_date": employee["departure_date"],
+    return {"id": employee["id"], "name": employee["name"],
             "hours": round(sum(d["hours"] for d in inside), 2),
             "target": round(sum(d["target"] for d in inside), 2) if schedule else None,
             "balance": round(sum(d["hours"] - d["target"] for d in inside if d["date"] < today.isoformat()), 2)
             if schedule else None,
+            "due": round(sum(d["target"] for d in inside if d["date"] < today.isoformat()), 2) if schedule else None,
             "flags": [flag for flag in ("under", "over") if any(flag in w["flags"] for w in week_rows)],
             "suspect": any("long" in d["flags"] for d in inside),
+            "flagged_days": sum(bool(d["flags"]) for d in inside),
             "pending": sum(r["status"] == "pending" for d in inside for r in d["requests"]),
             "weeks": week_rows, "days": days}
 
@@ -292,14 +298,12 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
     today, end = now.date(), monday + timedelta(weeks=weeks)
     roster = client.call_kw(
         "hr.attendance", "read_group",
-        [[("check_in", ">=", odoo_time(monday - timedelta(weeks=LOOKBACK_WEEKS))), ("check_in", "<", odoo_time(end))],
-         ["employee_id"], ["employee_id"]],
+        [[("check_in", ">=", odoo_time(monday - timedelta(weeks=LOOKBACK_WEEKS))), ("check_in", "<", odoo_time(end)),
+          ("employee_id.active", "=", True)], ["employee_id"], ["employee_id"]],
         {"lazy": True},
     )
     seen = [row["employee_id"][0] for row in roster if row["employee_id"]]
-    employees = [e for e in client.call_kw(
-        "hr.employee", "read", [seen, ["name", "resource_calendar_id", "user_id", "active", "departure_date"]],
-    ) if e["active"] or (e["departure_date"] and e["departure_date"] >= monday.isoformat())]
+    employees = client.call_kw("hr.employee", "read", [seen, ["name", "resource_calendar_id", "user_id"]])
     ids = [e["id"] for e in employees]
     since = first_punches(client, ids)
     for e in employees:

@@ -4,7 +4,8 @@
  *   «0h 11m» or «109h 00m»; a zero part is noise. Nothing at all reads «0h», or «0m» for a short span
  *   (fmtShort: «hace 0m»), which also never goes negative.
  * - fmtDate adds the year to fmtDay for lists that span the whole history (the punches to fix), where
- *   «15 dic» alone does not say which December.
+ *   «15 dic» alone does not say which December; fmtYear adds it only to a date outside the current year,
+ *   for a label that is usually about now (a week, a day) but may be reached from such a list.
  */
 import { MonthNames } from "./store.js";
 
@@ -23,6 +24,7 @@ export function fmtClock(h) {
 }
 export function fmtDay(d) { return `${d.getDate()} ${MonthNames[d.getMonth()]}`; }
 export function fmtDate(d) { return `${fmtDay(d)} ${d.getFullYear()}`; }
+export function fmtYear(d) { return d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`; }
 export function fmtTime(d) { return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
 export function dayKey(d) { return d.toDateString(); }
 export function parseDay(iso) {

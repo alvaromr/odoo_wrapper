@@ -18,7 +18,7 @@ import { setClock, indexSessions } from "./week.js";
 import { isoDay } from "./format.js";
 import { renderHero, renderAll, setRangeMonths, punchText } from "./render.js";
 import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
-import { wireLogout } from "./shared.js";
+import { wireLogout, wireMouseHistory } from "./shared.js";
 import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
 import { wireDayDialog, onDaySaved } from "./dayedit.js";
 
@@ -106,6 +106,7 @@ document.getElementById("refreshBtn").addEventListener("click", async e => {
 });
 
 wireLogout(document.getElementById("logoutBtn"));
+wireMouseHistory();
 wireDayDialog();
 onDaySaved(() => loadAndRender(true));
 

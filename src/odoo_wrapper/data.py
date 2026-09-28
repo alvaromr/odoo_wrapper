@@ -4,12 +4,12 @@
   calls; the page trims what it shows. Its weeks are counted between calendar dates, not local datetimes: across a
   daylight-saving change the span is an hour short and the oldest week was dropped. The payload is cached per Odoo
   session for DATA_TTL seconds (a load costs ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into
-  the same dashboard never see each other's data, and every entry is dropped on any punch; fresh=True skips the
-  cache («Actualizar»). cached() is that cache for any payload; team.py keys its own per session and period. What
-  the viewer reads about other people (the management view, someone else's week) keeps VIEW_TTL, five minutes:
-  moving between those pages used to reload from Odoo every time, and «Actualizar» still forces a fresh load. The
-  payload's team flag says whether the session reads other people's attendances, so the page links the management
-  view.
+  the same dashboard never see each other's data; every entry is dropped on any punch, and a logout drops its
+  session's; fresh=True skips the cache («Actualizar»). cached() is that cache for any payload, keyed by a tuple
+  that starts with the session; team.py keys its own per session and period. What the viewer reads about other
+  people (the management view, someone else's week) keeps VIEW_TTL, five minutes: moving between those pages used
+  to reload from Odoo every time, and «Actualizar» still forces a fresh load. The payload's team flag says whether
+  the session reads other people's attendances, so the page links the management view.
 - build_data(client, employee) reads someone else's week instead, for the management view's links: the
   same payload, loaded by employee id, and it never touches the shared state, which is the viewer's own.
 - Expected hours follow the contract in force each day, as in team.py (fetch_contracts, calendar_on): the
@@ -208,13 +208,14 @@ def cached(key, fresh, build, ttl=DATA_TTL):
 
 
 def fetch_data(client, fresh=False, employee=None):
-    key = (client.session_id, employee) if employee else client.session_id
-    return cached(key, fresh, lambda: build_data(client, employee), VIEW_TTL if employee else DATA_TTL)
+    ttl = VIEW_TTL if employee else DATA_TTL
+    return cached((client.session_id, employee), fresh, lambda: build_data(client, employee), ttl)
 
 
-def drop_data_cache():
+def drop_data_cache(session_id=None):
     with _data_lock:
-        _data_cache.clear()
+        for key in [key for key in _data_cache if session_id in (None, key[0])]:
+            del _data_cache[key]
 
 
 def fetch_contracts(client, ids, monday, end):
@@ -286,9 +287,9 @@ def build_data(client, employee=None):
     monday0 = min(since, cur_monday - timedelta(weeks=MIN_WEEKS - 1))
 
     schedule = fetch_schedule(client, client.calendar_id)
-    lunch = not employee and state.read_state()["lunch"]
+    lunch = not employee and state.read_state(client.uid)["lunch"]
     if lunch and any(local(r["check_in"]) > datetime.fromisoformat(lunch) for r in records):
-        state.write_state(lunch=None)
+        state.write_state(client.uid, lunch=None)
 
     return {
         "employee": client.employee_name,
@@ -342,8 +343,8 @@ def punch(client, action):
         client.punch()
     stamp = datetime.now().astimezone().isoformat()
     if action == "lunch":
-        state.write_state(lunch=stamp, lunch_done=True, punched_at=stamp)
+        state.write_state(client.uid, lunch=stamp, lunch_done=True, punched_at=stamp)
     else:
-        state.write_state(lunch=None, punched_at=stamp)
+        state.write_state(client.uid, lunch=None, punched_at=stamp)
     drop_data_cache()
     return 200, {"ok": True}

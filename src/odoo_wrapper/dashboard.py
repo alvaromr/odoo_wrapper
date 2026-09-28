@@ -6,7 +6,7 @@ itself at its top:
 
   server.py    pages, JSON API, Odoo sessions as the login, same-site guard
   data.py      the payload read from Odoo (sessions, schedule, absences) and its cache
-  state.py     the shared state file (lunch stamp, durations, mute)
+  state.py     the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py       phone access: LAN address and name, self-signed certificate, QR
   process.py   log, self-restart on source or network changes, port check
 
@@ -49,7 +49,7 @@ está ocupado es que ya hay otro dashboard: recarga esa página en vez de arranc
 
 Ficheros, en {STATE_DIR}:
   config.json    URL, base de datos y usuario
-  state.json     comida, descansos y silencio del día, compartidos entre tus dispositivos
+  state.json     comida, descansos y silencio del día de cada usuario, compartidos entre sus dispositivos
   cert-<red>.pem, key-<red>.pem   un certificado por red (nombre e IP); al volver a una red conocida se reutiliza
   dashboard.log  salida del servidor cuando no hay terminal; al pasar de 1 MB se aparta como .1"""
 

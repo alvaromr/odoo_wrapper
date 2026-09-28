@@ -12,35 +12,32 @@
  *   filter that leaves a few rows narrows it to their dates instead of a long empty stretch, with
  *   FixPadDays more on each side (never past now), so a lone error, or one at either end, has dated weeks
  *   around it. The floating + and − change its pixels per day (team.fixDay, FixZoom); it scrolls sideways
- *   under the fixed name and chip columns, opening at today's end.
- * - It also scrolls by dragging: a press that moves more than DragSlop pixels pans instead of clicking, and
- *   a press on a name link is left alone. The pointer is captured only once it pans: captured from the
- *   press, every click landed on the strip instead of the mark under it, which then never opened. A mark
- *   opens its day in dayedit.js's dialog (openFixDay), unless it ends a drag.
+ *   under the fixed name and chip columns, opening at today's end, and down under its fixed header row, at
+ *   most 60 % of the window high so a long list does not push the rest of the page away.
+ * - It also scrolls by dragging (shared.js's panScroll). A mark opens its day in dayedit.js's dialog
+ *   (openFixDay), unless it ends a drag.
  * - «↔» widens the card alone to the whole window and back: the rest of the page reads better narrow, but
  *   the strip is the one thing that gains from the width.
  * - Its own toggles, one per kind of error (FixKinds, all on at first, team.fixKinds), keep only those
  *   errors: a row left with none of the chosen kinds goes, and its chips and marks show only those kinds.
  *   Each counts the people with that kind, whatever the others say, so a toggle turned off still tells how
- *   many it hides. They filter this card only, never the table or the charts; the name search and the
- *   archived toggle filter it too (teamstate.js).
+ *   many it hides. They filter this card only, never the table or the charts; the name search filters it
+ *   too (teamstate.js).
  */
 import { DayNames } from "./store.js";
 import { fmtHM, fmtDay, fmtDate, fmtTime, fmtClock, parseDay, shiftDays, plural } from "./format.js";
-import { el, api, hideTip } from "./shared.js";
+import { el, api, panScroll } from "./shared.js";
 import { dayLabel, sessionRow, whyDay, offSession, wrongSession, openDayOf } from "./dayedit.js";
 import { stripAxis, sessionStrip } from "./teamcharts.js";
-import { team, FixKinds, FlagText, listed, named } from "./teamstate.js";
+import { team, FixKinds, FlagText, named } from "./teamstate.js";
 
 export const FixZoom = { min: 2, max: 96, step: 1.5 };
 const FixPadDays = 7;
-const DragSlop = 3;
-
-let fixDrag = null, fixDragged = false;
+let fixPan;
 
 export function fixTip(name, item) {
   return tip => {
-    tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date)} ${parseDay(item.date).getFullYear()}`));
+    tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date, true)}`));
     tip.appendChild(el("div", "t-note warn", FlagText[item.kind]));
     for (const s of item.sessions) tip.appendChild(sessionRow(s, team.fixes.limits, "abierta"));
     const day = { ...item, flags: [item.kind] };
@@ -50,7 +47,7 @@ export function fixTip(name, item) {
 
 export function fixRows(fixes, kinds = team.fixKinds) {
   const count = (r, kind) => r.items.filter(i => i.kind === kind).length;
-  return fixes.employees.filter(e => listed(e) && named(e, team.search))
+  return fixes.employees.filter(e => named(e, team.search))
     .map(r => ({ ...r, items: r.items.filter(i => kinds.has(i.kind)) })).filter(r => r.items.length)
     .sort((a, b) => count(b, "open") - count(a, "open") || b.items.length - a.items.length
       || a.name.localeCompare(b.name, "es"));
@@ -106,7 +103,7 @@ export function renderFixes() {
   const all = fixRows(team.fixes, new Set(FixKinds));
   const rows = fixRows(team.fixes);
   const limits = team.fixes.limits;
-  document.getElementById("openCard").classList.toggle("hidden", !team.fixes.employees.some(listed));
+  document.getElementById("openCard").classList.toggle("hidden", !team.fixes.employees.length);
   note.textContent = `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)}, fichajes fuera de `
     + `${fmtClock(limits.work_from)} a ${fmtClock(limits.work_to)} y días con jornada prevista sin fichar, de todo el `
     + "historial de cada persona y sea cual sea el periodo que estés viendo. Una fila por persona."
@@ -164,10 +161,7 @@ export async function loadFixes(fresh) {
 }
 
 function openFixDay(employeeId, date) {
-  if (fixDragged) {
-    fixDragged = false;
-    return;
-  }
+  if (fixPan.consume()) return;
   return openDayOf(employeeId, date).catch(e => {
     document.getElementById("fixesNote").textContent = "No se pudo abrir ese día: " + e.message;
   });
@@ -194,29 +188,6 @@ export function wireFixes(saveState) {
     saveState();
     if (team.fixes) renderFixes();
   });
-  const fixScroller = document.getElementById("fixes");
-  fixScroller.addEventListener("pointerdown", e => {
-    if (e.button !== 0 || e.target.closest("a")) return;
-    fixDrag = { x: e.clientX, left: fixScroller.scrollLeft, moved: false, pointer: e.pointerId };
-    fixDragged = false;
-  });
-  fixScroller.addEventListener("pointermove", e => {
-    if (!fixDrag) return;
-    const dx = e.clientX - fixDrag.x;
-    if (!fixDrag.moved && Math.abs(dx) > DragSlop) {
-      fixDrag.moved = true;
-      fixScroller.setPointerCapture?.(fixDrag.pointer);
-      fixScroller.classList.add("dragging");
-      hideTip();
-    }
-    if (fixDrag.moved) fixScroller.scrollLeft = fixDrag.left - dx;
-  });
-  const endFixDrag = () => {
-    fixDragged = Boolean(fixDrag?.moved);
-    fixDrag = null;
-    fixScroller.classList.remove("dragging");
-  };
-  fixScroller.addEventListener("pointerup", endFixDrag);
-  fixScroller.addEventListener("pointercancel", endFixDrag);
+  fixPan = panScroll(document.getElementById("fixes"));
   document.getElementById("zoomOut").addEventListener("click", () => zoomFixes(1 / FixZoom.step));
 }

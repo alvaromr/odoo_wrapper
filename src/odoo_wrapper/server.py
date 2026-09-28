@@ -299,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})
                 return
-            self._send(200, state.read_state())
+            self._send(200, state.read_state(_sessions[self.session]))
         elif self.path == "/api/data":
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})
@@ -309,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
             if not employee:
                 client = new_client(self.session)
                 payload = data.fetch_data(client, fresh="fresh" in params)
-                self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state(),
+                self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state(client.uid),
                                      can_edit=bool(payload.get("team")) and edits_punches(client)))
                 return
             if not employee.isdigit():
@@ -398,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
         _sessions.pop(session_id, None)
         _rights.pop(session_id, None)
         revoke_pairings(session_id)
-        data.drop_data_cache()
+        data.drop_data_cache(session_id)
         self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])
 
     def _post(self):
@@ -427,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
                     changes[key] = body[key]
             if "muted" in body:
                 changes["muted"] = bool(body["muted"])
-            self._send(200, state.write_state(**changes))
+            self._send(200, state.write_state(_sessions[self.session], **changes))
         elif self.path == "/api/pair":
             phone = lan.phone_access()
             if not self._local():

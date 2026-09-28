@@ -78,7 +78,7 @@ class ScriptedClient:
         self.reasons = reasons
         self.employee_id, self.employee_name, self.calendar_id = 7, "Ana", 4
         self.punches, self.calls = [], []
-        self.session_id = "sid"
+        self.session_id, self.uid = "sid", 3
 
     def session_info(self):
         return {"uid": 3}

@@ -456,6 +456,19 @@ class HandlerTest(unittest.TestCase):
         self.assertNotIn("sid", sv._sessions)
         self.assertEqual(sv._pairings, {})
 
+    def test_logout_drops_only_its_own_cached_data(self):
+        dt._data_cache.update({("sid", None): (0, {}), ("sid", 42): (0, {}), ("other", None): (0, {})})
+        with patch.object(sv, "new_client"):
+            self.post("/api/logout", {})
+        self.assertEqual(list(dt._data_cache), [("other", None)])
+
+    def test_two_users_keep_their_own_state(self):
+        sv._sessions["other"] = 4
+        self.post("/api/state", {"muted": True, "lunch_minutes": 45})
+        self.assertEqual(self.get("/api/state", cookie="other")[2]["lunch_minutes"], st.LUNCH_DEFAULT)
+        self.assertFalse(self.post("/api/state", {}, cookie="other")[2]["muted"])
+        self.assertTrue(self.get("/api/state")[2]["muted"])
+
     def test_logout_with_a_dead_or_missing_session_still_clears_the_cookie(self):
         with patch.object(sv, "new_client") as client:
             client.return_value.logout.side_effect = SessionExpired("caducada")

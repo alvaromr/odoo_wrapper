@@ -259,7 +259,7 @@ class BuildDataTest(unittest.TestCase):
 
     def test_someone_elses_week_is_loaded_by_id_and_leaves_the_state_alone(self):
         stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()
-        st.write_state(lunch=stamp)
+        st.write_state(3, lunch=stamp)
         client = ScriptedClient({
             "hr.attendance": [{"check_in": utc(30), "check_out": False, "worked_hours": 0, "attendance_reason_ids": []}],
             "hr.attendance.reason": [NORMAL, REST], "resource.calendar.leaves": [], "hr.leave": [],
@@ -268,16 +268,16 @@ class BuildDataTest(unittest.TestCase):
         client.load_other = lambda employee: setattr(client, "employee_id", employee)
         dt.build_data(client, 42)
         self.assertEqual(client.employee_id, 42)
-        self.assertEqual(st.read_state()["lunch"], stamp)
+        self.assertEqual(st.read_state(3)["lunch"], stamp)
         self.assertIn([("employee_id", "=", 42)], [a[0] for model, a, _ in client.calls if model == "hr.attendance"])
 
     def test_a_punch_after_the_lunch_stamp_clears_it(self):
         stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()
-        st.write_state(lunch=stamp)
+        st.write_state(3, lunch=stamp)
         self.build([{"check_in": utc(120), "check_out": utc(90), "worked_hours": 0.5, "attendance_reason_ids": []}])
-        self.assertEqual(st.read_state()["lunch"], stamp)
+        self.assertEqual(st.read_state(3)["lunch"], stamp)
         self.build([{"check_in": utc(30), "check_out": False, "worked_hours": 0, "attendance_reason_ids": []}])
-        self.assertIsNone(st.read_state()["lunch"])
+        self.assertIsNone(st.read_state(3)["lunch"])
 
 
 class PunchTest(unittest.TestCase):
@@ -326,14 +326,14 @@ class PunchTest(unittest.TestCase):
 
     def test_lunch_stamps_the_state_and_other_punches_clear_it(self):
         self.assertEqual(self.punch("lunch")[0], 409)
-        dt._data_cache["sid"] = (0, {})
+        dt._data_cache[("sid", None)] = (0, {})
         status, _, client = self.punch("lunch", open_att={"id": 1})
         self.assertEqual((status, client.punches), (200, [None]))
         self.assertEqual(dt._data_cache, {})
-        state = st.read_state()
+        state = st.read_state(3)
         self.assertTrue(state["lunch"] and state["lunch_done"] and state["punched_at"])
         self.punch("checkin")
-        state = st.read_state()
+        state = st.read_state(3)
         self.assertIsNone(state["lunch"])
         self.assertTrue(state["lunch_done"])
 

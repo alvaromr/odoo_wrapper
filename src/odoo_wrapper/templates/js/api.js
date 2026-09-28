@@ -77,8 +77,9 @@ export async function loadAndRender(fresh) {
     .reduce((m, a) => m.set(a.date, [...(m.get(a.date) || []), a]), new Map());
   setClock(new Date(store.data.generated_at));
   indexSessions();
+  document.getElementById("title").textContent = store.data.employee;
   document.getElementById("subtitle").textContent =
-    `${store.data.employee} · Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
+    `Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
   document.getElementById("teamLink").classList.toggle("hidden", !store.data.team);
   document.getElementById("loadmsg").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");

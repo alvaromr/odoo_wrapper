@@ -7,8 +7,17 @@
  *   second or two and the page looked frozen meanwhile. Background requests (the team page's prefetch,
  *   the state poll) use fetch directly and do not light it.
  * - The logout button posts /api/logout and goes to /login; on failure it says so and stays usable.
+ * - The mouse's back and forward buttons walk the history (wireMouseHistory): Orca's embedded browser does
+ *   not turn them into navigation as Chrome does, so going back from someone's page to the management view
+ *   did nothing there. preventDefault keeps a browser that does navigate on them from moving twice.
  * - The tooltip (#tip, styled in style.css) follows the pointer and also opens on keyboard focus. It is
  *   drawn by the page, not a title attribute, which showed nothing in Orca's embedded browser.
+ * - panScroll lets a big box scroll by dragging, sideways and up and down, for a mouse that has no sideways
+ *   wheel: a press that moves more than PanSlop pixels pans instead of clicking, and a press on a link is left
+ *   alone. Touch is left to the browser, which already scrolls a box under a finger. The
+ *   pointer is captured only once it pans: captured from the press, every click landed on the box instead
+ *   of the thing under it, which then never opened. consume() tells a click handler that its press was a
+ *   pan, once, so the drag does not also open what it ended on.
  */
 export function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -37,6 +46,16 @@ export async function api(path, body) {
   } finally {
     loading(-1);
   }
+}
+
+const MouseHistory = { 3: -1, 4: 1 };
+
+export function wireMouseHistory() {
+  addEventListener("mouseup", e => {
+    if (!MouseHistory[e.button]) return;
+    e.preventDefault();
+    history.go(MouseHistory[e.button]);
+  });
 }
 
 export function wireLogout(button) {
@@ -84,6 +103,39 @@ export function hideTip(owner) {
   TipOwner = null;
   tip().style.display = "none";
 }
+const PanSlop = 3;
+
+export function panScroll(scroller) {
+  let press = null, panned = false;
+  scroller.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || e.pointerType === "touch" || e.target.closest("a")) return;
+    press = { x: e.clientX, y: e.clientY, left: scroller.scrollLeft, top: scroller.scrollTop, moved: false,
+      pointer: e.pointerId };
+    panned = false;
+  });
+  scroller.addEventListener("pointermove", e => {
+    if (!press) return;
+    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    if (!press.moved && Math.hypot(dx, dy) > PanSlop) {
+      press.moved = true;
+      scroller.setPointerCapture?.(press.pointer);
+      scroller.classList.add("dragging");
+      hideTip();
+    }
+    if (!press.moved) return;
+    scroller.scrollLeft = press.left - dx;
+    scroller.scrollTop = press.top - dy;
+  });
+  const end = () => {
+    panned = Boolean(press?.moved);
+    press = null;
+    scroller.classList.remove("dragging");
+  };
+  scroller.addEventListener("pointerup", end);
+  scroller.addEventListener("pointercancel", end);
+  return { consume: () => { const was = panned; panned = false; return was; } };
+}
+
 export function attachTip(node, build) {
   node.addEventListener("pointerenter", e => showTip(build, e.clientX, e.clientY, node));
   node.addEventListener("pointermove", e => moveTip(e.clientX, e.clientY));

@@ -25,7 +25,7 @@
  *   it only until the day has a gap: once lunch is taken, its actual length is what it is.
  */
 import { store, MonthNames } from "./store.js";
-import { fmtHM, dayKey, isoDay, fmtDay, hourOf } from "./format.js";
+import { fmtHM, dayKey, isoDay, fmtDay, fmtYear, hourOf } from "./format.js";
 
 export function lunchFrom(date) { return store.lunchFrom[(date.getDay() + 6) % 7]; }
 
@@ -151,6 +151,6 @@ export function buildWeeks(nWeeks) {
 export function weekRangeLabel(w) {
   const a = w.monday, b = w.sunday;
   return a.getMonth() === b.getMonth()
-    ? `${a.getDate()}–${b.getDate()} ${MonthNames[b.getMonth()]}`
-    : `${fmtDay(a)} – ${fmtDay(b)}`;
+    ? `${a.getDate()}–${b.getDate()} ${MonthNames[b.getMonth()]}${fmtYear(b)}`
+    : `${fmtDay(a)}${a.getFullYear() === b.getFullYear() ? "" : fmtYear(a)} – ${fmtDay(b)}${fmtYear(b)}`;
 }

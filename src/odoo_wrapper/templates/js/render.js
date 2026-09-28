@@ -42,6 +42,10 @@
  *   whoever may approve their pending change requests gets them in the same banner (the payload's requests; the
  *   employee never sees them), in blue, grouped with the punch errors of their day: one line and one «Corregir»
  *   per day, whose dialog also approves the request.
+ * - Red and grey follow the management view's rule (team.js): hours over target are never green, only grey,
+ *   and a finished week short of its target is red only when the range shown (the «Mostrar» buttons) is short
+ *   too, the balance tile's own sum (rangeShort): a short week made up by the rest of the range is grey, in the
+ *   week card's badge, the chart's tooltip and the table alike. A week with a punch error stays orange.
  * - Colours: never hardcode one here. Two call sites build the token name at runtime (var(--${…})) and go
  *   silently colourless when a token is renamed; the palette and its rules are in style.css.
  */
@@ -114,7 +118,7 @@ export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, le
     }
   } else {
     headline("Hoy", "Jornada cumplida", "text done", {
-      cls: dayDelta < 1 / 60 ? "flat" : "up",
+      cls: "flat",
       text: dayDelta < 1 / 60 ? `justo en las ${fmtHM(day.expected)} previstas`
         : `▲ ${fmtDelta(dayDelta)} sobre ${fmtHM(day.expected)}`,
     });
@@ -360,7 +364,7 @@ export function renderKpis(weeks) {
   kpis.appendChild(averageTile);
   const balanceTile = tile("Balance frente al objetivo", fmtDelta(balance),
     balance >= 0 ? "acumulado a favor" : "acumulado en contra",
-    wrong ? "status-warning" : Math.abs(balance) < 1 / 60 ? null : balance > 0 ? "status-success" : "destructive");
+    wrong ? "status-warning" : balance <= -1 / 60 ? "destructive" : null);
   if (wrong) balanceTile.appendChild(unreliable(wrong));
   kpis.appendChild(balanceTile);
 
@@ -490,8 +494,8 @@ export function renderOverview(weeks) {
         t.appendChild(tipRow("Vacaciones", "toda la semana"));
       } else if (w.complete) {
         const r2 = tipRow(w.delta >= 0 ? "Sobre objetivo" : "Bajo objetivo", fmtDelta(w.delta));
-        const tone = w.suspect ? "status-warning" : w.delta >= 0 ? "status-success" : "destructive";
-        r2.querySelector(".v").style.color = `var(--${tone})`;
+        const tone = w.error ? "status-warning" : shortWeek(w) ? "destructive" : null;
+        if (tone) r2.querySelector(".v").style.color = `var(--${tone})`;
         t.appendChild(r2);
       } else {
         t.appendChild(tipRow("Para el objetivo", fmtHM(Math.max(w.target - w.total, 0))));
@@ -563,11 +567,11 @@ export function renderCalendar() {
   } else if (w.error) {
     head.appendChild(el("span", "badge warn", `⚠ ${w.complete ? "" : "en curso · "}fichaje por revisar`));
   } else if (w.complete) {
-    const cls = Math.abs(w.delta) < 1 / 60 ? "flat" : w.delta > 0 ? "up" : "down";
-    const arrow = cls === "up" ? "▲ " : cls === "down" ? "▼ " : "";
-    head.appendChild(el("span", `badge ${cls}`, `${arrow}${fmtDelta(w.delta)} vs ${targetLabel(w)}`));
+    const arrow = Math.abs(w.delta) < 1 / 60 ? "" : w.delta > 0 ? "▲ " : "▼ ";
+    head.appendChild(el("span", `badge ${shortWeek(w) ? "down" : "flat"}`,
+      `${arrow}${fmtDelta(w.delta)} vs ${targetLabel(w)}`));
   } else if (w.total >= w.target) {
-    head.appendChild(el("span", "badge up", "▲ en curso · objetivo alcanzado"));
+    head.appendChild(el("span", "badge flat", "▲ en curso · objetivo alcanzado"));
   } else {
     head.appendChild(el("span", "badge flat", `en curso · faltan ${fmtHM(w.target - w.total)}`));
   }
@@ -791,7 +795,7 @@ export function renderTable(weeks) {
     tr.appendChild(
       w.complete && w.allVacation && w.total < 0.01 ? el("td", "dim", "vacaciones")
       : w.error ? el("td", "warn", "fichaje por revisar")
-      : w.complete ? el("td", w.delta >= 0 ? "up" : "down", fmtDelta(w.delta))
+      : w.complete ? el("td", shortWeek(w) ? "down" : null, fmtDelta(w.delta))
       : el("td", "dim", w.total >= w.target ? "objetivo alcanzado" : `faltan ${fmtHM(w.target - w.total)}`));
     tbody.appendChild(tr);
   });
@@ -892,8 +896,15 @@ export function renderErrors() {
   box.replaceChildren(details);
 }
 
+let rangeShort = false;
+
+function shortWeek(w) {
+  return rangeShort && w.delta <= -1 / 60;
+}
+
 export function renderAll() {
   const weeks = buildWeeks(Math.min(rangeMonths ? weeksSince(rangeMonths) : store.data.weeks, store.data.weeks));
+  rangeShort = weeks.filter(w => w.complete).reduce((a, w) => a + w.delta, 0) <= -1 / 60;
   renderErrors();
   renderCalendar();
   renderKpis(weeks);

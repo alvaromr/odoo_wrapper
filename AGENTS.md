@@ -19,7 +19,7 @@ src/odoo_wrapper/
   data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
   team.py            the management view's payload: one week of everyone the session can read, flagged
   corrections.py     the day dialog's writes: correcting and adding punches, approving change requests
-  state.py           the shared state file (lunch stamp, durations, mute)
+  state.py           the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
   qr.py              hand-written QR encoder
@@ -144,9 +144,10 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
 - Status and history are `search_read` on `hr.attendance`, read-only. Odoo stores times in UTC; the tools print
   them in the local timezone.
 - The management view and the per-day targets also read, never write: `hr.contract` (the calendar in force
-  each day), `hr.employee` with `active_test` off (`active`, `departure_date` for people who left) and
-  `approval.request` (attendance change requests, found by category name). Which employees a session sees is
-  left to Odoo's record rules; `data.py` and `team.py` headers have the details.
+  each day), `hr.employee` (name, calendar, user; archived employees are left out, their `departure_date` is
+  only readable by HR officers) and `approval.request` (attendance change requests, found by category name).
+  Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
+  details.
 - The day dialog (`corrections.py`) is the only other writer: it `write`s or `create`s `hr.attendance` (check_in,
   check_out) and calls `approval.request.action_approve` as the session's user, both only if Odoo's rights allow
   them. Neither can be tested reversibly against a real Odoo: an attendance keeps a tracking message for every

@@ -23,15 +23,18 @@
   .fix-kinds { flex-wrap: wrap; gap: 3px; }
   .fix-wrap { position: relative; margin-top: 12px; }
   .fixes .chart-note { padding-right: 108px; }
-  .fix-scroll { overflow-x: auto; cursor: grab; touch-action: pan-y; }
-  .fix-scroll.dragging { cursor: grabbing; user-select: none; }
-  .fix-scroll a, .fix-scroll .mark.link { cursor: pointer; }
+  .fix-scroll { overflow: auto; max-height: 60dvh; }
+  .pan { cursor: grab; }
+  .pan.dragging, .pan.dragging * { cursor: grabbing; user-select: none; }
+  .pan a, .fix-scroll .mark.link { cursor: pointer; }
   .fix-grid { display: grid; grid-template-columns: 220px 270px max-content; row-gap: 6px; align-items: center;
     width: max-content; }
   .fix-grid > :nth-child(3n+1), .fix-grid > :nth-child(3n+2) { position: sticky; z-index: 1; background: var(--card);
     align-self: stretch; display: flex; align-items: center; }
   .fix-grid > :nth-child(3n+1) { left: 0; }
   .fix-grid > :nth-child(3n+2) { left: 220px; padding-right: 10px; box-shadow: 1px 0 0 var(--border); }
+  .fix-grid > :nth-child(-n+3) { position: sticky; top: 0; z-index: 2; background: var(--card); }
+  .fix-grid > :nth-child(-n+2) { z-index: 3; }
   .fix-zoom { position: absolute; top: -40px; right: 0; z-index: 2; display: flex; gap: 4px; }
   .fix-zoom button {
     width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: var(--card);
@@ -66,7 +69,7 @@
   }
 
   .grid-card { padding: 0; }
-  .scroll { overflow-x: auto; }
+  .scroll { overflow: auto; max-height: 70dvh; }
   table { border-collapse: collapse; width: 100%; min-width: 860px; }
   th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
   thead th { font-size: 11px; font-weight: 550; letter-spacing: 0.06em; text-transform: uppercase;
@@ -74,10 +77,12 @@
   thead th.today { color: var(--foreground); }
   tbody tr:last-child td { border-bottom: 0; }
   td.name { font-weight: 550; white-space: nowrap; }
+  thead th { position: sticky; top: 0; z-index: 2; background: var(--card); box-shadow: 0 1px 0 var(--border); }
   thead th:first-child, td.name { position: sticky; left: 0; z-index: 1; background: var(--card); }
   thead th:last-child, td.total:last-child {
     position: sticky; right: 0; z-index: 1; background: var(--card); box-shadow: -1px 0 0 var(--border);
   }
+  thead th:first-child, thead th:last-child { z-index: 3; }
   .hours, .meta, .gap { white-space: nowrap; }
   td.name a { color: inherit; text-decoration: none; }
   td.name a:hover { text-decoration: underline; }
@@ -145,6 +150,8 @@
   <div class="toolbar">
     <input class="search" id="search" type="search" placeholder="Buscar persona" aria-label="Buscar persona por nombre"
            autocomplete="off">
+  </div>
+  <div class="toolbar">
     <button class="hdr-btn" id="prevWeek" type="button" aria-label="Anterior">‹</button>
     <span class="week" id="weekLabel"></span>
     <button class="hdr-btn" id="nextWeek" type="button" aria-label="Siguiente">›</button>
@@ -167,13 +174,12 @@
       <button type="button" data-filter="requests" title="Con solicitudes de cambio pendientes">Con solicitudes</button>
       <button type="button" data-filter="all">Todas</button>
     </div>
-    <button class="hdr-btn" id="archivedBtn" type="button" aria-pressed="true">Ocultar archivados</button>
   </div>
 
   <div id="loadmsg">Cargando datos de Odoo…</div>
 
   <section class="card grid-card hidden" id="gridCard">
-    <div class="scroll"><table id="grid"></table></div>
+    <div class="scroll pan" id="gridScroll"><table id="grid"></table></div>
   </section>
   <div class="hidden" id="charts"></div>
   <section class="card fixes hidden" id="openCard">
@@ -194,7 +200,7 @@
         <button type="button" id="wideBtn" aria-pressed="false" aria-label="Ampliar a todo el ancho"
                 title="Ampliar a todo el ancho">↔</button>
       </div>
-      <div class="fix-scroll" id="fixes"></div>
+      <div class="fix-scroll pan" id="fixes"></div>
     </div>
   </section>
   <p class="legend criteria" id="criteria"></p>

@@ -24,7 +24,6 @@
   .hero .value.text { font-size: 26px; letter-spacing: -0.01em; font-family: var(--font-sans); }
   .hero .value.done { color: var(--status-success); }
   .delta { font-size: 13px; font-weight: 550; margin-top: 8px; }
-  .delta.up   { color: var(--status-success); }
   .delta.down { color: var(--destructive); }
   .delta.flat { color: var(--foreground); }
   .eta { font-size: 13px; color: var(--foreground); margin-top: 6px; }
@@ -150,7 +149,6 @@
   .badge {
     font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap;
   }
-  .badge.up   { color: var(--status-success); background: var(--success-wash); }
   .badge.down { color: var(--destructive);  background: var(--destructive-wash); }
   .badge.flat { color: var(--foreground); background: var(--secondary); }
   .badge.warn { color: var(--status-warning); background: var(--warning-wash); }
@@ -249,7 +247,6 @@
   td:first-child { font-family: var(--font-sans); }
   tbody tr { border-bottom: 1px solid var(--border); }
   tbody tr:last-child { border-bottom: 0; }
-  td.up { color: var(--status-success); font-weight: 600; }
   td.down { color: var(--destructive); font-weight: 600; }
   td.warn { color: var(--status-warning); font-weight: 600; }
   td.dim { color: var(--muted-foreground); }
@@ -288,7 +285,7 @@
 <div id="loadbar" role="progressbar" aria-label="Cargando"></div>
 <div class="page">
   <header>
-    <h1>Horas de fichaje</h1>
+    <h1 id="title"></h1>
     <span class="sub" id="subtitle"></span>
     <a class="hdr-btn hidden" id="teamLink" href="/gestion">Gestión</a>
     <button class="hdr-btn" id="refreshBtn" type="button">Actualizar</button>

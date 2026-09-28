@@ -37,16 +37,8 @@ EMPLOYEES = [
     {"id": 1, "name": "Ana", "resource_calendar_id": [4, "Std"], "user_id": [11, "ana"]},
     {"id": 2, "name": "Bea", "resource_calendar_id": False, "user_id": False},
     {"id": 3, "name": "Carl", "resource_calendar_id": [4, "Std"], "user_id": [13, "carl"]},
-    {"id": 5, "name": "Dani", "resource_calendar_id": [4, "Std"], "user_id": False, "active": False,
-     "departure_date": "2025-03-04"},
-    {"id": 6, "name": "Eva", "resource_calendar_id": [4, "Std"], "user_id": False, "active": False,
-     "departure_date": "2025-03-02"},
-    {"id": 8, "name": "Fede", "resource_calendar_id": [4, "Std"], "user_id": False, "active": False,
-     "departure_date": False},
+    {"id": 5, "name": "Dani", "resource_calendar_id": [4, "Std"], "user_id": False},
 ]
-for e in EMPLOYEES:
-    e.setdefault("active", True)
-    e.setdefault("departure_date", False)
 REQUESTS = [
     {"id": 51, "request_owner_id": [11, "ana"], "date_start": at(2, 9), "date_end": at(2, 17, 40), "request_status": "pending",
      "user_status": "pending",
@@ -123,18 +115,13 @@ class BuildTeamTest(unittest.TestCase):
     def test_roster_is_who_odoo_lets_the_session_read(self):
         self.assertEqual(list(self.people), ["Ana", "Bea", "Carl", "Dani"])
         self.assertEqual(self.payload["week"], "2025-03-03")
+        roster = next(args for model, args, _ in self.client.calls if model == "hr.attendance" and len(args) == 3)
+        self.assertIn(("employee_id.active", "=", True), roster[0])
         read = next(args for model, args, _ in self.client.calls if model == "hr.employee")
-        self.assertEqual(read, [[1, 2, 3, 5, 6, 8], ["name", "resource_calendar_id", "user_id", "active", "departure_date"]])
+        self.assertEqual(read, [[1, 2, 3, 5], ["name", "resource_calendar_id", "user_id"]])
         week = next(args for model, args, kwargs in self.client.calls
                     if model == "hr.attendance" and len(args) == 1 and ("check_out", "=", False) not in args[0])
         self.assertIn(("employee_id", "in", [1, 2, 3, 5]), week[0])
-
-    def test_someone_who_left_counts_only_until_their_departure(self):
-        dani = self.people["Dani"]
-        self.assertEqual([d["target"] for d in dani["days"]], [0, 8, 0, 0, 0, 0, 0])
-        self.assertEqual([d["flags"] for d in dani["days"]], [[], ["empty"], [], [], [], [], []])
-        self.assertEqual((dani["archived"], dani["departure_date"]), (True, "2025-03-04"))
-        self.assertEqual((self.people["Ana"]["archived"], self.people["Ana"]["departure_date"]), (False, False))
 
     def test_every_day_flag(self):
         flags = [d["flags"] for d in self.people["Ana"]["days"]]
@@ -185,13 +172,21 @@ class BuildTeamTest(unittest.TestCase):
         self.assertEqual((carl["hours"], carl["target"], carl["flags"]), (30.0, 30.0, []))
 
     def test_a_finished_week_below_target_is_under(self):
+        schedule = {"hours": [8] * 5 + [0, 0]}
+        employee = {"id": 1, "name": "Ana", "since": "2000-01-01"}
+        short_week = [dt.session_of(att(1, d, (8, 0), (15, 59), 7.98), {}) for d in range(5)]
+        row = tm.employee_row(employee, lambda iso: schedule, [], short_week, [], MONDAY, date.today())
+        self.assertEqual((row["target"], row["flags"]), (40, ["under"]))
+
+    def test_a_week_holding_a_punch_error_is_not_judged(self):
         ana = self.people["Ana"]
-        self.assertEqual(ana["target"], 24.0)
-        self.assertEqual(ana["flags"], ["under"])
+        self.assertEqual((ana["hours"] < ana["target"], ana["suspect"], ana["flagged_days"], ana["flags"]),
+                         (True, True, 3, []))
+        self.assertEqual(self.people["Carl"]["flagged_days"], 0)
 
     def test_a_finished_week_over_its_target_by_more_than_the_margin_is_over(self):
         schedule = {"hours": [8] * 5 + [0, 0]}
-        employee = {"id": 1, "name": "Ana", "departure_date": False, "since": "2000-01-01"}
+        employee = {"id": 1, "name": "Ana", "since": "2000-01-01"}
         long_week = [dt.session_of(att(1, d, (8, 0), (17, 12), 9.2), {}) for d in range(5)]
         row = tm.employee_row(employee, lambda iso: schedule, [], long_week, [], MONDAY, date.today())
         self.assertEqual((row["hours"], row["target"], row["flags"]), (46.0, 40, ["over"]))
@@ -256,12 +251,11 @@ class BuildTeamTest(unittest.TestCase):
         client = ScriptedClient(rows(**{
             "hr.attendance": lambda args, kwargs: attendance(args, kwargs)
             if len(args) == 3 or ("check_out", "=", False) in args[0] or ("check_out", "!=", False) in args[0] else live,
-            "hr.employee": lambda args, kwargs: [{"id": 2, "name": "Bea", "resource_calendar_id": [4, "Std"], "user_id": False,
-                                                  "active": True, "departure_date": False}]
-            if "name" in args[1] else [{"id": 1, "active": True}, {"id": 3, "active": True}],
+            "hr.employee": lambda args, kwargs: [{"id": 2, "name": "Bea", "resource_calendar_id": [4, "Std"], "user_id": False}],
             "resource.calendar.leaves": [], "hr.leave": [],
         }))
         bea = tm.build_team(client, monday)["employees"][0]
+        self.assertEqual(bea["due"], sum(d["target"] for d in bea["days"][:day]))
         self.assertEqual(bea["days"][day]["flags"], [])
         self.assertEqual(bea["flags"], [])
         self.assertTrue(all(d["flags"] == [] for d in bea["days"][day:]))
@@ -319,12 +313,12 @@ class MonthTest(unittest.TestCase):
         ana = next(e for e in payload["employees"] if e["name"] == "Ana")
         self.assertEqual(len(ana["days"]), 14)
         self.assertEqual([w["monday"] for w in ana["weeks"]], ["2025-03-03", "2025-03-10"])
-        self.assertEqual([w["flags"] for w in ana["weeks"]], [["under"], ["under"]])
+        self.assertEqual([w["flags"] for w in ana["weeks"]], [[], []])
         self.assertEqual(ana["weeks"][0]["target"], 24.0)
         self.assertEqual(ana["weeks"][1]["target"], 40.0)
         self.assertEqual(ana["target"], 8 * 1 + 0 + 8 + 8 + 8)
         self.assertEqual(ana["hours"], round(0 + 0 + 0.05 + 0.0167 + 12.83, 2))
-        self.assertEqual(ana["flags"], ["under"])
+        self.assertEqual((ana["flags"], ana["flagged_days"]), ([], 4))
         week = next(args for model, args, kwargs in client.calls
                     if model == "hr.attendance" and len(args) == 1 and ("check_out", "=", False) not in args[0])
         self.assertIn(("check_in", "<", tm.odoo_time(MONDAY + timedelta(weeks=2))), week[0])
@@ -333,7 +327,9 @@ class MonthTest(unittest.TestCase):
         payload = tm.build_team(ScriptedClient(rows()), MONDAY)
         ana = next(e for e in payload["employees"] if e["name"] == "Ana")
         self.assertEqual(ana["weeks"], [{"monday": "2025-03-03", "hours": ana["hours"], "target": ana["target"],
-                                         "balance": ana["balance"], "flags": ana["flags"], "suspect": True}])
+                                         "balance": ana["balance"], "due": ana["due"], "flags": ana["flags"],
+                                         "suspect": True}])
+        self.assertEqual(ana["due"], ana["target"])
         self.assertTrue(ana["suspect"])
         carl = next(e for e in payload["employees"] if e["name"] == "Carl")
         self.assertFalse(carl["suspect"])
@@ -354,15 +350,16 @@ class YearTest(unittest.TestCase):
         self.assertEqual([m["month"] for m in row["months"]][:3], ["2025-01", "2025-02", "2025-03"])
         feb, march = row["months"][1], row["months"][2]
         self.assertEqual((feb["hours"], feb["target"], feb["flagged_days"]), (0, 40, 5))
-        self.assertEqual((feb["under"], feb["over"]), (1, 0))
-        self.assertEqual((march["under"], march["over"]), (2, 0))
+        self.assertEqual((feb["under"], feb["over"], march["under"], march["over"]), (0, 0, 0, 0))
         self.assertEqual(march["target"], 24 + 40)
         self.assertEqual(march["balance"], round(march["hours"] - march["target"], 2))
-        self.assertEqual(row["months"][0], {"month": "2025-01", "hours": 0, "target": 0, "balance": 0,
+        self.assertEqual(march["due"], march["target"])
+        self.assertEqual(row["months"][0], {"month": "2025-01", "hours": 0, "target": 0, "balance": 0, "due": 0,
                                             "under": 0, "over": 0, "flagged_days": 0, "suspect": False})
         self.assertTrue(march["suspect"])
         bea = next(e for e in year["employees"] if e["name"] == "Bea")
-        self.assertEqual((bea["months"][2]["target"], bea["months"][2]["balance"], bea["balance"]), (None, None, None))
+        march = bea["months"][2]
+        self.assertEqual((march["target"], march["balance"], march["due"], bea["balance"], bea["due"]), (None,) * 5)
 
     def test_fetch_year_builds_its_span_once_and_caches_it(self):
         self.addCleanup(dt.drop_data_cache)
@@ -382,13 +379,11 @@ class FixesTest(unittest.TestCase):
         fixes = tm.fixes_payload(tm.build_team(ScriptedClient(rows()), MONDAY))
         people = {e["name"]: e for e in fixes["employees"]}
         self.assertEqual(sorted(people), ["Ana", "Dani"])
-        self.assertEqual([(i["date"], i["kind"]) for i in people["Dani"]["items"]], [("2025-03-04", "empty")])
         ana = people["Ana"]
         self.assertEqual([(i["date"], i["kind"]) for i in ana["items"]],
                          [("2025-03-04", "empty"), ("2025-03-05", "open"), ("2025-03-07", "long")])
         self.assertEqual(ana["items"][2]["sessions"][0]["in"], dt.local(at(4, 9)).isoformat())
         self.assertEqual(set(ana["items"][2]["sessions"][0]), {"id", "in", "out", "hours"})
-        self.assertEqual(ana["archived"], False)
         self.assertEqual(fixes["limits"]["long_day"], 12)
 
     def test_nothing_is_expected_before_the_week_of_the_first_real_punch(self):

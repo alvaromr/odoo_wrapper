@@ -23,14 +23,25 @@
  *   the day's tooltip and, day by day, in the week cell's tooltip, where a short day and the longer one
  *   that made up for it read side by side.
  * - Every total cell (week, month, year, and each week or month inside them) leads with how far it is off
- *   its target («Faltan 0h 11m», «Sobran 5h 04m», «hasta ayer» while the period runs), then «Xh de Yh»
- *   (summary). A week turns red on its flags; a month or year total turns red whenever its balance falls
- *   short by more than the under margin, since there is no monthly rule to flag it otherwise. A total the
- *   server marks suspect (it holds a «Jornada muy larga» day) is orange and says its sum cannot be trusted;
- *   in the charts its bar carries a ⚠ and a note explains it.
+ *   its target («Faltan 11m», «Sobran 5h 4m»), then «Xh de Yh» (summary); while the period runs both count
+ *   up to yesterday («hasta ayer»), so the two lines always add up.
+ * - Red means a target missed that nothing explains or makes up for, the same in the table, the charts and
+ *   the filters. A cell is red only without punch errors in it (the server judges no week holding one, and a
+ *   month or a year counts its flagged days), and only when the view's whole period does not make it up
+ *   (weekRed, monthRed): a short week in the month view is red only if the month is short too, a short month
+ *   in the year view only if the year is, and a week or month with too many hours only if the period's
+ *   surplus passes the over margin as well. The view's own total is judged by its balance alone (totalShort).
+ *   What is made up still says so, «1 semana bajo objetivo», without the red, and the click leads to it.
+ *   Orange is never made up: every cell holding a punch error is orange down to the day, so a click at a time
+ *   leads from the year to it, and a sum holding a «Jornada muy larga» says it cannot be trusted. In the
+ *   charts a balance with punch errors is an orange bar with a ⚠, and a note explains it.
  * - The filter (Filters) opens on «Con incidencias»: the reviewer looks for problems, not for everyone;
- *   «Bajo objetivo» and «Demasiadas horas» narrow it to the weekly flags, each button with its count.
+ *   «Bajo objetivo» and «Demasiadas horas» keep whoever has a cell of that red in the view shown (redRow),
+ *   each button with its count.
  * - Saturday and Sunday are hidden unless some row shown has a session, a request or a flag on them.
+ * - The table scrolls inside its card, at most 70 % of the window high, so its header row stays in sight on
+ *   top and the names and the total on either side; it also pans by dragging, both ways (shared.js's
+ *   panScroll), and a drag never opens the cell it ends on.
  * - Each week takes Odoo about a second and a half, one query per model, so once a week is shown the page
  *   asks for the previous one in the background, into the server's cache, and stepping back is instant.
  * - «Mes» shows the same people by weeks: one cell per week touching the month, judged whole as in the
@@ -46,30 +57,33 @@
  * - The arrows and «Hoy» move by the view's own unit; switching view keeps the period in sight (Views).
  * - «Gráficos» shows the same people, under the same filter, as figures (renderCharts, drawn by teamcharts.js):
  *   each person's balance for the period as a diverging bar, and per day, week or month how many people had punch
- *   errors (week view) or weeks under or over target (month and year views, finished weeks only), each column
+ *   errors (week view) or a red week or month, short or over (month and year views), each column
  *   naming its people on hover. The charts are drawn at their card's width, and again on resize, so their text
  *   keeps its size.
  * - «Fichajes por corregir», under the table or charts, is teamfixes.js; the page's shared state and the
- *   filters on people (archived, name search) are teamstate.js.
+ *   filter on people (name search) are teamstate.js.
  * - The criteria note under the table is written from the payload's limits (criteria), so it can never
  *   drift from what team.py applies.
- * - The page keeps its view, period, filter, table or charts, the archived toggle, the search and the kinds of
- *   fixes in the URL hash (stateHash), and in sessionStorage so the dashboard's «Gestión» link, which has no hash,
- *   returns to it too: coming back from someone's page used to reset everything to this week's table.
+ * - The page keeps its view, period, filter, table or charts, the search and the kinds of fixes in the URL hash
+ *   (stateHash), and in sessionStorage so the dashboard's «Gestión» link, which has no hash, returns to it too:
+ *   coming back from someone's page used to reset everything to this week's table. Moving to another period
+ *   or view (a click into a month or a week, the view buttons, the arrows, «Hoy») adds a history entry, so
+ *   the browser's back button walks the way back out (popstate reloads what the hash says); a filter, the
+ *   search or the display only rewrite the current one.
  * - Rows are sorted by name with Spanish collation (Á next to A), which Odoo's order does not give.
  */
 import { DayNames, MonthNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtTime, isoDay, fmtClock, parseDay, shiftDays, plural } from "./format.js";
-import { el, api, wireLogout, attachTip, hideTip, tipRow } from "./shared.js";
+import { fmtHM, fmtDelta, fmtDay, fmtYear, fmtTime, isoDay, fmtClock, parseDay, shiftDays, plural } from "./format.js";
+import { el, api, wireLogout, wireMouseHistory, attachTip, hideTip, tipRow, panScroll } from "./shared.js";
 import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireDayDialog } from "./dayedit.js";
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
-import { team, FixKinds, FlagText, thisDay, listed, named } from "./teamstate.js";
+import { team, FixKinds, FlagText, thisDay, named } from "./teamstate.js";
 import { renderFixes, loadFixes, wireFixes } from "./teamfixes.js";
 
 export const Filters = {
   issues: { label: "Con incidencias", keep: e => hasFlags(e), none: "Nadie tiene incidencias esta semana" },
-  under: { label: "Bajo objetivo", keep: e => e.flags.includes("under"), none: "Nadie bajo objetivo esta semana" },
-  over: { label: "Demasiadas horas", keep: e => e.flags.includes("over"),
+  under: { label: "Bajo objetivo", keep: e => redRow(e).under, none: "Nadie bajo objetivo esta semana" },
+  over: { label: "Demasiadas horas", keep: e => redRow(e).over,
     none: "Nadie con demasiadas horas esta semana" },
   requests: { label: "Con solicitudes", keep: e => e.pending > 0,
     none: "Nadie tiene solicitudes pendientes esta semana" },
@@ -111,8 +125,40 @@ function weekRange(monday) {
   return `${fmtDay(parseDay(monday))} – ${fmtDay(parseDay(shiftDays(monday, 6)))}`;
 }
 
+function shortOf(balance, limits) {
+  return balance != null && balance <= -limits.under_margin;
+}
+
+function surplusOf(balance, limits) {
+  return balance != null && balance > limits.over_margin;
+}
+
+function totalShort(total, limits) {
+  return !total.flagged_days && shortOf(total.balance, limits);
+}
+
+function weekRed(employee, w, limits) {
+  const { flags } = employee.weeks[w];
+  return { under: flags.includes("under") && shortOf(employee.balance, limits),
+    over: flags.includes("over") && surplusOf(employee.balance, limits) };
+}
+
+function monthRed(employee, m, limits) {
+  return { under: totalShort(m, limits) && shortOf(employee.balance, limits),
+    over: !m.flagged_days && m.over > 0 && surplusOf(employee.balance, limits) };
+}
+
+function redRow(employee) {
+  const limits = team.data.limits;
+  if (team.view === "week") return { under: employee.flags.includes("under"), over: employee.flags.includes("over") };
+  const inside = team.view === "month" ? employee.weeks.map((_, w) => weekRed(employee, w, limits))
+    : employee.months.map(m => monthRed(employee, m, limits));
+  return { under: totalShort(employee, limits) || inside.some(red => red.under), over: inside.some(red => red.over) };
+}
+
 export function hasFlags(employee) {
-  return employee.flags.length > 0 || (employee.days || []).some(d => d.flags.length > 0)
+  const red = redRow(employee);
+  return red.under || red.over || (employee.days || []).some(d => d.flags.length > 0)
     || (employee.months || []).some(m => m.flagged_days > 0);
 }
 
@@ -130,7 +176,7 @@ export function hasData(day) {
 function dayCell(employee, day, today, limits) {
   const td = el("td", "day");
   td.tabIndex = 0;
-  td.addEventListener("click", () => openDay(employee, day, limits, team.data.can_edit));
+  td.addEventListener("click", () => { if (!gridPan.consume()) openDay(employee, day, limits, team.data.can_edit); });
   td.addEventListener("keydown", e => { if (e.key === "Enter") openDay(employee, day, limits, team.data.can_edit); });
   if (day.date === today) td.classList.add("today");
   if (day.date > today) td.classList.add("future");
@@ -148,32 +194,27 @@ function dayCell(employee, day, today, limits) {
 
 export const SuspectText = "⚠ incluye una jornada muy larga: suma no fiable";
 
-function summary(td, { hours, target, balance, suspect }, running, started = true) {
+function summary(td, { hours, target, balance, due, suspect, flagged_days: flagged }, running, started = true) {
   if (target != null && started) {
     td.appendChild(el("span", "gap", `${gapText(balance)}${running ? " hasta ayer" : ""}`));
   }
-  td.appendChild(el("span", "hours", fmtHM(hours)));
-  td.appendChild(el("span", "meta", target == null ? " sin horario" : ` de ${fmtHM(target)}`));
-  if (suspect) {
-    td.classList.add("warn");
-    td.appendChild(el("span", "flag warn", SuspectText));
-  }
+  const sofar = target != null && started && running;
+  td.appendChild(el("span", "hours", fmtHM(sofar ? due + balance : hours)));
+  td.appendChild(el("span", "meta", target == null ? " sin horario" : ` de ${fmtHM(sofar ? due : target)}`));
+  if (suspect || flagged) td.classList.add("warn");
+  if (suspect) td.appendChild(el("span", "flag warn", SuspectText));
 }
 
 function drillInto(employee, view, key) {
   team.search = employee.name;
   document.getElementById("search").value = employee.name;
   team.view = view;
-  load(key);
+  load(key, false, true);
 }
 
-function short(balance, limits) {
-  return balance != null && balance <= -limits.under_margin;
-}
-
-function totalCell(employee, limits, today, extra = []) {
+function totalCell(employee, limits, today, extra = [], flags = employee.flags) {
   const td = el("td", "total");
-  if (employee.flags.length) td.classList.add("bad");
+  if (flags.length) td.classList.add("bad");
   const days = employee.days;
   summary(td, employee, days.at(-1).date >= today, days[0].date < today);
   for (const text of extra) td.appendChild(el("span", "flag warn", text));
@@ -185,8 +226,8 @@ function totalCell(employee, limits, today, extra = []) {
     for (const day of days) tip.appendChild(tipRow(dayLabel(day.date), fmtDelta(day.hours - day.target)));
     if (employee.target == null) return;
     tip.appendChild(el("div", "t-sep"));
-    for (const kind of employee.flags) tip.appendChild(el("div", "t-note bad", whyWeek(kind, employee, limits)));
-    if (!employee.flags.length) {
+    for (const kind of flags) tip.appendChild(el("div", "t-note bad", whyWeek(kind, employee, limits)));
+    if (!flags.length) {
       tip.appendChild(tipRow(`Semana frente a ${fmtHM(employee.target)}`, fmtDelta(employee.hours - employee.target)));
     }
   });
@@ -197,30 +238,32 @@ function weekCell(employee, w, today, limits) {
   const week = employee.weeks[w];
   const days = employee.days.slice(7 * w, 7 * w + 7);
   const flagged = days.filter(d => d.flags.length).length;
+  const red = weekRed(employee, w, limits);
   const td = totalCell({ ...week, days }, limits, today,
-    flagged ? [`${plural(flagged, "día", "días")} con errores de fichaje`] : []);
+    flagged ? [`${plural(flagged, "día", "días")} con errores de fichaje`] : [],
+    week.flags.filter(kind => red[kind]));
   td.classList.add("week");
   if (flagged) td.classList.add("warn");
   if (week.monday <= today && today <= shiftDays(week.monday, 6)) td.classList.add("today");
   const open = () => { hideTip(); drillInto(employee, "week", week.monday); };
-  td.addEventListener("click", open);
+  td.addEventListener("click", () => { if (!gridPan.consume()) open(); });
   td.addEventListener("keydown", e => { if (e.key === "Enter") open(); });
   return td;
 }
 
 function monthCell(employee, data, today) {
   const td = el("td", "total");
-  const balance = employee.balance;
   const running = today < data.stop;
   summary(td, employee, running);
   if (employee.target == null) return td;
-  if (short(balance, data.limits)) td.classList.add("bad");
+  if (totalShort(employee, data.limits)) td.classList.add("bad");
   td.tabIndex = 0;
   attachTip(td, tip => {
     tip.appendChild(el("div", "t-title", "Saldo de cada semana, entera"));
     for (const w of employee.weeks) tip.appendChild(tipRow(weekRange(w.monday), fmtDelta(w.hours - w.target)));
     tip.appendChild(el("div", "t-sep"));
-    tip.appendChild(tipRow(running ? "Días del mes hasta ayer" : "Solo los días del mes", fmtDelta(balance)));
+    const label = running ? "Días del mes hasta ayer" : "Solo los días del mes";
+    tip.appendChild(tipRow(label, fmtDelta(employee.balance)));
   });
   return td;
 }
@@ -234,18 +277,17 @@ function yearMonthCell(employee, m, today, limits) {
   const running = m.month === today.slice(0, 7);
   if (running) td.classList.add("today");
   summary(td, m, running);
-  if (short(m.balance, limits)) td.classList.add("bad");
+  const red = monthRed(employee, m, limits);
   const counts = [
-    [m.under, "semana bajo objetivo", "semanas bajo objetivo", "flag"],
-    [m.over, "semana con demasiadas horas", "semanas con demasiadas horas", "flag"],
+    [m.under, "semana bajo objetivo", "semanas bajo objetivo", red.under ? "flag" : "meta block"],
+    [m.over, "semana con demasiadas horas", "semanas con demasiadas horas", red.over ? "flag" : "meta block"],
     [m.flagged_days, "día con errores de fichaje", "días con errores de fichaje", "flag warn"],
   ].filter(([n]) => n > 0);
   for (const [n, one, many, cls] of counts) td.appendChild(el("span", cls, plural(n, one, many)));
-  if (m.under || m.over) td.classList.add("bad");
-  else if (m.flagged_days) td.classList.add("warn");
+  if (red.under || red.over) td.classList.add("bad");
   td.tabIndex = 0;
   const open = () => { hideTip(); drillInto(employee, "month", m.month); };
-  td.addEventListener("click", open);
+  td.addEventListener("click", () => { if (!gridPan.consume()) open(); });
   td.addEventListener("keydown", e => { if (e.key === "Enter") open(); });
   return td;
 }
@@ -253,7 +295,7 @@ function yearMonthCell(employee, m, today, limits) {
 function yearCell(employee, today, limits) {
   const td = el("td", "total");
   summary(td, employee, team.year === today.slice(0, 4));
-  if (short(employee.balance, limits)) td.classList.add("bad");
+  if (totalShort(employee, limits)) td.classList.add("bad");
   return td;
 }
 
@@ -292,10 +334,6 @@ function nameCell(employee) {
   const link = el("a", null, employee.name);
   link.href = `/empleado?id=${employee.id}`;
   name.appendChild(link);
-  if (employee.archived) {
-    name.appendChild(el("span", "meta block",
-      employee.departure_date ? `Baja ${fmtDay(parseDay(employee.departure_date))}` : "Archivado"));
-  }
   return name;
 }
 
@@ -306,31 +344,30 @@ export function criteria(limits) {
     + `una entrada antes de las ${fmtClock(limits.work_from)} o una salida después de las ${fmtClock(limits.work_to)} `
     + "o ya en otro día. Sin fichar: un día pasado con jornada prevista y sin fichajes ni ausencia. Sin cerrar: una "
     + "entrada de un día anterior sin salida. La jornada prevista de cada día es la del contrato vigente ese día; "
-    + "vacaciones, festivos y permisos la reducen. Los descansos cuentan como horas. En naranja, errores de fichaje; "
-    + "en rojo, objetivo no cumplido (horas de menos o demasiadas); en azul, solicitudes de cambio.";
+    + "vacaciones, festivos y permisos la reducen. Los descansos cuentan como horas. En naranja, errores de fichaje, "
+    + "que se corrigen antes de juzgar las horas; en rojo, objetivo no cumplido (horas de menos o demasiadas), solo "
+    + "sin errores de fichaje y si el periodo que estás viendo no lo compensa: una semana corta en un mes que llega, "
+    + "o un mes corto en un año que llega, no sale en rojo. En azul, solicitudes de cambio.";
 }
 
 export function render() {
   const data = team.data;
   const today = isoDay(new Date());
   document.getElementById("weekLabel").textContent = {
-    week: () => `Semana del ${fmtDay(parseDay(data.week))} al ${fmtDay(parseDay(shiftDays(data.week, 6)))}`,
+    week: () => `Semana del ${fmtDay(parseDay(data.week))} al ${fmtDay(parseDay(shiftDays(data.week, 6)))}`
+      + fmtYear(parseDay(shiftDays(data.week, 6))),
     month: () => monthLabel(team.month),
     year: () => team.year,
   }[team.view]();
   for (const button of document.getElementById("viewSeg").querySelectorAll("button")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === team.view));
   }
-  const people = data.employees.filter(e => listed(e) && named(e, team.search));
+  const people = data.employees.filter(e => named(e, team.search));
   document.getElementById("criteria").textContent = criteria(data.limits);
   const generated = new Date(data.generated_at);
   document.getElementById("subtitle").textContent =
     `${plural(people.length, "persona", "personas")} · actualizado el ${fmtDay(generated)} `
     + `a las ${fmtTime(generated)}`;
-  const archivedButton = document.getElementById("archivedBtn");
-  const archived = data.employees.filter(e => e.archived).length;
-  archivedButton.setAttribute("aria-pressed", String(team.hideArchived));
-  archivedButton.textContent = `Ocultar archivados${team.hideArchived && archived ? ` (${archived})` : ""}`;
 
   for (const button of document.getElementById("filterSeg").querySelectorAll("button")) {
     const filter = Filters[button.dataset.filter];
@@ -381,7 +418,7 @@ const StateKey = "gestion";
 
 export function stateHash() {
   const params = new URLSearchParams({ v: team.view, p: Views[team.view].key() || "", f: team.filter,
-    d: team.display, a: team.hideArchived ? "1" : "0",
+    d: team.display,
     k: FixKinds.filter(k => team.fixKinds.has(k)).join(","), ...(team.search ? { q: team.search } : {}) });
   return `#${params}`;
 }
@@ -391,7 +428,6 @@ export function readState(hash) {
   if (Views[params.get("v")]) team.view = params.get("v");
   if (Filters[params.get("f")]) team.filter = params.get("f");
   if (["table", "charts"].includes(params.get("d"))) team.display = params.get("d");
-  if (params.get("a") === "0") team.hideArchived = false;
   team.search = params.get("q") || "";
   document.getElementById("search").value = team.search;
   if (params.has("k")) team.fixKinds = new Set(params.get("k").split(",").filter(k => FixKinds.includes(k)));
@@ -427,13 +463,14 @@ function periods(data, rows, today) {
     return MonthNames.map((name, i) => period({
       label: name, title: monthLabel(`${team.year}-${String(i + 1).padStart(2, "0")}`),
       month: `${team.year}-${String(i + 1).padStart(2, "0")}`,
-    }, { under: e => e.months[i].under > 0, over: e => e.months[i].over > 0 }))
+    }, { under: e => monthRed(e, e.months[i], data.limits).under,
+      over: e => monthRed(e, e.months[i], data.limits).over }))
       .filter(p => p.month <= today.slice(0, 7));
   }
   if (team.view === "month") {
     return (data.employees[0]?.weeks || []).map((w, i) => period(
       { label: fmtDay(parseDay(w.monday)), title: weekRange(w.monday) },
-      { under: e => e.weeks[i].flags.includes("under"), over: e => e.weeks[i].flags.includes("over") }));
+      { under: e => weekRed(e, i, data.limits).under, over: e => weekRed(e, i, data.limits).over }));
   }
   return [0, 1, 2, 3, 4, 5, 6].filter(i => i < 5 || rows.some(e => hasData(e.days[i]))).map(i =>
     period({ label: DayNames[i], title: dayLabel(shiftDays(data.week, i)) },
@@ -452,9 +489,11 @@ function renderCharts(data, rows, today) {
     + "Una entrada sin cerrar no suma horas, así que resta como si faltaran. "
     + "A la izquierda faltan, a la derecha sobran.");
   const items = judged.slice().sort((a, b) => a.balance - b.balance).map(e => ({
-    label: e.name, value: e.balance, suspect: Boolean(e.suspect), href: `/empleado?id=${e.id}`,
-    rows: [["Fichadas", fmtHM(e.hours)], ["Previstas", fmtHM(e.target)], ["Saldo", gapText(e.balance)],
-      ...(e.suspect ? [["Aviso", "incluye una jornada muy larga"]] : [])],
+    label: e.name, value: e.balance, suspect: e.flagged_days > 0, href: `/empleado?id=${e.id}`,
+    rows: [["Fichadas", fmtHM(running ? e.due + e.balance : e.hours)], ["Previstas", fmtHM(running ? e.due : e.target)],
+      ["Saldo", gapText(e.balance)],
+      ...(e.flagged_days
+        ? [["Aviso", plural(e.flagged_days, "día con errores de fichaje", "días con errores de fichaje")]] : [])],
   }));
   box.appendChild(people);
   const width = people.children[0].clientWidth || undefined;
@@ -462,20 +501,22 @@ function renderCharts(data, rows, today) {
     : el("p", "chart-note", "Nadie con jornada prevista"));
   if (items.some(i => i.suspect)) {
     people.appendChild(el("p", "chart-note",
-      "⚠ Saldo no fiable: incluye una jornada muy larga, casi siempre una salida sin fichar."));
+      "⚠ Saldo no fiable: incluye errores de fichaje, que se corrigen antes de juzgar sus horas."));
   }
 
   const series = team.view === "week" ? [Series.flagged] : [Series.under, Series.over];
   const timeline = chartCard(
-    team.view === "week" ? "Personas con incidencias cada día" : "Personas con semanas fuera de objetivo",
-    team.view === "week" ? "Días sin fichar, sin cerrar, fuera de horario o con una jornada muy larga."
-      : "Cada semana se cuenta entera y solo si ya ha terminado.");
+    { week: "Personas con incidencias cada día", month: "Personas con semanas fuera de objetivo",
+      year: "Personas con meses fuera de objetivo" }[team.view],
+    { week: "Días sin fichar, sin cerrar, fuera de horario o con una jornada muy larga.",
+      month: "Cada semana entera, ya terminada y sin errores de fichaje, si el mes no la compensa.",
+      year: "Cada mes sin errores de fichaje, si el año no lo compensa." }[team.view]);
   if (series.length > 1) timeline.appendChild(legend(series));
   timeline.appendChild(groupedColumns(periods(data, rows, today), series, width));
   box.appendChild(timeline);
 }
 
-export async function load(key, fresh) {
+export async function load(key, fresh, push = false) {
   const unit = team.view;
   const params = [key ? `${unit}=${key}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
   const loadmsg = document.getElementById("loadmsg");
@@ -483,6 +524,7 @@ export async function load(key, fresh) {
     const data = await api(`/api/team${params ? `?${params}` : ""}`);
     team.data = data;
     Views[unit].keep(data);
+    if (push) globalThis.history?.pushState(null, "", stateHash());
     render();
     if (fresh || !team.fixes) loadFixes(fresh);
     if (unit !== "year") fetch(`/api/team?${unit}=${Views[unit].step(-1)}`).catch(() => {});
@@ -502,7 +544,8 @@ const periodButtons = [
   ["prevWeek", () => view().step(-1)], ["nextWeek", () => view().step(1)], ["thisWeek", () => view().now()],
 ];
 for (const [id, key] of periodButtons) {
-  document.getElementById(id).addEventListener("click", e => busyWhile(e.currentTarget, () => load(key())));
+  document.getElementById(id).addEventListener("click", e =>
+    busyWhile(e.currentTarget, () => load(key(), false, true)));
 }
 document.getElementById("refreshBtn").addEventListener("click", e =>
   busyWhile(e.currentTarget, () => load(view().key(), true)));
@@ -511,12 +554,9 @@ document.getElementById("viewSeg").addEventListener("click", e => {
   if (!button || button.dataset.view === team.view) return;
   const anchor = team.data ? view().anchor() : thisDay();
   team.view = button.dataset.view;
-  load(view().keyOf(anchor));
+  load(view().keyOf(anchor), false, true);
 });
-document.getElementById("archivedBtn").addEventListener("click", () => {
-  team.hideArchived = !team.hideArchived;
-  if (team.data) render();
-});
+addEventListener("popstate", () => load(readState(location.hash)));
 document.getElementById("search").addEventListener("input", e => {
   team.search = e.target.value;
   saveState();
@@ -538,10 +578,12 @@ document.getElementById("filterSeg").addEventListener("click", e => {
   team.filter = button.dataset.filter;
   if (team.data) render();
 });
+const gridPan = panScroll(document.getElementById("gridScroll"));
 wireDayDialog();
 wireFixes(saveState);
 onDaySaved(() => load(view().key(), true));
 
 wireLogout(document.getElementById("logoutBtn"));
+wireMouseHistory();
 
 load(restoreState());
