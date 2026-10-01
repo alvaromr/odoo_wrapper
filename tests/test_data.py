@@ -69,7 +69,7 @@ class ScheduleTest(unittest.TestCase):
 class AbsencesTest(unittest.TestCase):
     def absences(self, holidays=(), leaves=()):
         client = ScriptedClient({"resource.calendar.leaves": list(holidays), "hr.leave": list(leaves)})
-        return dt.fetch_absences(client, "2026-08-01", 4), client
+        return dt.fetch_absences(client, "2026-08-01", [4]), client
 
     def test_holidays_skip_the_weekend(self):
         out, client = self.absences([{"name": "Puente", "date_from": "2026-08-07 12:00:00", "date_to": "2026-08-10 12:00:00"}])
@@ -176,26 +176,24 @@ class DataCacheTest(unittest.TestCase):
 class ContractHoursTest(unittest.TestCase):
     EIGHT = {"hours": [8, 8, 8, 8, 8, 0, 0], "lunch_from": [None] * 7}
 
-    def client(self, contracts):
+    def client(self):
         def blocks(args, kwargs):
             return [{"dayofweek": str(d), "hour_from": 9.0, "hour_to": 14.0, "day_period": "morning"} for d in range(5)]
-        return ScriptedClient({"hr.contract": contracts, "resource.calendar.attendance": blocks})
+        return ScriptedClient({"resource.calendar.attendance": blocks})
 
     def test_only_days_whose_contract_asks_for_other_hours_are_listed(self):
-        client = self.client([
+        contracts = [
             {"employee_id": [7, "Ana"], "date_start": "2025-03-05", "date_end": "2025-03-06", "resource_calendar_id": [9, "25 h"]},
             {"employee_id": [7, "Ana"], "date_start": "2025-03-07", "date_end": False, "resource_calendar_id": [4, "Std"]},
-        ])
-        out = dt.contract_hours(client, self.EIGHT, date(2025, 3, 3), date(2025, 3, 10))
+        ]
+        out = dt.contract_hours(self.client(), self.EIGHT, contracts, date(2025, 3, 3), date(2025, 3, 10))
         self.assertEqual(out, {"2025-03-03": 0, "2025-03-04": 0, "2025-03-05": 5.0, "2025-03-06": 5.0})
-        domain = next(args for model, args, _ in client.calls if model == "hr.contract")[0]
-        self.assertIn(("employee_id", "in", [7]), domain)
 
     def test_without_contracts_or_a_current_calendar(self):
-        self.assertEqual(dt.contract_hours(self.client([]), self.EIGHT, date(2025, 3, 3), date(2025, 3, 10)), {})
-        client = self.client([{"employee_id": [7, "Ana"], "date_start": "2025-03-03", "date_end": False,
-                               "resource_calendar_id": [9, "25 h"]}])
-        out = dt.contract_hours(client, None, date(2025, 3, 3), date(2025, 3, 5))
+        self.assertEqual(dt.contract_hours(self.client(), self.EIGHT, [], date(2025, 3, 3), date(2025, 3, 10)), {})
+        contracts = [{"employee_id": [7, "Ana"], "date_start": "2025-03-03", "date_end": False,
+                      "resource_calendar_id": [9, "25 h"]}]
+        out = dt.contract_hours(self.client(), None, contracts, date(2025, 3, 3), date(2025, 3, 5))
         self.assertEqual(out, {"2025-03-03": 5.0, "2025-03-04": 5.0})
 
 
@@ -204,12 +202,13 @@ class BuildDataTest(unittest.TestCase):
         temp_state(self)
         self.addCleanup(dt.drop_data_cache)
 
-    def build(self, records, reasons=(NORMAL, REST)):
+    def build(self, records, reasons=(NORMAL, REST), rows=None):
         rows = {
             "hr.attendance": records,
             "hr.attendance.reason": [r for r in reasons if r],
             "resource.calendar.leaves": [], "hr.leave": [],
             "resource.calendar.attendance": [{"dayofweek": "0", "hour_from": 9.0, "hour_to": 17.0, "day_period": "morning"}],
+            **(rows or {}),
         }
         client = ScriptedClient(rows, reasons=reasons)
         return dt.build_data(client), client
@@ -256,6 +255,21 @@ class BuildDataTest(unittest.TestCase):
         payload, _ = self.build([])
         self.assertEqual(payload["weeks"], dt.MIN_WEEKS)
         self.assertEqual(payload["since"], (today - timedelta(days=today.weekday())).isoformat())
+
+    def test_holidays_are_asked_for_every_calendar_the_contracts_had(self):
+        payload, client = self.build(
+            [{"check_in": "2024-07-22 08:00:00", "check_out": "2024-07-22 12:00:00", "worked_hours": 4.0, "attendance_reason_ids": []}],
+            rows={
+                "hr.contract": [{"employee_id": [7, "Ana"], "date_start": "2024-07-15", "date_end": "2025-09-30",
+                                 "resource_calendar_id": [9, "20 h"]}],
+                "resource.calendar.leaves": [{"name": "Santiago", "date_from": "2024-07-25 07:00:00",
+                                              "date_to": "2024-07-25 16:30:00", "calendar_id": [9, "20 h"]}],
+            })
+        domains = {model: args[0] for model, args, _ in client.calls}
+        self.assertIn(("calendar_id", "in", [4, 9]), domains["resource.calendar.leaves"])
+        self.assertIn(("employee_id", "in", [7]), domains["hr.contract"])
+        self.assertEqual([model for model, _, _ in client.calls].count("hr.contract"), 1)
+        self.assertEqual(payload["absences"], [{"date": "2024-07-25", "type": "Santiago"}])
 
     def test_someone_elses_week_is_loaded_by_id_and_leaves_the_state_alone(self):
         stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()

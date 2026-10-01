@@ -310,9 +310,8 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
         e["since"] = since.get(e["id"], monday_of(today).isoformat())
     calendar_of = {e["id"]: e["resource_calendar_id"] and e["resource_calendar_id"][0] for e in employees}
     contracts = data.fetch_contracts(client, ids, monday, end)
-    contract_calendars = {c["resource_calendar_id"][0] for cs in contracts.values() for c in cs
-                          if c["resource_calendar_id"]}
-    calendar_ids = sorted({cid for cid in calendar_of.values() if cid} | contract_calendars)
+    calendar_ids = sorted({cid for cid in calendar_of.values() if cid}
+                          | data.contract_calendars(c for cs in contracts.values() for c in cs))
     blocks = client.call_kw(
         "resource.calendar.attendance", "search_read", [[("calendar_id", "in", calendar_ids)]],
         {"fields": ["calendar_id", "dayofweek", "hour_from", "hour_to", "day_period"]},
@@ -334,7 +333,7 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
     def row(employee):
         calendar = calendar_of[employee["id"]]
         mine_contracts = contracts.get(employee["id"], [])
-        own = {calendar} | {c["resource_calendar_id"][0] for c in mine_contracts if c["resource_calendar_id"]}
+        own = {calendar} | data.contract_calendars(mine_contracts)
         pick = data.calendar_on(mine_contracts, calendar)
         absences = data.absences_from(
             [h for h in holidays if not h["calendar_id"] or h["calendar_id"][0] in own],

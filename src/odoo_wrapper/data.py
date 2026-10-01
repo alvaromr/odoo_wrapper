@@ -37,8 +37,10 @@
 - Expected hours come from Odoo: resource.calendar.attendance gives the blocks per weekday, their sum is the
   day's target, a gap between blocks (or an explicit day_period "lunch") marks a lunch day. The page's
   constants are only a fallback for a calendar that answers nothing.
-- Absences are hr.leave records in state "validate" plus public holidays (resource.calendar.leaves for the
-  employee's calendar or global). A leave shorter than a day (number_of_days < 1) keeps its hours and span so
+- Absences are hr.leave records in state "validate" plus public holidays (resource.calendar.leaves, global
+  or of the employee's calendar or of any calendar its contracts had, as in team.py: a regional holiday lives on the
+  calendar in force that day, and asking only for the current one left each of them before a change of
+  contract as a missed day). A leave shorter than a day (number_of_days < 1) keeps its hours and span so
   the page can subtract just those hours; they used to be skipped, which left a 2 h 30 m medical leave
   counted as hours missing.
 - Attendance reasons are optional (see client.py). Without them the payload says breaks: false and
@@ -175,8 +177,8 @@ def absences_from(holidays, leaves):
     return [{"date": k, "type": v} for k, v in sorted(absences.items())] + partial
 
 
-def fetch_absences(client, since, calendar_id):
-    holidays = holiday_rows(client, since, None, [calendar_id] if calendar_id else [])
+def fetch_absences(client, since, calendar_ids):
+    holidays = holiday_rows(client, since, None, calendar_ids)
     return absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
 
 
@@ -246,12 +248,15 @@ def calendar_on(contracts, fallback):
     return pick
 
 
-def contract_hours(client, schedule, monday0, end):
-    contracts = fetch_contracts(client, [client.employee_id], monday0, end).get(client.employee_id, [])
+def contract_calendars(contracts):
+    return {c["resource_calendar_id"][0] for c in contracts if c["resource_calendar_id"]}
+
+
+def contract_hours(client, schedule, contracts, monday0, end):
     if not contracts:
         return {}
     pick = calendar_on(contracts, client.calendar_id)
-    others = {c["resource_calendar_id"][0] for c in contracts if c["resource_calendar_id"]} - {client.calendar_id}
+    others = contract_calendars(contracts) - {client.calendar_id}
     schedules = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
     schedules[client.calendar_id] = schedule
     base = schedule["hours"] if schedule else [0] * 7
@@ -285,6 +290,9 @@ def build_data(client, employee=None):
     real = [r for r in records if r["worked_hours"] >= MIN_SESSION]
     since = week_monday(local(real[0]["check_in"])) if real else cur_monday
     monday0 = min(since, cur_monday - timedelta(weeks=MIN_WEEKS - 1))
+    end = (cur_monday + timedelta(weeks=1)).date()
+    contracts = fetch_contracts(client, [client.employee_id], monday0.date(), end).get(client.employee_id, [])
+    calendars = sorted((contract_calendars(contracts) | {client.calendar_id}) - {None})
 
     schedule = fetch_schedule(client, client.calendar_id)
     lunch = not employee and state.read_state(client.uid)["lunch"]
@@ -300,11 +308,11 @@ def build_data(client, employee=None):
         "weeks": (cur_monday.date() - monday0.date()).days // 7 + 1,
         "since": since.date().isoformat(),
         "sessions": [session_of(r, reason_by_id) for r in records if real_punch(r)],
-        "absences": fetch_absences(client, monday0.date().isoformat(), client.calendar_id),
+        "absences": fetch_absences(client, monday0.date().isoformat(), calendars),
         "schedule": schedule,
         "long_hours": LONG_HOURS,
         "work_hours": [WORK_FROM, WORK_TO],
-        "contract_hours": contract_hours(client, schedule, monday0.date(), (cur_monday + timedelta(weeks=1)).date()),
+        "contract_hours": contract_hours(client, schedule, contracts, monday0.date(), end),
     }
 
 
