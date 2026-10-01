@@ -83,6 +83,8 @@ function queryAll(root, selector, out = []) {
   return out;
 }
 
+const Parents = new WeakMap();
+
 function element(tag = "div") {
   const classes = new Set();
   const e = {
@@ -100,7 +102,8 @@ function element(tag = "div") {
     appendChild(c) { e.children.push(c); return c; },
     append(...cs) { e.children.push(...cs); },
     prepend(...cs) { e.children.unshift(...cs); },
-    insertBefore(c, ref) { e.children.splice(e.children.includes(ref) ? e.children.indexOf(ref) : e.children.length, 0, c); return c; },
+    insertBefore(c, ref) { e.children.splice(e.children.includes(ref) ? e.children.indexOf(ref) : e.children.length, 0, c); Parents.set(c, e); return c; },
+    get nextElementSibling() { const all = Parents.get(e)?.children || []; return all[all.indexOf(e) + 1] || null; },
     replaceChildren(...cs) { e.children = cs; },
     remove() {},
     setAttribute(k, v) { e.attrs[k] = String(v); },
@@ -196,7 +199,7 @@ const session = (start, end, rest = false) => ({
 });
 const payload = (sessions, extra = {}) => ({
   employee: "Ana", breaks: true, phone: null, generated_at: new Date().toISOString(), weeks: 12,
-  sessions, absences: [], schedule: null, long_hours: 12, work_hours: [7.5, 20],
+  sessions, absences: [], schedule: null, long_hours: 12,
   state: { lunch: null, lunch_minutes: 30, break_minutes: 15, muted: false, lunch_done: false, punched_at: null },
   ...extra,
 });
@@ -581,9 +584,8 @@ test("a session over the long limit is red, and one that ends the next day runs 
   assert.equal(block.textContent, "15:00 – 09:00 (+1)");
   assert.match(block.style.width, /100%/);
   assert.equal(tuesdayRow.querySelectorAll(".dvalue")[0].classList.contains("long"), true);
-  assert.deepEqual(hover(page, block).slice(-3), ["Termina al día siguiente",
-    "Jornada muy larga: 18h en el día, más de 12h, casi siempre una salida sin fichar",
-    "Fuera de horario: fuera de 7:30 a 20:00"]);
+  assert.deepEqual(hover(page, block).slice(-2), ["Termina al día siguiente",
+    "Jornada muy larga: 18h en el día, más de 12h, casi siempre una salida sin fichar"]);
   assert.equal(dayRow(monday).querySelectorAll(".sess")[0].classList.contains("long"), false);
   assert.equal(page.run("buildWeek(1).suspect"), true);
   page.run("calView = 'objetivo'; calOffset = 1; renderCalendar()");
@@ -631,15 +633,14 @@ test("the banner lists this person's punch errors and opens their week", async (
   const details = box.children[0];
   assert.equal(details.tagName, "DETAILS");
   assert.equal(details.open, false);
-  assert.equal(details.children[0].children[0].textContent, "⚠ 5 fichajes por corregir");
+  assert.equal(details.children[0].children[0].textContent, "⚠ 4 fichajes por corregir");
   details.open = true;
   details.listeners.toggle[0]();
   page.run("renderErrors()");
   assert.equal(box.children[0].open, true);
   const items = box.children[0].children[2].children.map(li => li.children[0]);
   assert.deepEqual(items.map(i => i.children[2].textContent),
-    ["Sin cerrar", "Sin fichar", "Jornada de 16h 30m", "Fuera de horario", "Jornada de 24h"]);
-  assert.match(bannerLine(items[3]), / · Fuera de horario 06:00 – 10:00$/);
+    ["Sin cerrar", "Sin fichar", "Jornada de 16h 30m", "Jornada de 24h"]);
   assert.match(bannerLine(items[1]), / · Sin fichar con jornada prevista de 7h 30m$/);
   assert.match(bannerLine(items[0]), / · Sin cerrar entrada a las 09:00, sin salida$/);
   items[1].listeners.click[0]();
@@ -652,10 +653,10 @@ test("the banner lists this person's punch errors and opens their week", async (
   assert.ok(page.run("calOffset") >= 1);
   page.run("renderKpis(buildWeeks(40))");
   const [averageTile, balanceTile, usualTile] = page.document.getElementById("kpis").children;
-  assert.deepEqual(usualTile.children.map(c => c.textContent), ["Horario habitual", "09:00 – 17:00", "entrada y salida medias · 1 día"]);
+  assert.deepEqual(usualTile.children.map(c => c.textContent), ["Horario habitual", "07:30 – 13:30", "entrada y salida medias · 2 días"]);
   for (const tile of [averageTile, balanceTile]) {
     assert.equal(tile.children[1].style.color, "var(--status-warning)");
-    assert.match(tile.children.at(-1).textContent, /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar, fuera de horario o días sin fichar\)$/);
+    assert.match(tile.children.at(-1).textContent, /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar o días sin fichar\)$/);
   }
   const stale = page.run(`(() => { const w = buildWeek(weekOffsetOf(new Date(${back(3).getTime()})));
     const d = w.days.find(d => d.sessions.some(unclosed)); return [d.hours, w.openDays, w.error, dayError(d), dayValue(d).textContent]; })()`);
@@ -669,7 +670,6 @@ test("the banner lists this person's punch errors and opens their week", async (
   assert.ok(cols.filter(g => !has(g, "error")).every(g => g.children.every(c => !has(c, "err-mark"))));
   assert.ok(errors.some(g => hover(page, g).some(t => /sin fichar$/.test(t))));
   assert.ok(errors.some(g => hover(page, g).includes("Incluye una jornada muy larga: suma no fiable")));
-  assert.ok(errors.some(g => hover(page, g).includes("1 día con fichajes fuera de horario")));
   assert.ok(errors.some(g => hover(page, g).includes("1 día con una entrada sin cerrar")));
   page.run("calOffset = 0");
   const oldest = cols[0];
@@ -797,7 +797,7 @@ const withBalance = p => {
   for (const e of p.employees) e.due = e.target;
   return p;
 };
-const fixLimits = { long_day: 12, under_margin: 1 / 60, over_margin: 5, work_from: 7.5, work_to: 20 };
+const fixLimits = { long_day: 12, under_margin: 1 / 60, over_margin: 5 };
 const teamFixes = () => ({ generated_at: new Date().toISOString(), limits: fixLimits, employees: [
   { id: 3, name: "Zoe", items: [
     { date: "2025-02-20", kind: "open", hours: 0, target: 8,
@@ -807,13 +807,12 @@ const teamFixes = () => ({ generated_at: new Date().toISOString(), limits: fixLi
     { date: isoDate(daysAgo(5, 0)), kind: "empty", hours: 0, target: 8, sessions: [] },
   ] },
   { id: 4, name: "Bruno", items: [
-    { date: isoDate(daysAgo(11, 0)), kind: "off", hours: 9.5, target: 8, sessions: [
-      { in: daysAgo(11, 6).toISOString(), out: daysAgo(11, 15).toISOString(), hours: 9 },
-      { in: daysAgo(11, 15, 30).toISOString(), out: daysAgo(11, 16).toISOString(), hours: 0.5 }] },
+    { date: isoDate(daysAgo(11, 0)), kind: "empty", hours: 0, target: 8, sessions: [] },
   ] },
 ] });
 const teamPayload = () => withBalance({
-  week: "2025-03-03", generated_at: new Date(2025, 2, 10, 9, 5).toISOString(), limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5, work_from: 7.5, work_to: 20 },
+  week: "2025-03-03", generated_at: new Date(2025, 2, 10, 9, 5).toISOString(), limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 },
+  reasons: [],
   employees: [
     { id: 3, name: "Zoe", hours: 40, target: 40, flags: [], days: teamWeek({ 0: { hours: 7.5, sessions: [
       { in: new Date(2025, 2, 3, 9).toISOString(), out: new Date(2025, 2, 3, 16, 30).toISOString(), hours: 7.5, rest: false },
@@ -901,21 +900,24 @@ test("the management view draws one row per person, sorted in Spanish, with its 
   assert.equal(cellText(ana[6]), "30h| sin horario");
   assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
   assert.match(doc.getElementById("fixesNote").textContent,
-    /^Entradas sin cerrar, jornadas de más de 12h, fichajes fuera de 7:30 a 20:00 y días con jornada prevista sin fichar/);
+    /^Entradas sin cerrar, jornadas de más de 12h y días con jornada prevista sin fichar/);
   const fixes = doc.getElementById("fixes").children[0].children;
   assert.deepEqual(fixes.slice(0, 2).map(c => c.textContent), ["Persona", "Pendiente"]);
   const cells = fixes.slice(3);
   assert.deepEqual(cells.filter(c => c.tagName === "A").map(a => [a.textContent, a.href]), [["Zoe", "/empleado?id=3"], ["Bruno", "/empleado?id=4"]]);
   assert.deepEqual(cells[1].children.map(c => [c.textContent, c.className]),
     [["Abierta desde el 20 feb 2025 08:00", "chip warn"], ["1 jornada muy larga · 20h", "chip"], ["1 sin fichar", "chip"]]);
-  assert.deepEqual(cells[4].children.map(c => c.textContent), ["1 fuera de horario"]);
+  assert.deepEqual(cells[4].children.map(c => c.textContent), ["1 sin fichar"]);
   const zoeMarks = cells[2].children.filter(c => c.tagName === "G");
   assert.deepEqual(zoeMarks.map(g => g.children[1].getAttribute("class")), ["bar error", "bar error late", "bar missing"]);
   assert.deepEqual(hover(page, zoeMarks[0]), ["Zoe · Jue 20 feb 2025", "Sin cerrar", "08:00–abierto abierta", "Entrada a las 08:00 sin salida"]);
   assert.deepEqual(hover(page, zoeMarks[2]).slice(1), ["Sin fichar", "Jornada prevista de 8h sin fichajes ni ausencia"]);
+  assert.deepEqual(hover(page, zoeMarks[1]).slice(1), ["Jornada muy larga", "08:00–04:00 20h", "20h fichadas en el día, más de 12h"]);
+  zoeMarks[1].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
+  assert.equal(doc.getElementById("tip").children[2].classList.contains("warn"), true);
+  zoeMarks[1].listeners.pointerleave[0]();
   const brunoMarks = cells[5].children.filter(c => c.tagName === "G");
-  assert.equal(brunoMarks.length, 1);
-  assert.ok(hover(page, brunoMarks[0]).includes("Entrada a las 06:00, antes de las 7:30"));
+  assert.deepEqual(brunoMarks.map(g => g.children[1].getAttribute("class")), ["bar missing"]);
   assert.ok(fixes[2].children.filter(c => c.tagName === "TEXT").length >= 6);
   const lines = strip => strip.children.filter(c => c.tagName === "LINE").map(l => l.getAttribute("class"));
   assert.ok(lines(cells[2]).filter(c => c === "day").length > 70);
@@ -1061,14 +1063,6 @@ test("sessions read as times, and weeks move by seven days", () => {
   const day = (flags, sessions, extra) => JSON.stringify({ date: "2025-03-03", hours: 14.5, target: 8, flags, sessions, ...extra });
   const limits = JSON.stringify({ long_day: 12, under_margin: 1 / 60 });
   assert.deepEqual(run(`whyDay("long", ${day(["long"], [])}, ${limits})`), ["14h 30m fichadas en el día, más de 12h"]);
-  const offLimits = JSON.stringify({ long_day: 12, work_from: 7.5, work_to: 20 });
-  const offDay = JSON.stringify({ date: "2025-03-03", hours: 9, target: 8, flags: ["off"], sessions: [
-    JSON.parse(s(new Date(2025, 2, 3, 6, 50), new Date(2025, 2, 3, 12))),
-    JSON.parse(s(new Date(2025, 2, 3, 15), new Date(2025, 2, 3, 21, 15))),
-    JSON.parse(s(new Date(2025, 2, 3, 22), new Date(2025, 2, 4, 1))),
-  ] });
-  assert.deepEqual(run(`whyDay("off", ${offDay}, ${offLimits})`),
-    ["Entrada a las 06:50, antes de las 7:30", "Salida a las 21:15, después de las 20:00", "Salida otro día, el 4 mar a las 01:00"]);
   assert.deepEqual(run(`whyDay("open", ${day(["open"], [JSON.parse(s(new Date(2025, 2, 3, 9, 5), null))])}, ${limits})`),
     ["Entrada a las 09:05 sin salida"]);
 });
@@ -1218,7 +1212,7 @@ const yearPayload = (year = 2025) => {
   }));
   return {
     year: 2025, week: "2024-12-30", start: "2025-01-01", stop: "2026-01-01", generated_at: new Date(2026, 0, 2).toISOString(),
-    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5, work_from: 7.5, work_to: 20 }, open: [],
+    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 }, open: [],
     employees: [
       { id: 1, name: "Álvaro", hours: 1600, target: 1700, balance: -100, due: 1700, flags: ["under"],
         months: months({ 2: { under: 1, flagged_days: 2 }, 4: { over: 2, balance: 12.5 }, 6: { hours: 137, under: 1, balance: -3 } }) },
@@ -1411,7 +1405,7 @@ test("the fixes card filters its own rows by kind, counting each kind's people",
   const page = load({ entry: "team.js", data: teamPayload() });
   const doc = page.document;
   const seg = doc.getElementById("fixKinds");
-  for (const kind of ["open", "long", "off", "empty"]) {
+  for (const kind of ["open", "long", "empty"]) {
     const button = doc.createElement("button");
     button.dataset.kind = kind;
     seg.appendChild(button);
@@ -1420,16 +1414,15 @@ test("the fixes card filters its own rows by kind, counting each kind's people",
   const toggles = seg.children;
   const toggle = kind => seg.listeners.click[0]({ target: { closest: () => toggles.find(b => b.dataset.kind === kind) } });
   const fixed = () => doc.getElementById("fixes").children[0].children.filter(c => c.tagName === "A").map(a => a.textContent);
-  assert.deepEqual(toggles.map(b => b.textContent), ["Sin cerrar (1)", "Jornada muy larga (1)", "Fuera de horario (1)", "Sin fichar (1)"]);
+  assert.deepEqual(toggles.map(b => b.textContent), ["Sin cerrar (1)", "Jornada muy larga (1)", "Sin fichar (2)"]);
   assert.deepEqual(fixed(), ["Zoe", "Bruno"]);
   toggle("open");
   toggle("long");
-  toggle("empty");
-  assert.deepEqual(fixed(), ["Bruno"]);
-  assert.deepEqual(toggles.map(b => b.getAttribute("aria-pressed")), ["false", "false", "true", "false"]);
+  assert.deepEqual(fixed(), ["Bruno", "Zoe"]);
+  assert.deepEqual(toggles.map(b => b.getAttribute("aria-pressed")), ["false", "false", "true"]);
   assert.equal(toggles[0].textContent, "Sin cerrar (1)");
-  assert.match(page.calls.hash, /k=off$/);
-  toggle("off");
+  assert.match(page.calls.hash, /k=empty$/);
+  toggle("empty");
   assert.deepEqual(fixed(), []);
   assert.match(doc.getElementById("fixesNote").textContent, /Nadie con los tipos elegidos\.$/);
   assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
@@ -1455,9 +1448,9 @@ test("the management page keeps its view in the URL and in the session, and rest
   await settle();
   assert.equal(urls[0], "/api/team?month=2025-03");
   assert.deepEqual(page.run("[team.view, team.filter, team.display, team.search]"), ["month", "all", "charts", "zo"]);
-  assert.deepEqual(page.run("[...team.fixKinds]"), ["open", "off"]);
-  assert.equal(page.calls.hash, "#v=month&p=2025-03&f=all&d=charts&k=open%2Coff&q=zo");
-  assert.equal(store.get("gestion"), "#v=month&p=2025-03&f=all&d=charts&k=open%2Coff&q=zo");
+  assert.deepEqual(page.run("[...team.fixKinds]"), ["open"]);
+  assert.equal(page.calls.hash, "#v=month&p=2025-03&f=all&d=charts&k=open&q=zo");
+  assert.equal(store.get("gestion"), "#v=month&p=2025-03&f=all&d=charts&k=open&q=zo");
   const again = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion", storage });
   assert.equal(again.run("team.view"), "month");
   const bogus = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion#v=nope&f=nope&d=nope" });
@@ -1940,7 +1933,7 @@ test("the dashboard's texts in their other cases", () => {
     return document.getElementById("kpis").children[1].children[1].style.color; })()`);
   assert.deepEqual([tile(0), tile(-2), tile(2)], [undefined, "var(--destructive)", undefined]);
 
-  page.run(`(() => { const ws = buildWeeks(3); Object.assign(ws[0], { offDays: 2, missedDays: 2, openDays: 2, delta: -3 });
+  page.run(`(() => { const ws = buildWeeks(3); Object.assign(ws[0], { missedDays: 2, openDays: 2, delta: -3 });
     Object.assign(ws[1], { suspect: true, delta: -1 }); Object.assign(ws[2], { delta: -2, complete: true });
     window.ws = ws; })()`);
   const host = page.document.getElementById("overviewChart");
@@ -1949,7 +1942,7 @@ test("the dashboard's texts in their other cases", () => {
   assert.equal(host.scrollLeft, 100);
   const cols = host.children[0].children.filter(g => g.tagName === "G");
   const first = hover(page, cols[0]);
-  assert.ok(["2 días con fichajes fuera de horario", "2 días sin fichar", "2 días con una entrada sin cerrar"].every(t => first.includes(t)));
+  assert.ok(["2 días sin fichar", "2 días con una entrada sin cerrar"].every(t => first.includes(t)));
   assert.equal(first.at(-1), "Bajo objetivo −3h");
   const tone = col => {
     col.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
@@ -1981,9 +1974,8 @@ test("the dashboard's texts in their other cases", () => {
   const banner = page.document.getElementById("errorsBanner");
   const items = banner.children[0].children[2].children.map(li => bannerLine(li.children[0]));
   assert.ok(items.includes("Lun 7 sep 2026 · Jornada de 36h"));
-  assert.ok(items.includes("Jue 10 sep 2026 · Fuera de horario 21:00 – 01:00 (+1)"));
   page.run(`store.data.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`);
-  assert.equal(banner.querySelectorAll("h2")[0].textContent, "⚠ 1 fichaje por corregir");
+  assert.equal(banner.classList.contains("hidden"), true);
   page.run(SCHEDULE);
   page.run(`store.data.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"].map(v => {
     const [d, h1, m1, h2, m2] = v.split(",").map(Number);
@@ -2068,7 +2060,7 @@ test("the management cells, charts and controls in their other cases", async () 
     page.run(`document.getElementById("probe").replaceChildren(${code})`);
     return doc.getElementById("probe").children[0];
   };
-  const limits = "{ long_day: 12, under_margin: 1 / 60, over_margin: 5, work_from: 7.5, work_to: 20 }";
+  const limits = "{ long_day: 12, under_margin: 1 / 60, over_margin: 5 }";
   const day = (date, extra = "") => `{ date: "${date}", hours: 0, target: 8, absence: null, sessions: [], flags: [], requests: [] ${extra} }`;
   assert.equal(probe(`dayCell({}, ${day("2099-01-01")}, "2026-01-01", ${limits})`).classList.contains("future"), true);
   const days = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06", "2026-03-07", "2026-03-08"];
@@ -2157,13 +2149,13 @@ test("the name search ignores case and accents, reaches every list and is kept i
 });
 
 test("the day dialog corrects punches and approves a request, with a second click each", async () => {
-  const data = { ...teamPayload(), can_edit: true };
+  const data = { ...teamPayload(), can_edit: true, reasons: [{ id: 5, name: "Normal" }, { id: 3, name: "Descanso" }] };
   const alvaro = data.employees.find(e => e.name === "Álvaro");
   const at = (d, h, m = 0) => new Date(2025, 2, d, h, m).toISOString();
-  alvaro.days[0] = { ...alvaro.days[0], hours: 23.6, flags: ["long", "off"], sessions: [
+  alvaro.days[0] = { ...alvaro.days[0], hours: 23.6, flags: ["long"], sessions: [
     { id: 11, in: at(3, 8, 36), out: at(3, 15, 45), hours: 7.15 },
-    { id: 12, in: at(3, 16, 7), out: at(4, 8, 34), hours: 16.45 },
-    { id: 13, in: at(3, 16, 50), out: at(3, 17), hours: 0.17, rest: true }],
+    { id: 12, in: at(3, 16, 7), out: at(4, 8, 34), hours: 16.45, reason: "Normal", reason_id: 5 },
+    { id: 13, in: at(3, 16, 50), out: at(3, 17), hours: 0.17, rest: true, reason: "Descanso", reason_id: 3 }],
     requests: [{ id: 552, from: at(3, 8, 30), to: at(3, 17, 40), status: "pending", reason: "Salí a las 17:40", can_approve: true }] };
   const posts = [];
   let answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: at(4, 8, 34) }) };
@@ -2180,14 +2172,20 @@ test("the day dialog corrects punches and approves a request, with a second clic
   const editor = () => body.children[1];
   const rows = () => editor().children.filter(c => c.className.startsWith("edit-row"));
   const inputs = i => rows()[i].children.filter(c => c.tagName === "INPUT");
-  const buttons = () => editor().children.at(-1).children;
+  const motive = i => rows()[i].children.find(c => c.tagName === "SELECT");
+  const plus = i => rows()[i].children.at(-1);
+  const saveButton = () => editor().children.at(-1).children[0];
   const twice = async button => { await button.listeners.click[0](); await button.listeners.click[0](); await settle(); };
   assert.deepEqual(rows().map(r => r.className), ["edit-row", "edit-row warn", "edit-row"]);
   assert.deepEqual(inputs(1).map(i => i.value), ["16:07", "08:34"]);
   assert.ok(rows()[1].children.some(c => c.textContent === "salida el 4 mar 2025"));
-  assert.ok(rows()[2].children.some(c => c.textContent === "descanso"));
+  assert.deepEqual([0, 1, 2].map(i => motive(i).value), ["", "5", "3"]);
+  assert.deepEqual(motive(0).children.map(o => [o.value, o.textContent]), [["", "sin motivo"], [5, "Normal"], [3, "Descanso"]]);
+  assert.deepEqual(motive(1).children.map(o => o.textContent), ["Normal", "Descanso"]);
+  assert.equal(motive(1).attrs["aria-label"], "Motivo");
 
-  const save = buttons()[1];
+  assert.deepEqual([plus(0).textContent, plus(0).attrs["aria-label"]], ["+", "Añadir un fichaje debajo"]);
+  const save = saveButton();
   await save.listeners.click[0]();
   assert.equal(save.textContent, "¿Confirmar?");
   page.calls.timeouts.at(-1)[0]();
@@ -2199,8 +2197,8 @@ test("the day dialog corrects punches and approves a request, with a second clic
   const close = doc.getElementById("dayDialogClose");
   const held = [];
   const cancel = e => { let refused = false; doc.getElementById("dayDialog").listeners.cancel[0]({ preventDefault: () => { refused = true; } }); held.push([close.disabled, refused]); };
-  await buttons()[1].listeners.click[0]();
-  const saving = buttons()[1].listeners.click[0]();
+  await saveButton().listeners.click[0]();
+  const saving = saveButton().listeners.click[0]();
   cancel();
   await saving;
   await settle();
@@ -2211,17 +2209,24 @@ test("the day dialog corrects punches and approves a request, with a second clic
   assert.equal(doc.getElementById("dayDialog").open, true);
 
   answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
-  buttons()[0].listeners.click[0]();
-  const fresh = rows().length - 1;
+  motive(2).value = "5";
+  await twice(saveButton());
+  assert.deepEqual(posts.at(-1), ["/api/team/attendance", { id: 13, check_in: at(3, 16, 50), check_out: at(3, 17), reason: 5 }]);
+  plus(0).listeners.click[0]();
+  await twice(saveButton());
+  assert.equal(note(), "No hay cambios que guardar.");
+  const fresh = 1;
+  assert.deepEqual(rows().map(r => r.className), ["edit-row", "edit-row", "edit-row warn", "edit-row"]);
+  assert.deepEqual([inputs(fresh).map(i => i.value), motive(fresh).value], [["", ""], "5"]);
   inputs(fresh)[0].value = "08:34";
-  await twice(buttons()[1]);
+  await twice(saveButton());
   assert.match(note(), /cada fichaje necesita entrada y salida$/);
   inputs(fresh)[1].value = "15:00";
   inputs(0)[0].value = "08:40";
-  await twice(buttons()[1]);
+  await twice(saveButton());
   assert.deepEqual(posts.slice(-2), [
     ["/api/team/attendance", { id: 11, check_in: at(3, 8, 40), check_out: at(3, 15, 45) }],
-    ["/api/team/attendance", { employee: 1, check_in: at(3, 8, 34), check_out: at(3, 15) }]]);
+    ["/api/team/attendance", { employee: 1, check_in: at(3, 8, 34), check_out: at(3, 15), reason: 5 }]]);
   assert.equal(note(), "Guardado.");
 
   const approve = () => body.children.find(c => c.textContent === "Aprobar solicitud");
@@ -2242,10 +2247,17 @@ test("the day dialog corrects punches and approves a request, with a second clic
   assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '""')}])`), []);
   assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '"14:00"')}])`),
     [{ id: 9, check_in: at(3, 9), check_out: at(3, 14) }]);
+  const other = page.run(`(f => [f.value, f.children.map(o => o.textContent)])(reasonField({ reason: "Felt Sick", reason_id: 8 }, team.data.reasons))`);
+  assert.deepEqual(other, ["8", ["Felt Sick", "Normal", "Descanso"]]);
+  const plain = page.run(`punchEditor({ id: 1 }, { date: "2025-03-03", sessions: [{ id: 13, in: "${at(3, 16, 50)}", out: "${at(3, 17)}", rest: true }] },
+    team.data.limits, []).children[0].children.at(-2).textContent`);
+  assert.equal(plain, "descanso");
+  const empty = page.run(`punchEditor({ id: 1 }, { date: "2025-03-04", sessions: [] }, team.data.limits, []).children.map(c => c.className)`);
+  assert.deepEqual(empty, ["edit-row", "edit-actions"]);
   answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
   data.employees = data.employees.filter(e => e !== alvaro);
   inputs(0)[0].value = "08:45";
-  await twice(buttons()[1]);
+  await twice(saveButton());
   assert.equal(note(), "Guardado.");
 });
 
@@ -2320,10 +2332,10 @@ test("the personal page's punches to fix open the correcting dialog when the ses
   assert.equal(dialog.open, true);
   assert.equal(doc.getElementById("dayDialogTitle").textContent, "Zoe");
   const editor = doc.getElementById("dayDialogBody").children[1];
-  editor.children.find(c => c.className === "edit-actions").children[0].listeners.click[0]();
+  editor.children.find(c => c.className === "edit-row").children.at(-1).listeners.click[0]();
   const added = editor.children.filter(c => c.className === "edit-row").at(-1).children.filter(c => c.tagName === "INPUT");
   [added[0].value, added[1].value] = ["09:00", "10:00"];
-  const save = editor.children.find(c => c.className === "edit-actions").children[1];
+  const save = editor.children.find(c => c.className === "edit-actions").children[0];
   const loads = urls.filter(u => u.startsWith("/api/data")).length;
   await save.listeners.click[0]();
   await save.listeners.click[0]();

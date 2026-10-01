@@ -4,10 +4,8 @@
  *
  * - punchErrors lists the punches to fix over the whole history loaded, as the management view flags them:
  *   sessions still open from before today, days whose total passes long_hours (longDay, however many sessions),
- *   sessions outside the payload's work_hours (offHours: a check-in before 6:30, a check-out after work_hours'
- *   end, midnight, so on a later day; listed only on days not already too long), and missed days (a past day that
- *   expected hours, after its absences and contract, with no session at all). dayError is any of the first three
- *   on a day.
+ *   and missed days (a past day that expected hours, after its absences and contract, with no session at all).
+ *   dayError is any of the first two on a day.
  * - A session left open from before today (unclosed) counts 0 h, as Odoo and the management view count it:
  *   counted up to now, one left open for weeks made a day of hundreds of hours and a balance hundreds of
  *   hours in favour where the management view read it short. Only today's open session counts live.
@@ -15,7 +13,7 @@
  *   holding that date to the current one.
  * - A week is suspect when a day in it passes the payload's long_hours (longDay): its hours cannot be
  *   trusted, so the page does not tell it reached its target. It has an error when it is suspect or holds
- *   a missed, off-hours or unclosed day: either way a punch needs fixing.
+ *   a missed or unclosed day: either way a punch needs fixing.
  * - A day expects its contract's hours when the payload lists it (store.contractHours), the current
  *   schedule's otherwise, and nothing before store.since, the week of the first real punch (data.py says why).
  * - Absence days subtract their expected hours from the week's target. A leave shorter than a day
@@ -25,7 +23,7 @@
  *   it only until the day has a gap: once lunch is taken, its actual length is what it is.
  */
 import { store, MonthNames } from "./store.js";
-import { fmtHM, dayKey, isoDay, fmtDay, fmtYear, hourOf } from "./format.js";
+import { fmtHM, dayKey, isoDay, fmtDay, fmtYear } from "./format.js";
 
 export function lunchFrom(date) { return store.lunchFrom[(date.getDay() + 6) % 7]; }
 
@@ -42,17 +40,12 @@ export function longDay(d) {
   return d.hours > store.data.long_hours;
 }
 
-export function offHours(s) {
-  const [from, to] = store.data.work_hours;
-  return hourOf(s.in) < from || Boolean(s.out) && (dayKey(s.out) !== dayKey(s.in) || hourOf(s.out) > to);
-}
-
 export function unclosed(s) {
   return !s.out && s.in < store.today;
 }
 
 export function dayError(d) {
-  return longDay(d) || d.sessions.some(offHours) || d.sessions.some(unclosed);
+  return longDay(d) || d.sessions.some(unclosed);
 }
 
 export function missed(d) {
@@ -64,13 +57,10 @@ export function punchErrors() {
     .filter(s => !s.out && new Date(s.in) < store.today)
     .map(s => ({ kind: "open", in: new Date(s.in) }));
   const days = Array.from({ length: store.data.weeks }, (_, k) => buildWeek(k).days).flat();
-  const closed = days.filter(d => d.sessions.every(s => s.out));
-  const long = closed.filter(longDay)
+  const long = days.filter(d => d.sessions.every(s => s.out) && longDay(d))
     .map(d => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
-  const off = closed.filter(d => !longDay(d))
-    .flatMap(d => d.sessions.filter(offHours).map(s => ({ kind: "off", in: s.in, out: s.out })));
   const empty = days.filter(missed).map(d => ({ kind: "empty", in: d.date, expected: d.expected }));
-  return [...open, ...long, ...off, ...empty].sort((a, b) => b.in - a.in);
+  return [...open, ...long, ...empty].sort((a, b) => b.in - a.in);
 }
 
 export function weekOffsetOf(date) {
@@ -132,9 +122,8 @@ export function buildWeek(offset) {
     allVacation: target <= 0,
     suspect: days.some(longDay),
     missedDays: days.filter(missed).length,
-    offDays: days.filter(d => d.sessions.some(offHours)).length,
     openDays: days.filter(d => d.sessions.some(unclosed)).length,
-    get error() { return this.suspect || this.missedDays > 0 || this.offDays > 0 || this.openDays > 0; },
+    get error() { return this.suspect || this.missedDays > 0 || this.openDays > 0; },
   };
 }
 

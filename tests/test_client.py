@@ -246,6 +246,7 @@ class EmployeeTest(unittest.TestCase):
         normal, rest = odoo.sign_in_reasons()
         self.assertEqual((normal["id"], rest["id"]), (5, 3))
         self.assertEqual(odoo.sign_in_reasons(), (normal, rest))
+        self.assertEqual([r["id"] for r in odoo.offered_reasons()], [5, 3])
         self.assertEqual(len(odoo.opener.calls), 1)
         self.assertEqual(client(kw([])).sign_in_reasons(), (None, None))
 

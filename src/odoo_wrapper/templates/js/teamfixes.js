@@ -6,8 +6,8 @@
  * - One row per person, so a repeat offender shows as one row with several marks, most to fix first: chips
  *   counting each kind, and a strip with a line per day where an error's sessions are orange (an open one
  *   solid, running to now) and a missed day an empty orange-edged box. A long day draws only the sessions
- *   to blame (toBlame: past midnight, off hours or over the limit alone), not the normal morning before
- *   them, unless none is and the day is long only by adding up; the tooltips colour the same sessions.
+ *   to blame (toBlame: over the limit alone), not the normal morning before them, unless none is and the
+ *   day is long only by adding up; the tooltips colour the same sessions.
  * - The strip runs from the first error shown to the last (midnight to midnight, and now at most), so a
  *   filter that leaves a few rows narrows it to their dates instead of a long empty stretch, with
  *   FixPadDays more on each side (never past now), so a lone error, or one at either end, has dated weeks
@@ -25,9 +25,9 @@
  *   too (teamstate.js).
  */
 import { DayNames } from "./store.js";
-import { fmtHM, fmtDay, fmtDate, fmtTime, fmtClock, parseDay, shiftDays, plural } from "./format.js";
+import { fmtHM, fmtDay, fmtDate, fmtTime, parseDay, shiftDays, plural } from "./format.js";
 import { el, api, panScroll } from "./shared.js";
-import { dayLabel, sessionRow, whyDay, offSession, wrongSession, openDayOf } from "./dayedit.js";
+import { dayLabel, sessionRow, whyDay, wrongSession, openDayOf } from "./dayedit.js";
 import { stripAxis, sessionStrip } from "./teamcharts.js";
 import { team, FixKinds, FlagText, named } from "./teamstate.js";
 
@@ -67,8 +67,7 @@ export function fixMarks(row, now = new Date()) {
       const start = parseDay(item.date);
       return [{ start, end: parseDay(shiftDays(item.date, 1)), cls: "missing", tip, open }];
     }
-    const sessions = item.kind === "open" ? item.sessions.filter(s => !s.out)
-      : item.kind === "off" ? item.sessions.filter(s => offSession(s, limits)) : toBlame(item.sessions, limits);
+    const sessions = item.kind === "open" ? item.sessions.filter(s => !s.out) : toBlame(item.sessions, limits);
     return sessions.map(s => ({ start: new Date(s.in), end: s.out ? new Date(s.out) : now,
       cls: item.kind === "open" ? "error" : "error late", tip, open }));
   });
@@ -104,9 +103,9 @@ export function renderFixes() {
   const rows = fixRows(team.fixes);
   const limits = team.fixes.limits;
   document.getElementById("openCard").classList.toggle("hidden", !team.fixes.employees.length);
-  note.textContent = `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)}, fichajes fuera de `
-    + `${fmtClock(limits.work_from)} a ${fmtClock(limits.work_to)} y días con jornada prevista sin fichar, de todo el `
-    + "historial de cada persona y sea cual sea el periodo que estés viendo. Una fila por persona."
+  note.textContent = `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)} y días con jornada `
+    + "prevista sin fichar, de todo el historial de cada persona y sea cual sea el periodo que estés viendo. "
+    + "Una fila por persona."
     + (rows.length ? "" : team.search.trim()
       ? ` Nadie cuyo nombre contenga «${team.search.trim()}» con los tipos elegidos.`
       : " Nadie con los tipos elegidos.");
@@ -143,7 +142,6 @@ export function renderFixes() {
       const count = plural(long.length, "jornada muy larga", "jornadas muy largas");
       chips.appendChild(el("span", "chip", `${count} · ${total}`));
     }
-    if (of("off").length) chips.appendChild(el("span", "chip", `${of("off").length} fuera de horario`));
     if (of("empty").length) chips.appendChild(el("span", "chip", `${of("empty").length} sin fichar`));
     grid.append(link, chips, sessionStrip(from, to, fixMarks(row, to), size));
   }

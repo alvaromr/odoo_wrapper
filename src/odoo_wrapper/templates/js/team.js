@@ -5,9 +5,9 @@
  * register listeners or read the dashboard's DOM as they load (see shared.js).
  *
  * - Flags come computed from the server (team.py says what each one means); the page only draws them and
- *   tells two kinds apart by colour: orange a punch error (Sin fichar, Sin cerrar, Jornada muy larga, Fuera de
- *   horario, a sum that holds one, everything in «Fichajes por corregir»), red a target not met, short or
- *   over (Bajo objetivo, Demasiadas horas, a month or year short); blue is kept for change requests.
+ *   tells two kinds apart by colour: orange a punch error (Sin fichar, Sin cerrar, Jornada muy larga, a sum
+ *   that holds one, everything in «Fichajes por corregir»), red a target not met, short or over (Bajo
+ *   objetivo, Demasiadas horas, a month or year short); blue is kept for change requests.
  *   style.css says how the charts tell short from too many. A cell with both a target and a punch problem
  *   takes the target's colour and still names the error in orange.
  * - Hovering a cell (or focusing it) opens the day's details in the shared tooltip, and a click (or Enter)
@@ -73,7 +73,7 @@
  * - Rows are sorted by name with Spanish collation (Á next to A), which Odoo's order does not give.
  */
 import { DayNames, MonthNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtYear, fmtTime, isoDay, fmtClock, parseDay, shiftDays, plural } from "./format.js";
+import { fmtHM, fmtDelta, fmtDay, fmtYear, fmtTime, isoDay, parseDay, shiftDays, plural } from "./format.js";
 import { el, api, wireLogout, wireMouseHistory, attachTip, hideTip, tipRow, panScroll } from "./shared.js";
 import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireDayDialog } from "./dayedit.js";
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
@@ -176,8 +176,8 @@ export function hasData(day) {
 function dayCell(employee, day, today, limits) {
   const td = el("td", "day");
   td.tabIndex = 0;
-  td.addEventListener("click", () => { if (!gridPan.consume()) openDay(employee, day, limits, team.data.can_edit); });
-  td.addEventListener("keydown", e => { if (e.key === "Enter") openDay(employee, day, limits, team.data.can_edit); });
+  td.addEventListener("click", () => { if (!gridPan.consume()) openDay(employee, day, team.data); });
+  td.addEventListener("keydown", e => { if (e.key === "Enter") openDay(employee, day, team.data); });
   if (day.date === today) td.classList.add("today");
   if (day.date > today) td.classList.add("future");
   if (day.flags.length) td.classList.add("warn");
@@ -340,9 +340,8 @@ function nameCell(employee) {
 export function criteria(limits) {
   return `Bajo objetivo: una semana terminada con ${fmtHM(limits.under_margin)} o más por debajo de su `
     + `jornada prevista. Demasiadas horas: una semana terminada con más de ${fmtHM(limits.over_margin)} `
-    + `por encima de ella. Jornada muy larga: más de ${fmtHM(limits.long_day)} fichadas en un día. Fuera de horario: `
-    + `una entrada antes de las ${fmtClock(limits.work_from)} o una salida después de las ${fmtClock(limits.work_to)} `
-    + "o ya en otro día. Sin fichar: un día pasado con jornada prevista y sin fichajes ni ausencia. Sin cerrar: una "
+    + `por encima de ella. Jornada muy larga: más de ${fmtHM(limits.long_day)} fichadas en un día. `
+    + "Sin fichar: un día pasado con jornada prevista y sin fichajes ni ausencia. Sin cerrar: una "
     + "entrada de un día anterior sin salida. La jornada prevista de cada día es la del contrato vigente ese día; "
     + "vacaciones, festivos y permisos la reducen. Los descansos cuentan como horas. En naranja, errores de fichaje, "
     + "que se corrigen antes de juzgar las horas; en rojo, objetivo no cumplido (horas de menos o demasiadas), solo "
@@ -508,7 +507,7 @@ function renderCharts(data, rows, today) {
   const timeline = chartCard(
     { week: "Personas con incidencias cada día", month: "Personas con semanas fuera de objetivo",
       year: "Personas con meses fuera de objetivo" }[team.view],
-    { week: "Días sin fichar, sin cerrar, fuera de horario o con una jornada muy larga.",
+    { week: "Días sin fichar, sin cerrar o con una jornada muy larga.",
       month: "Cada semana entera, ya terminada y sin errores de fichaje, si el mes no la compensa.",
       year: "Cada mes sin errores de fichaje, si el año no lo compensa." }[team.view]);
   if (series.length > 1) timeline.appendChild(legend(series));

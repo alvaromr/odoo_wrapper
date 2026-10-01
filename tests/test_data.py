@@ -223,6 +223,7 @@ class BuildDataTest(unittest.TestCase):
         self.assertEqual((work["hours"], work["rest"], work["reason"]), (3.0, False, "Normal"))
         self.assertEqual((rest["hours"], rest["rest"], rest["reason"]), (0.25, True, "Descanso"))
         self.assertEqual((open_one["out"], open_one["hours"], open_one["rest"], open_one["reason"]), (None, None, False, None))
+        self.assertEqual([s["reason_id"] for s in payload["sessions"]], [5, 3, None])
         self.assertEqual(work["in"], dt.local("2026-09-07 07:00:00").isoformat())
         self.assertEqual(payload["employee"], "Ana")
         self.assertTrue(payload["breaks"])
@@ -231,7 +232,7 @@ class BuildDataTest(unittest.TestCase):
         self.assertEqual(payload["absences"], [])
         self.assertFalse(payload["team"])
         self.assertEqual(payload["contract_hours"], {})
-        self.assertEqual((payload["long_hours"], payload["work_hours"]), (12, [6.5, 24]))
+        self.assertEqual(payload["long_hours"], 12)
 
     def test_without_attendance_reasons(self):
         payload, client = self.build([{"check_in": utc(30), "check_out": False, "worked_hours": 0}], reasons=(None, None))

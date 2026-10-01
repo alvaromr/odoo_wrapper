@@ -55,9 +55,20 @@ class CorrectionsTest(unittest.TestCase):
         self.assertEqual(client.calls, [("hr.attendance", "create",
                                          [{"employee_id": 7, "check_in": "2025-03-04 08:34:00", "check_out": "2025-03-04 15:00:00"}])])
 
+    def test_a_reason_replaces_the_ones_the_punch_had(self):
+        times = {"check_in": self.iso(0, 9), "check_out": self.iso(0, 10)}
+        stamps = {"check_in": at(0, 9), "check_out": at(0, 10), "attendance_reason_ids": [[6, 0, [3]]]}
+        client = self.client({"read": [{"employee_id": [7, "x"], "check_out": at(0, 10)}]})
+        self.assertEqual(co.save_attendance(client, {"id": 12, "reason": 3, **times})[0], 200)
+        self.assertEqual(client.calls[1], ("hr.attendance", "write", [[12], stamps]))
+        client = self.client()
+        self.assertEqual(co.save_attendance(client, {"employee": 7, "reason": "3", **times})[0], 200)
+        self.assertEqual(client.calls, [("hr.attendance", "create", [{"employee_id": 7, **stamps}])])
+
     def test_bad_input_and_odoo_refusals(self):
         client = self.client()
-        for body in ({}, {"check_in": "x", "check_out": "y"}, {"id": "z", "check_in": self.iso(0, 9), "check_out": self.iso(0, 10)}):
+        for body in ({}, {"check_in": "x", "check_out": "y"}, {"id": "z", "check_in": self.iso(0, 9), "check_out": self.iso(0, 10)},
+                     {"id": 1, "reason": "x", "check_in": self.iso(0, 9), "check_out": self.iso(0, 10)}):
             self.assertEqual(co.save_attendance(client, body)[0], 400)
         self.assertEqual(co.save_attendance(client, {"id": 1, "check_in": self.iso(0, 10), "check_out": self.iso(0, 9)}),
                          (400, {"error": "La salida tiene que ser posterior a la entrada"}))

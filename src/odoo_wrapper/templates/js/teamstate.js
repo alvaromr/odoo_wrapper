@@ -9,11 +9,11 @@
 import { isoDay } from "./format.js";
 
 export const FlagText = {
-  open: "Sin cerrar", empty: "Sin fichar", long: "Jornada muy larga", off: "Fuera de horario", under: "Bajo objetivo",
+  open: "Sin cerrar", empty: "Sin fichar", long: "Jornada muy larga", under: "Bajo objetivo",
   over: "Demasiadas horas",
 };
 
-export const FixKinds = ["open", "long", "off", "empty"];
+export const FixKinds = ["open", "long", "empty"];
 
 export const thisDay = () => isoDay(new Date());
 

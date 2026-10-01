@@ -22,7 +22,7 @@
  *   every other column. A click (or Enter) on a column opens that week in the calendar, as a banner entry does
  *   (showWeek). The average and balance tiles turn orange with a note when a finished week they count has a punch
  *   error: they cannot be trusted. «Horario habitual» averages only days without a punch error: a check-out on the
- *   next morning read as leaving at 8:36, and an open entry or an off-hours punch skewed the mean the same way.
+ *   next morning read as leaving at 8:36, and an open entry skewed the mean the same way.
  * - A session longer than the payload's long_hours is drawn orange (a punch error, style.css) in the timeline, and
  *   so is its day's total in both calendar views: it is nearly always a forgotten check-out. A session that ends
  *   on a later day runs to midnight on its check-in day, labelled with the days it spans («15:00 – 09:00 (+1)»);
@@ -52,7 +52,7 @@
 import { store, DayNames, DayFull } from "./store.js";
 import {
   buildWeek, buildWeeks, weekRangeLabel, lunchHours, lunchOpen, targetLabel, weeksSince, punchErrors, weekOffsetOf,
-  missed, longDay, offHours, dayError, unclosed,
+  missed, longDay, dayError, unclosed,
 } from "./week.js";
 import {
   fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey, isoDay, plural,
@@ -354,7 +354,7 @@ export function renderKpis(weeks) {
   const balance = done.reduce((a, w) => a + w.delta, 0);
   const wrong = done.filter(w => w.error).length;
   const unreliable = n => el("div", "foot warn", `⚠ No fiable: ${plural(n, "semana", "semanas")} con `
-    + "fichajes incorrectos (jornadas muy largas, entradas sin cerrar, fuera de horario o días sin fichar)");
+    + "fichajes incorrectos (jornadas muy largas, entradas sin cerrar o días sin fichar)");
   const wrongWorking = working.filter(w => w.error).length;
   const averageTile = tile("Media semanal",
     working.length ? fmtHM(working.reduce((a, w) => a + w.total, 0) / working.length) : "—",
@@ -405,8 +405,8 @@ export function renderOverview(weeks) {
   const adjusted = weeks.some(w => w.target !== store.weekTarget && w.target > 0);
   document.getElementById("overviewCaption").textContent =
     "Cada columna es una semana; la actual, en azul claro; abajo, en morado, el descanso fichado; en naranja, "
-    + "las semanas con un error de fichaje (una jornada muy larga, una entrada sin cerrar, un fichaje fuera "
-    + "de horario o un día sin fichar). Pulsa una para verla arriba."
+    + "las semanas con un error de fichaje (una jornada muy larga, una entrada sin cerrar o un día sin fichar). "
+    + "Pulsa una para verla arriba."
     + (adjusted ? " Las semanas con ausencias o permisos llevan su objetivo ajustado como marca horizontal." : "");
 
   const BaseW = 940, MinBand = 38, H = 250, MinSegH = 3;
@@ -481,9 +481,6 @@ export function renderOverview(weeks) {
       }
       if (w.target !== store.weekTarget) t.appendChild(tipRow("Objetivo (con ausencias)", targetLabel(w)));
       if (w.suspect) t.appendChild(el("div", "t-note warn", "Incluye una jornada muy larga: suma no fiable"));
-      if (w.offDays) {
-        t.appendChild(el("div", "t-note warn", `${plural(w.offDays, "día", "días")} con fichajes fuera de horario`));
-      }
       if (w.missedDays) {
         t.appendChild(el("div", "t-note warn", `${plural(w.missedDays, "día", "días")} sin fichar`));
       }
@@ -534,7 +531,7 @@ export function renderCalendar() {
       ? `La marca vertical de cada día es la jornada prevista en Odoo: ${scheduleSentence()}.`
       : "Odoo no devuelve horario para tu calendario, así que no hay jornada prevista ni objetivo semanal.")
     + " El descanso fichado va en morado, en el tramo en que ocurrió; en naranja, las jornadas de más de "
-    + `${fmtHM(store.data.long_hours)} en total, los fichajes fuera de horario, las entradas sin cerrar y los días con`
+    + `${fmtHM(store.data.long_hours)} en total, las entradas sin cerrar y los días con`
     + " jornada prevista sin fichar, casi siempre un fichaje olvidado."
     + " En el horario, cada bloque es un fichaje en su hora real; los huecos entre bloques son tiempo sin fichar,"
     + " la comida por ejemplo, y no cuentan."
@@ -718,7 +715,7 @@ export function renderTimeline(card, w) {
       const later = days > 0 ? ` (+${days})` : "";
       const text = s.rest ? "" : `${fmtTime(s.in)} – ${s.out ? fmtTime(s.out) + later : "…"}`;
       const block = el("div", "sess" + (s.rest ? " rest" : "") + (joined && !s.rest ? " join-l" : "")
-        + (longDay(d) || offHours(s) ? " long" : ""), text);
+        + (longDay(d) ? " long" : ""), text);
       block.tabIndex = 0;
       attachTip(block, t => {
         t.appendChild(el("div", "t-title",
@@ -731,10 +728,6 @@ export function renderTimeline(card, w) {
           t.appendChild(el("div", "t-note warn",
             `Jornada muy larga: ${fmtHM(d.hours)} en el día, más de ${fmtHM(store.data.long_hours)}, `
             + "casi siempre una salida sin fichar"));
-        }
-        if (offHours(s)) {
-          const [from, to] = store.data.work_hours;
-          t.appendChild(el("div", "t-note warn", `Fuera de horario: fuera de ${fmtClock(from)} a ${fmtClock(to)}`));
         }
       });
       if (s.rest) {
@@ -825,8 +818,6 @@ let errorsOpen = false;
 function errorPiece(s) {
   return {
     long: () => ["kind", `Jornada de ${fmtShort(s.hours)}`, s.count > 1 ? `en ${s.count} sesiones` : ""],
-    off: () => ["kind", "Fuera de horario",
-      `${fmtTime(s.in)} – ${fmtTime(s.out)}${dayKey(s.out) !== dayKey(s.in) ? " (+1)" : ""}`],
     open: () => ["kind", "Sin cerrar", `entrada a las ${fmtTime(s.in)}, sin salida`],
     empty: () => ["kind", "Sin fichar", `con jornada prevista de ${fmtShort(s.expected)}`],
   }[s.kind]();
@@ -887,9 +878,7 @@ export function renderErrors() {
   ].filter(Boolean).join(" · ")));
   details.append(summary,
     el("p", null, "Entradas sin cerrar de días anteriores, jornadas de más de "
-      + `${fmtHM(store.data.long_hours)}, fichajes fuera de ${fmtClock(store.data.work_hours[0])} a `
-      + `${fmtClock(store.data.work_hours[1])} y días con jornada prevista `
-      + "sin ningún fichaje, de todo el historial"
+      + `${fmtHM(store.data.long_hours)} y días con jornada prevista sin ningún fichaje, de todo el historial`
       + (m ? ", y las solicitudes de cambio pendientes de tu aprobación" : "")
       + ", un día por línea. Pulsa uno para ver su semana."),
     list);

@@ -70,9 +70,10 @@ API
   the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
   attendances. The page for it is /gestion.
 - Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
-- POST /api/team/attendance {id | employee, check_in, check_out} (ISO times with their offset) edits or
-  creates someone's punch, and POST /api/team/approve {id} approves a change request (see
-  corrections.py); both answer 403 like /api/team, and they are the only writes besides punching.
+- POST /api/team/attendance {id | employee, check_in, check_out[, reason]} (ISO times with their offset, the
+  id of an attendance reason) edits or creates someone's punch, and POST /api/team/approve {id} approves a
+  change request (see corrections.py); both answer 403 like /api/team, and they are the only writes besides
+  punching.
 """
 
 import json

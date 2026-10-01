@@ -20,7 +20,8 @@
 - Attendance reasons (hr.attendance.reason, the OCA/AvanzOSC module) are optional: attendance_reasons()
   answers [] when Odoo cannot serve the model — uninstalled, or its access revoked — and every caller
   degrades to plain punches without a reason. Only a dead session still propagates. The rows are read once
-  per client; a client lives one CLI command or one dashboard request.
+  per client; a client lives one CLI command or one dashboard request. offered_reasons() are the ones Odoo's
+  own attendance screen offers on check-in, working ones first: what a punch may be given, here too.
 - A network failure on the way to Odoo (refused, DNS, timeout, a gateway error) is raised as OdooDown with a
   message the user can read, so neither the CLI nor the dashboard shows a traceback or a generic 500 when
   Odoo is simply down. A response that is not JSON (a maintenance page, a proxy error page) is OdooDown too.
@@ -301,8 +302,12 @@ class OdooClient:
                 self._reasons = []
         return self._reasons
 
-    def sign_in_reasons(self):
+    def offered_reasons(self):
         rows = [r for r in self.attendance_reasons() if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]]
+        return sorted(rows, key=lambda r: r["is_rest"])
+
+    def sign_in_reasons(self):
+        rows = self.offered_reasons()
         normal = next((r for r in rows if not r["is_rest"]), None)
         rest = next((r for r in rows if r["is_rest"]), None)
         return normal, rest

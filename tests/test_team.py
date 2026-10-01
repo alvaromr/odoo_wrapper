@@ -125,24 +125,19 @@ class BuildTeamTest(unittest.TestCase):
 
     def test_every_day_flag(self):
         flags = [d["flags"] for d in self.people["Ana"]["days"]]
-        self.assertEqual(flags, [[], ["empty"], ["open"], [], ["long", "off"], [], []])
-        self.assertEqual(self.payload["limits"], {"long_day": 12, "under_margin": 1 / 60, "over_margin": 5,
-                                                   "work_from": 6.5, "work_to": 24})
+        self.assertEqual(flags, [[], ["empty"], ["open"], [], ["long"], [], []])
+        self.assertEqual(self.payload["limits"], {"long_day": 12, "under_margin": 1 / 60, "over_margin": 5})
         self.assertTrue(all(d["flags"] == [] for d in self.people["Carl"]["days"]))
 
-    def test_a_session_outside_working_hours_is_off(self):
+    def test_the_hour_of_a_punch_is_never_judged(self):
         day = MONDAY + timedelta(days=1)
         flags = lambda *sessions: tm.day_row(day, 8, None, [dt.session_of(s, {}) for s in sessions], [], date.today())["flags"]
-        self.assertEqual(flags(att(1, 1, (6, 30), (15, 30), 9.0)), [])
-        self.assertEqual(flags(att(1, 1, (16, 0), (23, 59), 8.0)), [])
-        self.assertEqual(flags(att(1, 1, (6, 29), (14, 30), 8.0)), ["off"])
-        self.assertEqual(flags(dict(att(1, 1, (16, 0), (23, 59), 8.0), check_out=at(2, 0, 1))), ["off"])
+        self.assertEqual(flags(att(1, 1, (5, 0), (13, 0), 8.0)), [])
+        self.assertEqual(flags(dict(att(1, 1, (16, 0), (23, 59), 8.0), check_out=at(2, 0, 1))), [])
         overnight = att(1, 1, (15, 0), None, 0)
         overnight["check_out"] = at(2, 9)
         overnight["worked_hours"] = 18.0
-        self.assertEqual(flags(overnight), ["long", "off"])
-        self.assertEqual(self.payload["limits"]["work_from"], 6.5)
-        self.assertEqual(self.payload["limits"]["work_to"], 24)
+        self.assertEqual(flags(overnight), ["long"])
 
     def test_a_tap_under_a_minute_counts_for_nothing(self):
         tap = att(3, 0, (2, 3), (2, 4), 0.006)
@@ -260,9 +255,13 @@ class BuildTeamTest(unittest.TestCase):
         self.assertEqual(bea["flags"], [])
         self.assertTrue(all(d["flags"] == [] for d in bea["days"][day:]))
 
+    def test_the_payload_offers_the_reasons_a_punch_may_be_given(self):
+        self.assertEqual(self.payload["reasons"], [{"id": 5, "name": "Normal"}, {"id": 3, "name": "Descanso"}])
+        self.assertEqual([s["reason_id"] for s in self.people["Ana"]["days"][4]["sessions"]], [5, 3, 5])
+
     def test_without_attendance_reasons_the_field_is_not_asked(self):
-        client = ScriptedClient(rows(**{"hr.attendance.reason": []}))
-        tm.build_team(client, MONDAY)
+        client = ScriptedClient(rows(**{"hr.attendance.reason": []}), reasons=(None, None))
+        self.assertEqual(tm.build_team(client, MONDAY)["reasons"], [])
         fields = [kwargs["fields"] for model, args, kwargs in client.calls if model == "hr.attendance" and len(args) == 1]
         self.assertNotIn("attendance_reason_ids", fields[0])
 
@@ -375,7 +374,7 @@ class YearTest(unittest.TestCase):
 
 
 class FixesTest(unittest.TestCase):
-    def test_only_punch_error_days_with_their_sessions_and_no_off_on_a_long_day(self):
+    def test_only_punch_error_days_with_their_sessions(self):
         fixes = tm.fixes_payload(tm.build_team(ScriptedClient(rows()), MONDAY))
         people = {e["name"]: e for e in fixes["employees"]}
         self.assertEqual(sorted(people), ["Ana", "Dani"])

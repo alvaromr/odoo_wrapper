@@ -103,6 +103,9 @@ class ScriptedClient:
     def attendance_reasons(self):
         return self.call_kw("hr.attendance.reason", "search_read", [[]], {})
 
+    def offered_reasons(self):
+        return [r for r in self.reasons if r]
+
     def sign_in_reasons(self):
         return self.reasons
 

@@ -34,11 +34,10 @@ read, with the problems a reviewer looks for already flagged.
   employee without a calendar has no target, so is never flagged as missing a day or hours.
 - Flags per day: "open" an attendance left open before today (forgot to check out), "empty" a past day with a
   target and no attendance (forgot to check in), "long" a day over LONG_DAY hours in total, however many sessions
-  it took (two sessions of 6 h and 8 h are as suspicious as one of 14 h), "off" a session outside
-  data.WORK_FROM–WORK_TO (a check-in before 6:30, a check-out after WORK_TO, midnight, so on a later day). Taps
-  under a minute are dropped as they are read (data.real_punch), so they flag nothing. Session length is never
-  flagged: sessions of a few seconds are double taps that cost nothing, and the attendance officer asked to ignore
-  them. Breaks count in the day's hours like any other session, as they do in the personal payload.
+  it took (two sessions of 6 h and 8 h are as suspicious as one of 14 h). Taps under a minute are dropped as they
+  are read (data.real_punch), so they flag nothing. Session length is never flagged: sessions of a few seconds are
+  double taps that cost nothing, and the attendance officer asked to ignore them. Breaks count in the day's hours
+  like any other session, as they do in the personal payload.
 - The target is checked per week, not per day: a short day is often made up later that week, so only a
   finished week without punch errors is judged (a day with any flag makes its hours a guess: a missing punch
   reads as hours short, a forgotten check-out as too many; the error is what to fix, in orange), "under"
@@ -55,11 +54,10 @@ read, with the problems a reviewer looks for already flagged.
   in the other when it was six.
 - What is left to fix goes out apart (fetch_fixes, /api/team?fixes): the same build over the whole history, from
   the first attendance the session can read to this week, keeping only the punch-error days («open», «empty»,
-  «long», «off»; «off» not on a day already «long») with their sessions, per employee. Before a person's first real
-  punch no day expects anything, so none is missed (thousands of phantom days otherwise). It is the same list the
-  personal page's banner shows for one person, and it is built by the same flags as the table, so the two cannot
-  disagree. Being the heaviest load, the page asks for it on its own, after the table, and it is cached like the
-  rest.
+  «long») with their sessions, per employee. Before a person's first real punch no day expects anything, so none
+  is missed (thousands of phantom days otherwise). It is the same list the personal page's banner shows for one
+  person, and it is built by the same flags as the table, so the two cannot disagree. Being the heaviest load, the
+  page asks for it on its own, after the table, and it is cached like the rest.
 - Attendance change requests (approval.request, Odoo's Approvals app) sit on the day they ask to change: the local
   date of their date_start, owner matched to the employee through its user. The category is found by name
   (REQUEST_CATEGORY, «Modificación de fichaje» in this Odoo), never by id; cancelled ones are left out. They are
@@ -68,6 +66,8 @@ read, with the problems a reviewer looks for already flagged.
   to whoever may approve them only, every pending request of theirs (requests_to_approve, whatever their date): the
   employee never sees it, as they are not the approver. Approvals is optional, and a session that may not read
   requests simply gets none, like the attendance reasons in client.py.
+- The payload's reasons are the ones a punch may be given (client.offered_reasons), for the day dialog's
+  selector; each session carries its own as reason_id. Without the module the list is empty.
 - Read only: the day dialog's writes are corrections.py. The payload is cached per session and period for data.VIEW_TTL,
   longer than the personal one: what someone else punched moves slowly and «Actualizar» forces a reload.
 """
@@ -135,9 +135,6 @@ def month_row(month, employee, today):
     }
 
 
-FIX_KINDS = ("open", "empty", "long", "off")
-
-
 def fetch_fixes(client, fresh=False):
     def build():
         first = client.call_kw("hr.attendance", "search_read", [[("employee_id.active", "=", True)]],
@@ -152,8 +149,7 @@ def fixes_payload(payload):
     def items(e):
         return [{"date": d["date"], "kind": kind, "hours": d["hours"], "target": d["target"],
                  "sessions": [{k: s[k] for k in ("id", "in", "out", "hours")} for s in d["sessions"]]}
-                for d in e["days"] for kind in d["flags"]
-                if kind in FIX_KINDS and not (kind == "off" and "long" in d["flags"])]
+                for d in e["days"] for kind in d["flags"]]
     rows = [dict({k: e[k] for k in ("id", "name")}, items=items(e))
             for e in payload["employees"]]
     return {"generated_at": payload["generated_at"], "limits": payload["limits"],
@@ -204,16 +200,6 @@ def requests_to_approve(client, employee_id):
     return [r for r in fetch_requests(client, [user[0]], states=("pending",)) if r["can_approve"]] if user else []
 
 
-def clock(stamp):
-    return int(stamp[11:13]) + int(stamp[14:16]) / 60
-
-
-def off_hours(s):
-    if clock(s["in"]) < data.WORK_FROM:
-        return True
-    return bool(s["out"]) and (s["out"][:10] != s["in"][:10] or clock(s["out"]) > data.WORK_TO)
-
-
 def day_row(day, target, absence, sessions, requests, today):
     mine = [s for s in sessions if s["in"][:10] == day.isoformat()]
     requests = [r for r in requests if r["from"][:10] == day.isoformat()]
@@ -223,7 +209,6 @@ def day_row(day, target, absence, sessions, requests, today):
         ("open", past and any(not s["out"] for s in mine)),
         ("empty", past and target > 0 and not mine),
         ("long", hours > LONG_DAY),
-        ("off", any(off_hours(s) for s in mine)),
     ) if hit]
     return {"date": day.isoformat(), "hours": round(hours, 2), "target": round(target, 2), "absence": absence,
             "sessions": mine, "flags": flags,
@@ -350,7 +335,7 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
         "start": (start or monday).isoformat(),
         "stop": (stop or end).isoformat(),
         "generated_at": now.isoformat(),
-        "limits": {"long_day": LONG_DAY, "under_margin": UNDER_MARGIN, "over_margin": OVER_MARGIN,
-                   "work_from": data.WORK_FROM, "work_to": data.WORK_TO},
+        "limits": {"long_day": LONG_DAY, "under_margin": UNDER_MARGIN, "over_margin": OVER_MARGIN},
+        "reasons": [{"id": r["id"], "name": r["name"]} for r in client.offered_reasons()],
         "employees": [row(e) for e in employees],
     }

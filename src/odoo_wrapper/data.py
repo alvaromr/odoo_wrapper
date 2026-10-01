@@ -23,13 +23,12 @@
   one to five minutes are real short breaks, so the threshold stays at a minute. The history starts
   there too, at least MIN_WEEKS back; team.py applies the same rule (first_punches).
 - A closed punch shorter than MIN_SESSION is dropped as it is read (real_punch), here and in team.py: it
-  adds no hours, marks no day as punched and is never off hours (a 22-second tap at two in the morning was
-  the whole «off hours» error of a normal day). An open one is kept: it is still running.
+  adds no hours and marks no day as punched. An open one is kept: it is still running.
 - LONG_HOURS is the one threshold for «too long», here and in team.py: a day whose total passes it is a punch error
-  in both views, however many sessions it took. WORK_FROM and WORK_TO bound a normal working day (6:30 to midnight,
-  generous on purpose; people do start at 7:20 and some work late): a session that starts earlier or ends on
-  another day is «off hours», most likely a wrong punch, again in both views. Punch errors to fix are looked for
-  over the whole history, with no time limit (the management view's «Fichajes por corregir», the page's banner).
+  in both views, however many sessions it took. The hour of a punch is never judged: a rule for sessions outside
+  6:30 to midnight, or ending on another day, flagged too many real ones, and a forgotten check-out is long anyway.
+  Punch errors to fix are looked for over the whole history, with no time limit (the management view's «Fichajes
+  por corregir», the page's banner).
 - The absence and session helpers take plain rows so team.py builds the same absences and sessions for
   many employees at once from one query per model.
   The shared state is not part of the payload: it changes between loads, so the server adds it fresh to every
@@ -60,8 +59,6 @@ from .client import OdooError, SessionExpired
 MIN_WEEKS = 12
 MIN_SESSION = 1 / 60
 LONG_HOURS = 12
-WORK_FROM = 6.5
-WORK_TO = 24
 DATA_TTL = 45
 VIEW_TTL = 300
 _data_lock = threading.Lock()
@@ -195,6 +192,7 @@ def session_of(record, reason_by_id):
         "hours": record["worked_hours"] if record["check_out"] else None,
         "rest": bool(reason and reason["is_rest"]),
         "reason": reason["name"] if reason else None,
+        "reason_id": reason["id"] if reason else None,
     }
 
 
@@ -311,7 +309,6 @@ def build_data(client, employee=None):
         "absences": fetch_absences(client, monday0.date().isoformat(), calendars),
         "schedule": schedule,
         "long_hours": LONG_HOURS,
-        "work_hours": [WORK_FROM, WORK_TO],
         "contract_hours": contract_hours(client, schedule, contracts, monday0.date(), end),
     }
 
