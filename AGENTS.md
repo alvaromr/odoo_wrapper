@@ -148,11 +148,12 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   only readable by HR officers) and `approval.request` (attendance change requests, found by category name).
   Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
   details.
-- The day dialog (`corrections.py`) is the only other writer: it `write`s or `create`s `hr.attendance` (check_in,
-  check_out, and attendance_reason_ids when the reason is changed) and calls `approval.request.action_approve`
-  as the session's user, both only if Odoo's rights allow them. Neither can be tested reversibly against a real
-  Odoo: an attendance keeps a tracking message for every change, even one undone, and approving notifies the
-  employee. Test them against the scripted client only.
+- The day dialog (`corrections.py`) is the only other writer: it `write`s, `create`s or `unlink`s `hr.attendance`
+  (check_in, check_out, and attendance_reason_ids when the reason is changed) and calls
+  `approval.request.action_approve` as the session's user, all only if Odoo's rights allow them. None can be
+  tested reversibly against a real Odoo: an attendance keeps a tracking message for every change, even one
+  undone, a deleted one is gone for good, and approving notifies the employee. Test them against the scripted
+  client only.
 
 ## Known limitations, already investigated
 

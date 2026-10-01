@@ -94,6 +94,16 @@ class CorrectionsTest(unittest.TestCase):
         with self.assertRaises(SessionExpired):
             co.approve_request(self.client(fail={"action_approve": SessionExpired("caducada")}), 1)
 
+    def test_a_punch_is_deleted_for_good(self):
+        client = self.client()
+        with unittest.mock.patch.object(dt, "drop_data_cache") as drop:
+            self.assertEqual(co.delete_attendance(client, "31512"), (200, {"ok": True}))
+        self.assertEqual(client.calls, [("hr.attendance", "unlink", [[31512]])])
+        drop.assert_called_once()
+        self.assertEqual(co.delete_attendance(client, None), (400, {"error": "Fichaje no válido: None"}))
+        self.assertEqual(co.delete_attendance(self.client(fail={"unlink": OdooError("no puedes borrarlo")}), 1),
+                         (409, {"error": "no puedes borrarlo"}))
+
 
 if __name__ == "__main__":
     unittest.main()

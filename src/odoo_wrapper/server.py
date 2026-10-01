@@ -10,7 +10,8 @@ Login and sessions
   and whether it may change punches (client.edits_punches, Odoo's own access rights on hr.attendance) are
   remembered per session for SEES_TTL, half an hour: each was one more Odoo call on every request and
   does not change within a session. Logout forgets them. Payloads carry can_edit so a page offers no
-  correction it cannot make, and /api/team/attendance answers 403 without it, before reaching Odoo.
+  correction it cannot make, and /api/team/attendance and /api/team/delete answer 403 without it, before
+  reaching Odoo.
 - Validity is Odoo's call. A cookie not seen since the server started is checked once with
   get_session_info and remembered in _sessions with its uid (cleared by every restart, which is fine).
   When Odoo answers code 100 anywhere, the API replies 401, clears the cookie and forgets it; the page sends
@@ -71,9 +72,9 @@ API
   attendances. The page for it is /gestion.
 - Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
 - POST /api/team/attendance {id | employee, check_in, check_out[, reason]} (ISO times with their offset, the
-  id of an attendance reason) edits or creates someone's punch, and POST /api/team/approve {id} approves a
-  change request (see corrections.py); both answer 403 like /api/team, and they are the only writes besides
-  punching.
+  id of an attendance reason) edits or creates someone's punch, POST /api/team/delete {id} removes one, and
+  POST /api/team/approve {id} approves a change request (see corrections.py); all answer 403 like /api/team,
+  and they are the only writes besides punching.
 """
 
 import json
@@ -442,14 +443,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
         elif self.path == "/api/attendance":
             self._send(*data.punch(new_client(self.session), body.get("action")))
-        elif self.path in ("/api/team/attendance", "/api/team/approve"):
+        elif self.path in ("/api/team/attendance", "/api/team/delete", "/api/team/approve"):
             client = new_client(self.session)
             if not sees_others(client):
                 self._send(403, {"error": NOT_TEAM})
-            elif self.path == "/api/team/attendance":
-                refused = (403, {"error": NOT_EDITOR})
-                self._send(*corrections.save_attendance(client, body) if edits_punches(client) else refused)
-            else:
+            elif self.path == "/api/team/approve":
                 self._send(*corrections.approve_request(client, body.get("id")))
+            elif not edits_punches(client):
+                self._send(403, {"error": NOT_EDITOR})
+            elif self.path == "/api/team/attendance":
+                self._send(*corrections.save_attendance(client, body))
+            else:
+                self._send(*corrections.delete_attendance(client, body.get("id")))
         else:
             self._send(404, {"error": "not found"})

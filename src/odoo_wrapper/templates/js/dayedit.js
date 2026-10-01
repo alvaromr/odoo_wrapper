@@ -17,11 +17,19 @@
  *   selector of the ones the payload offers (reasonField; none without the module, and then a break is only
  *   labelled): a punch whose reason is not among them, or that has none, keeps it as one more option, so the
  *   selector never shows what the punch does not have, and a new one starts on the first, the working one. A
- *   reason is sent only when it is another one; an open punch still needs its check-out to be saved. A pending
- *   change request the session may approve gets «Aprobar solicitud». Both write to Odoo, so both ask for a
- *   second click (confirmButton), and both reload the page and reopen the day as it now is (refreshDay), read
- *   from that day's week. When shortening a punch loses the next day's check-in (team.py, lost_entry) the note
- *   under the day says which one to add there; nothing is created on its own.
+ *   reason is sent only when it is another one; an open punch still needs its check-out to be saved. The «✕»
+ *   of a punch already in Odoo marks it to be deleted, and again unmarks it: nothing is deleted until «Guardar
+ *   cambios», which sends the deletions before anything else (Odoo checks overlaps on each write, and a punch
+ *   still there would refuse the neighbour stretched over it) and whatever its fields hold, so an open or
+ *   half-filled punch can go too. Deleting on the spot would also have reopened the day and dropped the edits
+ *   not yet saved in the other rows. When Odoo refuses a change after others of the same save went through,
+ *   the day is reopened as it now is and the note says the rest was not saved: left as it was, the next try
+ *   sent again a deletion already made (refused, so nothing after it ever went) or a punch already created
+ *   (a duplicate). A pending change request the session may approve gets «Aprobar
+ *   solicitud». Both write to Odoo, so both ask for a second click (confirmButton), and both reload the page
+ *   and reopen the day as it now is (refreshDay), read from that day's week. When shortening a punch loses the
+ *   next day's check-in (team.py, lost_entry) the note under the day says which one to add there; nothing is
+ *   created on its own.
  * - The dialog stays open, for reading a long reason or copying times: a click outside does not close it,
  *   only «Cerrar» or Escape, and neither while a write is on its way (holdDialog): its answer reopens the day,
  *   which reopened a dialog already closed.
@@ -161,7 +169,7 @@ export function reasonField(s, reasons) {
 
 export function punchChanges(date, entries) {
   const at = time => new Date(`${date}T${time}`).toISOString();
-  return entries.flatMap(({ s, start, end, reason }) => {
+  const kept = entries.filter(e => !e.gone).flatMap(({ s, start, end, reason }) => {
     const [was, until] = s ? [fmtTime(new Date(s.in)), s.out ? fmtTime(new Date(s.out)) : ""] : ["", ""];
     const another = Boolean(reason) && reason.value !== String(s?.reason_id ?? "");
     if (start.value === was && end.value === until && !(s && another)) return [];
@@ -169,6 +177,7 @@ export function punchChanges(date, entries) {
     return [{ ...(s ? { id: s.id } : {}), check_in: start.value === was ? s.in : at(start.value),
       check_out: end.value === until ? s.out : at(end.value), ...(another ? { reason: Number(reason.value) } : {}) }];
   });
+  return [...entries.filter(e => e.gone).map(e => ({ id: e.s.id, gone: true })), ...kept];
 }
 
 export function punchEditor(employee, day, limits, reasons) {
@@ -184,6 +193,22 @@ export function punchEditor(employee, day, limits, reasons) {
     }
     if (reason) row.appendChild(reason);
     else if (s?.rest) row.appendChild(el("span", "meta", "descanso"));
+    const entry = { s, start, end, reason, gone: false };
+    if (s) {
+      const drop = el("button", "btn ghost small", "✕");
+      drop.type = "button";
+      const mark = gone => {
+        entry.gone = gone;
+        row.classList.toggle("gone", gone);
+        for (const field of [start, end, reason].filter(Boolean)) field.disabled = gone;
+        drop.title = gone ? "No eliminar este fichaje" : "Eliminar este fichaje";
+        drop.setAttribute("aria-label", drop.title);
+        drop.setAttribute("aria-pressed", String(gone));
+      };
+      drop.addEventListener("click", () => mark(!entry.gone));
+      mark(false);
+      row.appendChild(drop);
+    }
     const add = el("button", "btn ghost small", "+");
     add.type = "button";
     add.title = "Añadir un fichaje debajo";
@@ -191,20 +216,27 @@ export function punchEditor(employee, day, limits, reasons) {
     add.addEventListener("click", () => addRow(null, row.nextElementSibling));
     row.appendChild(add);
     box.insertBefore(row, before);
-    entries.push({ s, start, end, reason });
+    entries.push(entry);
   };
   const actions = el("div", "edit-actions");
   actions.append(confirmButton("Guardar cambios", "No se pudo guardar", async () => {
     const changes = punchChanges(day.date, entries).map(c => c.id ? c : { ...c, employee: employee.id });
     if (!changes.length) return say("No hay cambios que guardar.");
     const lost = [];
-    for (const change of changes) {
-      const answer = await api("/api/team/attendance", change);
-      if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
+    let sent = 0, done = "Guardado.";
+    try {
+      for (const change of changes) {
+        const answer = await api(change.gone ? "/api/team/delete" : "/api/team/attendance", change);
+        if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
+        sent += 1;
+      }
+    } catch (e) {
+      if (!sent) throw e;
+      done = `Guardado solo en parte; no se pudo el resto: ${e.message}.`;
     }
     const warnings = lost.map(d => `La salida original, ${fmtDate(d)} a las ${fmtTime(d)}, `
       + "era probablemente la entrada de ese día: añádela allí.");
-    await refreshDay(employee.id, day.date, ["Guardado.", ...warnings].join(" "));
+    await refreshDay(employee.id, day.date, [done, ...warnings].join(" "));
   }));
   box.appendChild(actions);
   (day.sessions.length ? day.sessions : [null]).forEach(s => addRow(s, actions));

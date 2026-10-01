@@ -223,7 +223,7 @@ class OdooClient:
     def edits_punches(self):
         try:
             return all(self.call_kw("hr.attendance", "check_access_rights", [op], {"raise_exception": False})
-                       for op in ("write", "create"))
+                       for op in ("write", "create", "unlink"))
         except SessionExpired:
             raise
         except OdooError:

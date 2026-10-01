@@ -2159,8 +2159,10 @@ test("the day dialog corrects punches and approves a request, with a second clic
     requests: [{ id: 552, from: at(3, 8, 30), to: at(3, 17, 40), status: "pending", reason: "Salí a las 17:40", can_approve: true }] };
   const posts = [];
   let answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: at(4, 8, 34) }) };
+  let refused = null;
+  const overlap = { ok: false, status: 409, json: async () => ({ error: "se solapa" }) };
   const page = load({ entry: "team.js", fetchImpl: async (url, opts) => {
-    if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return answer; }
+    if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return url === refused ? overlap : answer; }
     return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : data };
   } });
   await settle();
@@ -2218,6 +2220,7 @@ test("the day dialog corrects punches and approves a request, with a second clic
   const fresh = 1;
   assert.deepEqual(rows().map(r => r.className), ["edit-row", "edit-row", "edit-row warn", "edit-row"]);
   assert.deepEqual([inputs(fresh).map(i => i.value), motive(fresh).value], [["", ""], "5"]);
+  assert.deepEqual(rows()[fresh].children.filter(c => c.tagName === "BUTTON").map(b => b.textContent), ["+"]);
   inputs(fresh)[0].value = "08:34";
   await twice(saveButton());
   assert.match(note(), /cada fichaje necesita entrada y salida$/);
@@ -2228,6 +2231,35 @@ test("the day dialog corrects punches and approves a request, with a second clic
     ["/api/team/attendance", { id: 11, check_in: at(3, 8, 40), check_out: at(3, 15, 45) }],
     ["/api/team/attendance", { employee: 1, check_in: at(3, 8, 34), check_out: at(3, 15), reason: 5 }]]);
   assert.equal(note(), "Guardado.");
+
+  const cross = i => rows()[i].children.at(-2);
+  assert.deepEqual([cross(1).textContent, cross(1).title, cross(1).attrs["aria-pressed"]], ["✕", "Eliminar este fichaje", "false"]);
+  cross(1).listeners.click[0]();
+  assert.deepEqual([rows()[1].className, inputs(1).map(i => i.disabled), motive(1).disabled, cross(1).attrs["aria-label"], cross(1).attrs["aria-pressed"]],
+    ["edit-row warn gone", [true, true], true, "No eliminar este fichaje", "true"]);
+  cross(1).listeners.click[0]();
+  assert.deepEqual([rows()[1].className, inputs(1).map(i => i.disabled), cross(1).title], ["edit-row warn", [false, false], "Eliminar este fichaje"]);
+  await twice(saveButton());
+  assert.equal(note(), "No hay cambios que guardar.");
+  inputs(0)[1].value = "17:00";
+  inputs(1)[1].value = "";
+  cross(1).listeners.click[0]();
+  await twice(saveButton());
+  assert.deepEqual(posts.slice(-2), [
+    ["/api/team/delete", { id: 12, gone: true }],
+    ["/api/team/attendance", { id: 11, check_in: at(3, 8, 36), check_out: at(3, 17) }]]);
+  assert.equal(note(), "Guardado.");
+
+  refused = "/api/team/attendance";
+  inputs(0)[1].value = "17:00";
+  await twice(saveButton());
+  assert.equal(note(), "No se pudo guardar: se solapa");
+  assert.equal(inputs(0)[1].value, "17:00");
+  cross(1).listeners.click[0]();
+  await twice(saveButton());
+  assert.equal(note(), "Guardado solo en parte; no se pudo el resto: se solapa.");
+  assert.deepEqual([rows()[1].className, inputs(0)[1].value], ["edit-row warn", "15:45"]);
+  refused = null;
 
   const approve = () => body.children.find(c => c.textContent === "Aprobar solicitud");
   await twice(approve());
@@ -2250,7 +2282,7 @@ test("the day dialog corrects punches and approves a request, with a second clic
   const other = page.run(`(f => [f.value, f.children.map(o => o.textContent)])(reasonField({ reason: "Felt Sick", reason_id: 8 }, team.data.reasons))`);
   assert.deepEqual(other, ["8", ["Felt Sick", "Normal", "Descanso"]]);
   const plain = page.run(`punchEditor({ id: 1 }, { date: "2025-03-03", sessions: [{ id: 13, in: "${at(3, 16, 50)}", out: "${at(3, 17)}", rest: true }] },
-    team.data.limits, []).children[0].children.at(-2).textContent`);
+    team.data.limits, []).children[0].children.at(-3).textContent`);
   assert.equal(plain, "descanso");
   const empty = page.run(`punchEditor({ id: 1 }, { date: "2025-03-04", sessions: [] }, team.data.limits, []).children.map(c => c.className)`);
   assert.deepEqual(empty, ["edit-row", "edit-actions"]);

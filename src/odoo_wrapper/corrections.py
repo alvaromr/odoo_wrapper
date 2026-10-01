@@ -1,9 +1,10 @@
 """The only writes to Odoo besides punching: the day dialog's corrections, for a session that may make them.
 
-- save_attendance changes a punch's check-in and check-out, or creates one, and approve_request approves a
-  change request as the session's user (action_approve, which Odoo allows only to a pending approver, hence
-  team.py's can_approve). Odoo validates both (overlaps, rights) and its refusal comes back as a 409 with its
-  words. Every write drops the cached payloads.
+- save_attendance changes a punch's check-in and check-out, or creates one, delete_attendance removes one for
+  good (unlink: Odoo keeps nothing of it, so it cannot be undone), and approve_request approves a change request
+  as the session's user (action_approve, which Odoo allows only to a pending approver, hence team.py's
+  can_approve). Odoo validates them all (overlaps, rights) and its refusal comes back as a 409 with its words.
+  Every write drops the cached payloads.
 - A punch's reason (Normal, Descanso…) is changed only when the body names one: it then replaces whatever
   reasons the punch had (REPLACE, the many2many command), as the page shows one reason per punch and every
   punch in this Odoo carries one or none. Without it the field is not sent at all: it only exists with the
@@ -14,7 +15,7 @@
   answer carries it as lost_entry and the page says so; nothing is created on its own (about one long
   punch in five was like that).
 - server.py lets a session here only if it reads other people's attendances and, for a punch, Odoo gives it
-  write and create on hr.attendance (client.edits_punches); Odoo checks again on every call.
+  write, create and unlink on hr.attendance (client.edits_punches); Odoo checks again on every call.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -70,16 +71,24 @@ def save_attendance(client, body):
     return 200, {"ok": True, "lost_entry": lost}
 
 
-def approve_request(client, request_id):
+def run_on(client, model, method, record_id, invalid):
     try:
-        request = int(request_id)
+        record = int(record_id)
     except (TypeError, ValueError):
-        return 400, {"error": f"Solicitud no válida: {request_id}"}
+        return 400, {"error": f"{invalid}: {record_id}"}
     try:
-        client.call_kw("approval.request", "action_approve", [[request]])
+        client.call_kw(model, method, [[record]])
     except SessionExpired:
         raise
     except OdooError as error:
         return 409, {"error": str(error)}
     data.drop_data_cache()
     return 200, {"ok": True}
+
+
+def approve_request(client, request_id):
+    return run_on(client, "approval.request", "action_approve", request_id, "Solicitud no válida")
+
+
+def delete_attendance(client, record_id):
+    return run_on(client, "hr.attendance", "unlink", record_id, "Fichaje no válido")
