@@ -5,6 +5,9 @@
 // `export` keywords are blanked out, not removed, so node's coverage maps back to the real lines. Scripts in
 // one context share their top-level names, as the modules' imports did. Run with `node --test tests/app.test.mjs`,
 // and with coverage as AGENTS.md says.
+// The clock is replaced too: Date starts every run at TUESDAY and ticks on from there, here and in the pages.
+// With the real one the suite passed or failed, and covered every branch or not, by the day and the hour it ran:
+// Thursdays, weekends, before nine, the days a fixture crossed a daylight-saving change, the last ones of a year.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -156,7 +159,7 @@ function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", sto
   const document = makeDocument();
   const calls = { fetch: [], replace: [], reload: 0, timers: [] };
   const sandbox = {
-    document, window: {}, console, URLSearchParams, innerWidth: 1280, innerHeight: 800,
+    document, window: {}, console, URLSearchParams, Date, innerWidth: 1280, innerHeight: 800,
     addEventListener: (type, fn) => ((calls.window ||= {})[type] ||= []).push(fn),
     history: { replaceState: (a, b, url) => { calls.hash = url; },
       pushState: (a, b, url) => { (calls.pushed ||= []).push(url); calls.hash = url; },
@@ -199,6 +202,17 @@ const payload = (sessions, extra = {}) => ({
 });
 
 const TUESDAY = new Date(2026, 8, 15, 10, 0);
+
+const RealDate = Date;
+const CLOCK_SHIFT = TUESDAY - RealDate.now();
+class Clock extends RealDate {
+  constructor(...args) {
+    if (args.length) super(...args);
+    else super(RealDate.now() + CLOCK_SHIFT);
+  }
+  static now() { return RealDate.now() + CLOCK_SHIFT; }
+}
+globalThis.Date = Clock;
 
 const SCHEDULE = "store.expected = [8.5, 8.5, 8.5, 8.5, 6, 0, 0]; store.lunchFrom = [13.5, 13.5, 13.5, 13.5, null, null, null]; store.weekTarget = 40;";
 
