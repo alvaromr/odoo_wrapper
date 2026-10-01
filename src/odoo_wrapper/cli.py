@@ -6,13 +6,23 @@ by `odoo login`, which asks for the password on the terminal and never stores it
 live in the browsers instead, so the two tools never share or invalidate each other's login. When Odoo asks
 for a two-factor code, `odoo login` asks for it too and keeps the trusted-device key Odoo answers with in
 cli_device, so the next login within 90 days skips the code (client.py says how). Every command
-builds one OdooClient (client.py), runs one action and exits; `Ejecuta: odoo login` is the only answer to a
-missing or expired session.
+builds one OdooClient (client.py), runs one action and exits.
+
+Odoo ends a session idle for about a week, and this one is idle most of the time (the dashboard's are renewed
+by the polling of their open pages), so it used to be dead by the time an agent needed it. Two answers:
+- keep_alive, which the dashboard runs in a thread of its own (a call to Odoo can hang, and the source watcher
+  must not): every KEEPALIVE_INTERVAL it reads cli_session again, since a login rewrites it, and asks Odoo for
+  the session info, the call that renews it. It works only while the dashboard runs and the machine is awake,
+  and it never logs in: a missing or dead session, or an Odoo out of reach, is left for the next round.
+- A command that finds the session missing or expired logs in on the spot and starts over, so it reads the
+  real state again before punching, when there is a terminal to ask the password on. Without one (an agent,
+  a script) `Ejecuta: odoo login` is still the only answer.
 """
 
 import getpass
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 from .client import (
@@ -22,6 +32,7 @@ from .client import (
 
 CLI_SESSION_FILE = os.path.join(STATE_DIR, "cli_session")
 CLI_DEVICE_FILE = os.path.join(STATE_DIR, "cli_device")
+KEEPALIVE_INTERVAL = 3600
 USAGE = f"""Uso: odoo <comando>
 
 Comandos:
@@ -39,7 +50,9 @@ Comandos:
 
 checkin, checkout, toggle, break y resume registran fichajes reales en Odoo; status e history solo leen.
 break y resume necesitan el motivo Descanso en Odoo (módulo hr_attendance_reason); sin él lo dicen y no fichan.
-Si un comando responde «Ejecuta: odoo login», la sesión no existe o Odoo la ha caducado.
+Odoo caduca una sesión tras una semana sin uso; el dashboard, mientras está en marcha, mantiene viva
+la de este CLI. Si aun así no existe o ha caducado, el comando pide iniciar sesión en el momento y
+continúa; sin terminal (un agente, un script) responde «Ejecuta: odoo login».
 
 Ficheros, en {STATE_DIR}:
   config.json   URL, base de datos y usuario
@@ -250,8 +263,28 @@ def cli_client():
     return OdooClient(config["url"], config["db"], session_id)
 
 
+def keep_alive():
+    while True:
+        try:
+            cli_client().session_info()
+        except (OdooError, OSError):
+            pass
+        time.sleep(KEEPALIVE_INTERVAL)
+
+
 COMMANDS = {"status": status, "checkin": check_in, "checkout": check_out, "toggle": toggle,
             "break": take_break, "resume": resume}
+
+
+def run(cmd):
+    client = cli_client()
+    if cmd == "history":
+        arg = sys.argv[2] if len(sys.argv) > 2 else "7"
+        if not arg.isdigit() or not int(arg):
+            raise OdooError(f"history espera un número de días, no «{arg}»")
+        history(client, int(arg))
+    else:
+        COMMANDS[cmd](client)
 
 
 def main():
@@ -269,14 +302,14 @@ def main():
         if cmd == "login":
             cli_login()
             return
-        client = cli_client()
-        if cmd == "history":
-            arg = sys.argv[2] if len(sys.argv) > 2 else "7"
-            if not arg.isdigit() or not int(arg):
-                raise OdooError(f"history espera un número de días, no «{arg}»")
-            history(client, int(arg))
-        else:
-            COMMANDS[cmd](client)
+        try:
+            run(cmd)
+        except SessionExpired as error:
+            if not (sys.stdin and sys.stdin.isatty()):
+                raise
+            print(f"{error}. Inicia sesión para continuar.")
+            cli_login()
+            run(cmd)
     except SessionExpired as error:
         print(f"ERROR: {error}. Ejecuta: odoo login", file=sys.stderr)
         sys.exit(1)

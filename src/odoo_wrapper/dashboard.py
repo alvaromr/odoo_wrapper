@@ -9,6 +9,7 @@ itself at its top:
   state.py     the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py       phone access: LAN address and name, self-signed certificate, QR
   process.py   log, self-restart on source or network changes, port check
+  cli.py       the CLI, whose Odoo session is kept alive from here
 
 The page is documented at the top of each file in templates/js/ and of templates/style.css, the QR
 encoder in qr.py,
@@ -22,7 +23,7 @@ import threading
 import webbrowser
 from http.server import ThreadingHTTPServer
 
-from . import lan, process, server
+from . import cli, lan, process, server
 from .client import STATE_DIR, read_config
 
 USAGE = f"""Uso: odoo-dashboard [--host <ip>] [--open]
@@ -92,6 +93,7 @@ def main():
         process.say(f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/")
         process.say(f"Para entrar desde él, pulsa «Emparejar móvil» en {url}")
     threading.Thread(target=process.watch_sources, args=(lan.net_identity,), daemon=True).start()
+    threading.Thread(target=cli.keep_alive, daemon=True).start()
     if "--open" in sys.argv:
         threading.Timer(0.4, webbrowser.open, [url]).start()
     http.serve_forever()

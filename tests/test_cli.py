@@ -7,6 +7,7 @@ import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from helpers import CONFIG, EMPLOYEE, NORMAL, REST, client, kw, temp_state, utc
@@ -139,10 +140,17 @@ class CommandTest(unittest.TestCase):
         self.assertIn("No hay registros en los últimos 7 días", self.run_cmd(client(self.EMP, kw([])), "history"))
 
 
+class StopLoop(Exception):
+    pass
+
+
 class MainTest(unittest.TestCase):
-    def run_main(self, *argv):
+    TTY = SimpleNamespace(isatty=lambda: True)
+
+    def run_main(self, *argv, stdin=None):
         out, err = io.StringIO(), io.StringIO()
-        with patch.object(sys, "argv", ["odoo", *argv]), redirect_stdout(out), redirect_stderr(err):
+        with patch.object(sys, "argv", ["odoo", *argv]), patch.object(sys, "stdin", stdin), \
+                redirect_stdout(out), redirect_stderr(err):
             with self.assertRaises(SystemExit) as caught:
                 cli.main()
         return caught.exception.code, out.getvalue(), err.getvalue()
@@ -194,8 +202,57 @@ class MainTest(unittest.TestCase):
         self.assertIn("No hay sesión", err)
         c.write_private(cli.CLI_SESSION_FILE, "sid")
         with patch.dict(cli.COMMANDS, {"status": lambda client: (_ for _ in ()).throw(c.SessionExpired("caducada"))}):
-            _, _, err = self.run_main("status")
+            _, _, err = self.run_main("status", stdin=io.StringIO())
         self.assertIn("ERROR: caducada. Ejecuta: odoo login", err)
+
+    def test_with_a_terminal_an_expired_session_logs_in_and_starts_over(self):
+        temp_state(self)
+        c.save_config(**CONFIG)
+        c.write_private(cli.CLI_SESSION_FILE, "old")
+        seen = []
+
+        def status(client):
+            seen.append(client.session_id)
+            if client.session_id == "old":
+                raise c.SessionExpired("caducada")
+
+        with patch.dict(cli.COMMANDS, {"status": status}), patch.object(sys, "stdin", self.TTY), \
+                patch.object(cli, "cli_login", side_effect=lambda: c.write_private(cli.CLI_SESSION_FILE, "fresh")), \
+                patch.object(sys, "argv", ["odoo", "status"]), redirect_stdout(io.StringIO()) as out:
+            cli.main()
+        self.assertEqual(seen, ["old", "fresh"])
+        self.assertIn("caducada. Inicia sesión para continuar.", out.getvalue())
+        with patch.dict(cli.COMMANDS, {"status": status}), patch.object(cli, "cli_login") as login:
+            c.write_private(cli.CLI_SESSION_FILE, "old")
+            code, _, err = self.run_main("status", stdin=self.TTY)
+        login.assert_called_once_with()
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR: caducada. Ejecuta: odoo login", err)
+
+    def test_keep_alive_pings_the_session_on_disk_whatever_odoo_answers(self):
+        temp_state(self)
+        answers = iter([c.SessionExpired("caducada"), OSError("sin red"), {"uid": 3}])
+        seen = []
+
+        def ping(odoo):
+            seen.append(odoo.session_id)
+            c.write_private(cli.CLI_SESSION_FILE, "fresh")
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+
+        with patch.object(cli.OdooClient, "session_info", autospec=True, side_effect=ping), \
+                patch.object(cli.time, "sleep", side_effect=StopLoop) as sleep:
+            with self.assertRaises(StopLoop):
+                cli.keep_alive()
+            self.assertEqual(seen, [])
+            c.save_config(**CONFIG)
+            c.write_private(cli.CLI_SESSION_FILE, "old")
+            sleep.side_effect = [None, None, StopLoop]
+            with self.assertRaises(StopLoop):
+                cli.keep_alive()
+        self.assertEqual(seen, ["old", "fresh", "fresh"])
+        sleep.assert_called_with(cli.KEEPALIVE_INTERVAL)
 
     def test_cli_client_uses_the_saved_session(self):
         temp_state(self)

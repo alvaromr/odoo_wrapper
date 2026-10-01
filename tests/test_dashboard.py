@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from helpers import CONFIG, temp_state
 from odoo_wrapper import dashboard as d
-from odoo_wrapper import lan, process as pr, server as sv
+from odoo_wrapper import cli, lan, process as pr, server as sv
 
 
 class MainTest(unittest.TestCase):
@@ -58,6 +58,8 @@ class MainTest(unittest.TestCase):
         self.mocks["cert"].assert_not_called()
         self.assertFalse(lan._exposed)
         self.assertNotIn("Sin configurar", out)
+        self.assertEqual([call.kwargs["target"] for call in self.mocks["thread"].call_args_list],
+                         [pr.watch_sources, cli.keep_alive])
 
     def test_exposed_serves_tls_too(self):
         out = self.main("--host", "0.0.0.0")
@@ -123,7 +125,7 @@ class MainTest(unittest.TestCase):
             del sys.modules["odoo_wrapper.dashboard"]
             runpy.run_module("odoo_wrapper.dashboard", run_name="__main__")
         server.return_value.serve_forever.assert_called_once()
-        thread.return_value.start.assert_called_once()
+        self.assertEqual(thread.return_value.start.call_count, 2)
 
 
 if __name__ == "__main__":
