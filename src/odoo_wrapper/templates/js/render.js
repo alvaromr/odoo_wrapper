@@ -26,9 +26,11 @@
  *   more than one scheduled length (week.js's scheduled: 8 h 30 m from Monday to Thursday and 6 h on Fridays, or a
  *   contract that changed), it is one tile per length, named after it, longest first: one mean over all of them
  *   was the hours of no real day. A day with nothing scheduled then fits no length and is left out.
- * - In the timeline, the gap between two sessions is drawn only where no hour leave covers it (uncovered): a
- *   doctor's leave taken between two punches had the gap's box and length written over the leave's. Leaves and
- *   gaps say what they are in the page's own tooltip, as sessions do: a narrow block cuts its text short.
+ * - The gap between two sessions is only what no hour leave covers (uncovered), in the timeline and as the lunch
+ *   taken alike (unloggedGap): a doctor's leave taken between two punches had the gap's box and length written
+ *   over the leave's, and counted as that day's lunch, so the estimated leave time stopped allowing for one. In
+ *   the timeline, leaves and gaps say what they are in the page's own tooltip, as sessions do: a narrow block
+ *   cuts its text short.
  * - A session longer than the payload's long_hours is drawn orange (a punch error, style.css) in the timeline, and
  *   so is its day's total in both calendar views: it is nearly always a forgotten check-out. A session that ends
  *   on a later day runs to midnight on its check-in day, labelled with the days it spans («15:00 – 09:00 (+1)»);
@@ -78,9 +80,17 @@ export function lastPunch() {
   return events.reduce((a, e) => (a && a.at >= e.at ? a : e), null);
 }
 
-export function unloggedGap(sessions) {
-  return sessions.reduce((a, s, i) =>
-    i && sessions[i - 1].out ? a + Math.max(s.in - sessions[i - 1].out, 0) / 3.6e6 : a, 0);
+function uncovered(from, to, leaves) {
+  return leaves
+    .reduce((free, l) => free.flatMap(([a, b]) =>
+      [[a, Math.min(b, new Date(l.from))], [Math.max(a, new Date(l.to)), b]]), [[from, to]])
+    .filter(([a, b]) => b > a);
+}
+
+export function unloggedGap(sessions, leaves) {
+  return sessions
+    .flatMap((s, i) => i && sessions[i - 1].out ? uncovered(sessions[i - 1].out, s.in, leaves) : [])
+    .reduce((a, [from, to]) => a + (to - from) / 3.6e6, 0);
 }
 
 export function leftOpen(ev) {
@@ -253,7 +263,7 @@ export function renderHero() {
   const restToday = day.rest;
   const open = store.data.sessions.find(s => !s.out);
   const working = open && new Date(open.in) >= store.today;
-  const lunchDone = unloggedGap(day.sessions);
+  const lunchDone = unloggedGap(day.sessions, day.leaves);
   const lunchLeft = lunchDone > 0.01 ? 0 : lunchHours(day);
   const leaveAt = working && dayRemaining > 0
     ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6)
@@ -643,7 +653,7 @@ export function renderCalendar() {
       if (d.vacation) t.appendChild(tipRow("Ausencia", d.auto));
       else if (d.expected > 0) t.appendChild(tipRow("Previsto", fmtHM(d.expected)));
       d.leaves.forEach(l => t.appendChild(tipRow(`Permiso · ${l.type}`, fmtShort(l.hours))));
-      const gap = unloggedGap(d.sessions);
+      const gap = unloggedGap(d.sessions, d.leaves);
       if (gap > 0.01) t.appendChild(tipRow("Comida (sin fichar)", fmtShort(gap)));
       if (d.rest > 0.01) t.appendChild(tipRow("Descanso", fmtShort(d.rest)));
       if (d.sessions.length) {
@@ -667,13 +677,6 @@ function spanDays(s) {
 
 function endHour(s) {
   return dayKey(s.out || store.now) === dayKey(s.in) ? hourOf(s.out || store.now) : 24;
-}
-
-function uncovered(from, to, leaves) {
-  return leaves
-    .reduce((free, l) => free.flatMap(([a, b]) =>
-      [[a, Math.min(b, new Date(l.from))], [Math.max(a, new Date(l.to)), b]]), [[from, to]])
-    .filter(([a, b]) => b - a > 60000);
 }
 
 export function renderTimeline(card, w) {
@@ -728,7 +731,7 @@ export function renderTimeline(card, w) {
       const prev = d.sessions[k - 1];
       const joined = prevBlock && prev.out && s.in - prev.out <= 60000;
       if (prev && prev.out) {
-        uncovered(prev.out, s.in, d.leaves).forEach(([a, b]) => place(
+        uncovered(prev.out, s.in, d.leaves).filter(([a, b]) => b - a > 60000).forEach(([a, b]) => place(
           el("div", "gap", fmtShort((b - a) / 3.6e6)), new Date(a), new Date(b), "Sin fichar", (b - a) / 3.6e6));
       }
       const start = joined ? hourOf(prev.out) : hourOf(s.in), end = endHour(s);

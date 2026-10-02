@@ -353,11 +353,15 @@ test("break spans sit where the break happened and gaps count only unlogged time
     [{ from: 2, to: 2.25 }],
   );
   const monday = new Date(2026, 8, 14);
-  const gap = run(`unloggedGap([
+  const gap = leaves => run(`unloggedGap([
     { in: new Date(${at(monday, 9).getTime()}), out: new Date(${at(monday, 12).getTime()}) },
     { in: new Date(${at(monday, 12, 30).getTime()}), out: null },
-  ])`);
-  assert.equal(gap, 0.5);
+  ], ${JSON.stringify(leaves)})`);
+  const leave = (h1, m1, h2, m2) => ({ from: at(monday, h1, m1).toISOString(), to: at(monday, h2, m2).toISOString() });
+  assert.equal(gap([]), 0.5);
+  assert.equal(gap([leave(11, 0, 12, 15)]), 0.25);
+  assert.equal(gap([leave(12, 0, 12, 30)]), 0);
+  assert.equal(gap([leave(15, 0, 16, 0)]), 0.5);
 });
 
 test("the last punch is the newest event and says whether it is open", () => {
