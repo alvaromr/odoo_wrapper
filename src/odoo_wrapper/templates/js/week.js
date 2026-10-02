@@ -16,6 +16,7 @@
  *   a missed or unclosed day: either way a punch needs fixing.
  * - A day expects its contract's hours when the payload lists it (store.contractHours), the current
  *   schedule's otherwise, and nothing before store.since, the week of the first real punch (data.py says why).
+ *   Its scheduled hours are those same hours before any absence or leave: the length of day its calendar gave it.
  * - Absence days subtract their expected hours from the week's target. A leave shorter than a day
  *   subtracts just its hours from that day and is kept on the day so the hero and the timeline can show it.
  * - Break sessions count toward the total, same as Odoo's worked_hours. Lunch is checked out, so it is an
@@ -100,10 +101,10 @@ export function buildWeek(offset) {
     const auto = store.absMap.get(isoDay(date)) || null;
     const early = isoDay(date) < store.since;
     const leaves = auto ? [] : store.leaveMap.get(isoDay(date)) || [];
+    const scheduled = store.contractHours.get(isoDay(date)) ?? store.expected[i];
     return {
-      date, auto, vacation: !!auto, leaves,
-      expected: auto || early ? 0 : Math.max((store.contractHours.get(isoDay(date)) ?? store.expected[i])
-        - leaves.reduce((a, l) => a + l.hours, 0), 0),
+      date, auto, vacation: !!auto, leaves, scheduled,
+      expected: auto || early ? 0 : Math.max(scheduled - leaves.reduce((a, l) => a + l.hours, 0), 0),
       hours: rec.hours,
       rest: rec.rest,
       sessions: rec.sessions,

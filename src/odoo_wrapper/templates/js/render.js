@@ -22,7 +22,13 @@
  *   every other column. A click (or Enter) on a column opens that week in the calendar, as a banner entry does
  *   (showWeek). The average and balance tiles turn orange with a note when a finished week they count has a punch
  *   error: they cannot be trusted. «Horario habitual» averages only days without a punch error: a check-out on the
- *   next morning read as leaving at 8:36, and an open entry skewed the mean the same way.
+ *   next morning read as leaving at 8:36, and an open entry skewed the mean the same way. When the days worked had
+ *   more than one scheduled length (week.js's scheduled: 8 h 30 m from Monday to Thursday and 6 h on Fridays, or a
+ *   contract that changed), it is one tile per length, named after it, longest first: one mean over all of them
+ *   was the hours of no real day. A day with nothing scheduled then fits no length and is left out.
+ * - In the timeline, the gap between two sessions is drawn only where no hour leave covers it (uncovered): a
+ *   doctor's leave taken between two punches had the gap's box and length written over the leave's. Leaves and
+ *   gaps say what they are in the page's own tooltip, as sessions do: a narrow block cuts its text short.
  * - A session longer than the payload's long_hours is drawn orange (a punch error, style.css) in the timeline, and
  *   so is its day's total in both calendar views: it is nearly always a forgotten check-out. A session that ends
  *   on a later day runs to midnight on its check-in day, labelled with the days it spans («15:00 – 09:00 (+1)»);
@@ -375,12 +381,17 @@ export function renderKpis(weeks) {
     const m = Math.round(list.reduce((a, v) => a + v, 0) / list.length);
     return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   };
-  const entry = avgTime(worked.map(d => minsOf(d.sessions[0].in)));
-  const exit = avgTime(worked.filter(d => d.sessions.at(-1).out).map(d => minsOf(d.sessions.at(-1).out)));
-  if (entry && exit) {
-    kpis.appendChild(tile("Horario habitual", `${entry} – ${exit}`,
-      `entrada y salida medias · ${plural(worked.length, "día", "días")}`));
-  }
+  const byLength = worked.filter(d => d.scheduled > 0)
+    .reduce((m, d) => m.set(d.scheduled, [...(m.get(d.scheduled) || []), d]), new Map());
+  const split = byLength.size > 1;
+  (split ? [...byLength].sort(([a], [b]) => b - a) : [[0, worked]]).forEach(([hours, days]) => {
+    const entry = avgTime(days.map(d => minsOf(d.sessions[0].in)));
+    const exit = avgTime(days.filter(d => d.sessions.at(-1).out).map(d => minsOf(d.sessions.at(-1).out)));
+    if (entry && exit) {
+      kpis.appendChild(tile(`Horario habitual${split ? ` · jornada de ${fmtHM(hours)}` : ""}`, `${entry} – ${exit}`,
+        `entrada y salida medias · ${plural(days.length, "día", "días")}`));
+    }
+  });
 }
 
 /* ---------- overview chart ---------- */
@@ -658,6 +669,13 @@ function endHour(s) {
   return dayKey(s.out || store.now) === dayKey(s.in) ? hourOf(s.out || store.now) : 24;
 }
 
+function uncovered(from, to, leaves) {
+  return leaves
+    .reduce((free, l) => free.flatMap(([a, b]) =>
+      [[a, Math.min(b, new Date(l.from))], [Math.max(a, new Date(l.to)), b]]), [[from, to]])
+    .filter(([a, b]) => b - a > 60000);
+}
+
 export function renderTimeline(card, w) {
   const days = w.days.filter((d, i) => i < 5 || d.hours >= 0.01 || d.vacation || missed(d));
   const ends = days.flatMap(d => [
@@ -689,26 +707,29 @@ export function renderTimeline(card, w) {
       line.style.left = pct(h);
       track.appendChild(line);
     }
-    d.leaves.forEach(l => {
-      const block = el("div", "leave", l.type);
-      block.title = `${l.type}: ${fmtShort(l.hours)}`;
-      block.style.left = pct(hourOf(new Date(l.from)));
-      block.style.width = `calc(${pct(hourOf(new Date(l.to)))} - ${pct(hourOf(new Date(l.from)))})`;
-      track.appendChild(block);
-    });
     const span = (block, from, to) => {
       block.style.left = pct(from);
       block.style.width = `calc(${pct(to)} - ${pct(from)})`;
     };
+    const place = (block, from, to, kind, hours) => {
+      block.tabIndex = 0;
+      span(block, hourOf(from), hourOf(to));
+      attachTip(block, t => {
+        t.appendChild(el("div", "t-title", `${DayNames[i]} ${fmtDay(d.date)} · ${fmtTime(from)} – ${fmtTime(to)}`));
+        t.appendChild(tipRow(kind, fmtShort(hours)));
+      });
+      track.appendChild(block);
+    };
+    d.leaves.forEach(l =>
+      place(el("div", "leave", l.type), new Date(l.from), new Date(l.to), `Permiso · ${l.type}`, l.hours));
     const rests = [];
     let prevBlock = null, prevStart = 0;
     d.sessions.forEach((s, k) => {
       const prev = d.sessions[k - 1];
       const joined = prevBlock && prev.out && s.in - prev.out <= 60000;
-      if (prev && prev.out && s.in - prev.out > 60000) {
-        const gap = el("div", "gap", fmtShort((s.in - prev.out) / 3.6e6));
-        span(gap, hourOf(prev.out), hourOf(s.in));
-        track.appendChild(gap);
+      if (prev && prev.out) {
+        uncovered(prev.out, s.in, d.leaves).forEach(([a, b]) => place(
+          el("div", "gap", fmtShort((b - a) / 3.6e6)), new Date(a), new Date(b), "Sin fichar", (b - a) / 3.6e6));
       }
       const start = joined ? hourOf(prev.out) : hourOf(s.in), end = endHour(s);
       const days = spanDays(s);

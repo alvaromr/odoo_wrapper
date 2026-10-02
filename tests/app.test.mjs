@@ -1782,7 +1782,9 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   assert.deepEqual(hover(page, restBlock).slice(0, 2), ["Lun 7 sep · 12:00 – 12:15", "Descanso 15m"]);
   assert.ok(mondayRow.querySelectorAll(".sess").some(s => s.classList.contains("join-r")));
   const tuesdayRow = rows.find(r => r.querySelectorAll(".dnum")[0]?.textContent === "8");
-  assert.deepEqual(tuesdayRow.querySelectorAll(".leave").map(l => [l.textContent, l.title]), [["Médico", "Médico: 1h"]]);
+  assert.deepEqual(tuesdayRow.querySelectorAll(".leave").map(l => [l.textContent, ...hover(page, l)]),
+    [["Médico", "Mar 8 sep · 16:30 – 17:30", "Permiso · Médico 1h"]]);
+  assert.deepEqual(hover(page, mondayRow.querySelectorAll(".gap")[0]), ["Lun 7 sep · 13:00 – 13:45", "Sin fichar 45m"]);
 
   page.run("renderOverview(buildWeeks(4))");
   const cols = doc.getElementById("overviewChart").children[0].children.filter(g => g.tagName === "G");
@@ -1791,6 +1793,35 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   assert.deepEqual(hover(page, cols[2]).slice(1, 4), ["Total 41h 15m", "Trabajo 41h", "Descanso 15m"]);
   assert.equal(hover(page, cols[2]).at(-1), "Sobre objetivo +2h 15m");
   assert.equal(hover(page, cols[3]).at(-1), "Para el objetivo 29h 45m");
+});
+
+test("the usual hours get one tile per length of day when the days worked had more than one", () => {
+  const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
+  const page = withData([on(7, 9, 0, 18, 0), on(8, 9, 30, 18, 30), on(11, 8, 0, 14, 0), on(12, 10, 30, 12, 30),
+    session(at(TUESDAY, 9), null)]);
+  const usual = contracts => {
+    page.run(`store.contractHours = new Map(${JSON.stringify(contracts)}); renderKpis(buildWeeks(2))`);
+    return page.document.getElementById("kpis").children.slice(2).map(tile => tile.children.map(c => c.textContent));
+  };
+  assert.deepEqual(usual([["2026-09-15", 7]]), [
+    ["Horario habitual · jornada de 8h 30m", "09:15 – 18:15", "entrada y salida medias · 2 días"],
+    ["Horario habitual · jornada de 6h", "08:00 – 14:00", "entrada y salida medias · 1 día"]]);
+  assert.deepEqual(usual([["2026-09-11", 8.5]]),
+    [["Horario habitual", "09:12 – 15:45", "entrada y salida medias · 5 días"]]);
+});
+
+test("the gap between two sessions is drawn only where no hour leave covers it", () => {
+  const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
+  const leave = (day, h1, m1, h2, m2) => [`2026-09-0${day}`, [{ type: "Médico", hours: 1,
+    from: new Date(2026, 8, day, h1, m1).toISOString(), to: new Date(2026, 8, day, h2, m2).toISOString() }]];
+  const page = withData([on(7, 9, 30, 11, 25), on(7, 12, 56, 16, 28), on(8, 9, 0, 12, 0), on(8, 14, 0, 17, 0),
+    on(9, 9, 0, 13, 0), on(9, 14, 0, 18, 0)]);
+  page.run(`store.leaveMap = new Map(${JSON.stringify([leave(7, 11, 30, 12, 55), leave(8, 12, 0, 13, 0),
+    leave(9, 18, 0, 19, 0)])}); renderTimeline(document.getElementById("weekCal"), buildWeek(1))`);
+  const gaps = page.document.getElementById("weekCal").querySelectorAll(".tl-row").slice(0, 3)
+    .map(row => row.querySelectorAll(".gap").map(g => [g.textContent, g.style.left]));
+  assert.deepEqual(gaps.map(day => day.map(([text]) => text)), [["5m"], ["1h"], ["1h"]]);
+  assert.deepEqual(gaps.map(day => day[0][1]), ["31.060606060606055%", "45.45454545454545%", "45.45454545454545%"]);
 });
 
 test("the fixes strip pans by dragging, and a plain press or a name link is left alone", async () => {
