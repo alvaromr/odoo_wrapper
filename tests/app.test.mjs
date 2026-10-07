@@ -88,7 +88,8 @@ const Parents = new WeakMap();
 function element(tag = "div") {
   const classes = new Set();
   const e = {
-    tagName: tag.toUpperCase(), children: [], attrs: {}, listeners: {}, dataset: {}, style: {},
+    tagName: tag.toUpperCase(), children: [], attrs: {}, listeners: {}, dataset: {},
+    style: { setProperty(name, value) { this[name] = value; } },
     textContent: "", innerHTML: "", title: "", hidden: false, disabled: false, open: false,
     value: "", type: "", min: 0, max: 0, step: 0, scrollLeft: 0, scrollWidth: 0, clientWidth: 0,
     get className() { return [...classes].join(" "); },
@@ -162,7 +163,7 @@ function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", sto
   const document = makeDocument();
   const calls = { fetch: [], replace: [], reload: 0, timers: [] };
   const sandbox = {
-    document, window: {}, console, URLSearchParams, Date, innerWidth: 1280, innerHeight: 800,
+    document, window: fakeAudio().window, console, URLSearchParams, Date, innerWidth: 1280, innerHeight: 800,
     addEventListener: (type, fn) => ((calls.window ||= {})[type] ||= []).push(fn),
     history: { replaceState: (a, b, url) => { calls.hash = url; },
       pushState: (a, b, url) => { (calls.pushed ||= []).push(url); calls.hash = url; },
@@ -736,6 +737,16 @@ test("the hero is three blocks", async () => {
   const hero = page.document.getElementById("hero");
   assert.deepEqual(hero.children.map(c => c.className), ["main", "meter-box", "actions"]);
   assert.equal(hero.querySelectorAll(".meter-caption").length, 2);
+});
+
+test("the week's meter has one section per day that expects hours, as wide as those hours", async () => {
+  const today = new Date();
+  const page = load({ data: payload([session(at(today, 9), null)], {
+    schedule: { hours: [8.5, 8.5, 8.5, 8.5, 6, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] },
+  }) });
+  await page.run("loadAndRender()");
+  const sections = page.document.getElementById("hero").querySelectorAll(".scale")[0].children;
+  assert.deepEqual(sections.map(s => s.style["--hours"]), [8.5, 8.5, 8.5, 8.5, 6]);
 });
 
 test("a punch that succeeds but fails to reload says so and leaves the button disabled", async () => {
@@ -1533,10 +1544,10 @@ test("logout goes to the login page, or says it failed and stays usable", async 
   assert.deepEqual(page.calls.replace, ["/login"]);
 });
 
-function fakeAudio(refuse = false) {
+function fakeAudio(refuse = false, state = "suspended") {
   const made = [];
   class AudioContext {
-    constructor() { this.state = "suspended"; this.currentTime = 0; this.destination = {}; made.push(this); }
+    constructor() { this.state = state; this.currentTime = 0; this.destination = {}; made.push(this); }
     resume() {
       if (refuse) return Promise.reject(new Error("bloqueado"));
       this.state = "running";
@@ -1580,6 +1591,16 @@ test("the first touch unlocks the sound, and a lunch that ran out rings three be
   assert.equal(refused.made[0].state, "suspended");
   page.run("store.notifyEl = document.createElement('div'); store.notifyArgs = [null, { expected: 8 }, 8]; refreshNotifyNote()");
   assert.match(page.run("store.notifyEl.textContent"), /^Comida vencida a las \d\d:\d\d$/);
+});
+
+test("a browser that grants the sound with no gesture rings without a touch", () => {
+  const audio = fakeAudio(false, "running");
+  const page = load({ globals: { window: audio.window } });
+  const lunch = new Date(Date.now() - 40 * 60000).toISOString();
+  page.run(`store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`);
+  page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
+  assert.equal(audio.made[0].oscillators.length, 3);
+  assert.match(page.run("notifyStatus(null, { expected: 8 }, 8)"), /^Comida vencida a las \d\d:\d\d$/);
 });
 
 test("a changed setting is saved, and rolled back when the server refuses it", async () => {

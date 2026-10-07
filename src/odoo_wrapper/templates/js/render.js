@@ -7,6 +7,10 @@
  *   Normal). The lunch button only shows from that day's lunch time onwards (the start of the lunch gap in
  *   the Odoo calendar) and disappears for the rest of the day once used. A UI guard, not a server rule: the
  *   action is a plain check-out and stays valid at any hour.
+ * - The week's meter is a gauge: one section per day that expects hours, as wide as those hours and notched every
+ *   hour (8 h 30 m from Monday to Thursday and 6 h on Fridays: four long sections and a short one). The hours are
+ *   each day's expected ones, after absences and leaves, so the sections add up to the target the fill is measured
+ *   against and a day's boundary is where the week stands once that day is done.
  * - The break button and the break-length field exist only when the payload says breaks: true, i.e. Odoo
  *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
@@ -171,6 +175,11 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
     const fill = el("div", "fill");
     fill.style.width = Math.min(week.total / week.target * 100, 100) + "%";
     meter.appendChild(fillBar(fill, week.sessions, week.total));
+    const scale = el("div", "scale");
+    for (const d of week.days.filter(d => d.expected > 0)) {
+      scale.appendChild(el("div", "day")).style.setProperty("--hours", d.expected);
+    }
+    meter.appendChild(scale);
     weekBlock.appendChild(meter);
     const cap = el("div", "meter-caption");
     cap.appendChild(el("span", null,

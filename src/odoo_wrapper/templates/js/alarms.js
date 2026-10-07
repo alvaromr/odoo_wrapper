@@ -1,8 +1,12 @@
 /*
  * The three alarms, all fired by the page itself so a stale or stopped server cannot swallow them; if the
  * poll fails the page keeps ringing from the copy it has. Each repeats every NotifyEveryMs: three WebAudio
- * beeps plus a blinking <title>. Browsers only allow audio after a gesture, so the status line says «toca la
- * página para oírlo» until the page has been clicked once. «Silenciar avisos» kills them for the day.
+ * beeps plus a blinking <title>. The audio is asked for as the page loads: a browser that grants it with no
+ * gesture (Orca's embedded one does) rings from then on, and where it is held back the first click or key starts
+ * it, the status line saying «toca la página para oírlo» until then. It used to be asked for only on that first
+ * gesture, so every reload, and the page reloads by itself on each source edit, left it mute until the next
+ * click, and where the title is out of sight nothing announced the alarm at all. «Silenciar avisos» kills them
+ * for the day.
  *
  * - End of day: the day's expected hours are met while a session is still open. Repeats until check-out
  *   and the check-out button pulses.
@@ -23,7 +27,8 @@ import { fmtTime } from "./format.js";
 import { buildWeek, indexSessions } from "./week.js";
 
 const BaseTitle = document.title;
-let NotifiedAt = 0, AudioCtx = null, FlashTimer = null;
+const AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let NotifiedAt = 0, FlashTimer = null;
 export const LastRing = { lunch: 0, rest: 0 };
 
 export function resetAlarms() {
@@ -32,7 +37,6 @@ export function resetAlarms() {
 }
 
 function unlockAudio() {
-  if (!AudioCtx) AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (AudioCtx.state !== "suspended") return;
   AudioCtx.resume().then(refreshNotifyNote, () => {});
 }
@@ -44,7 +48,7 @@ document.addEventListener("pointerdown", unlockAudio);
 document.addEventListener("keydown", unlockAudio);
 
 function audioReady() {
-  return Boolean(AudioCtx) && AudioCtx.state === "running";
+  return AudioCtx.state === "running";
 }
 
 function beep() {
