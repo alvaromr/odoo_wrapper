@@ -1,9 +1,16 @@
 """Phone access over the LAN: the machine's address and name, the self-signed certificate, the QR.
 
-- --host adds a TLS socket on <host>:TLS_PORT next to the loopback one; expose() records that so
-  phone_access and net_identity know whether there is anything to advertise. The server's session guard
-  applies to both sockets alike; the LAN one gets its session by pairing, never by password (server.py).
-- The self-signed cert needs the openssl CLI: Python's ssl can use a certificate but cannot create one. One
+- Next to the loopback socket there is a TLS one on <host>:TLS_PORT, the whole LAN unless --host names another
+  address; --host 127.0.0.1 leaves the loopback one alone. It used to be there only on request, with --host.
+  expose() records which it is so phone_access and net_identity know whether there is anything to advertise.
+  The server's session guard applies to both sockets alike; the LAN one gets its session by pairing, never by
+  password (server.py), which is what lets it be the default.
+- _local_only is why nothing listens on the LAN, empty when something does: the option, or a certificate that
+  could not be made. phone_access hands it to the page as {off: why}, each reason ending in how to fix it, so the
+  page says it where the QR would be: with the LAN as the default, a dashboard without its QR gave no reason.
+- The self-signed cert needs the openssl CLI: Python's ssl can use a certificate but cannot create one.
+  Without it, or when it fails, ensure_cert says why and returns nothing, and the dashboard stays on loopback
+  (dashboard.py): with the LAN as the default, a machine without openssl would otherwise not start at all. One
   certificate per network identity (bonjour name + LAN IP) is kept in ~/.odoo_dashboard/, reused whenever the
   laptop returns to a network it has seen, so the phone accepts each network's certificate once; a new
   network gets a new one (the process watcher asks net_identity and restarts when it changes). On Windows
@@ -23,7 +30,6 @@ import re
 import shutil
 import socket
 import subprocess
-import sys
 from urllib.parse import urlsplit
 
 from . import process, qr
@@ -37,13 +43,29 @@ OPENSSL_CANDIDATES = (
     r"C:\Program Files\Git\usr\bin\openssl.exe",
     r"C:\Program Files\Git\mingw64\bin\openssl.exe",
 )
-_exposed = False
+RELAUNCH = "cierra el dashboard (Ctrl+C en la terminal donde se lanzó) y vuelve a lanzarlo"
+HOST_OPTION = ("El dashboard se lanzó con la opción --host 127.0.0.1, que lo deja solo en este ordenador. "
+               f"Para usarlo desde el móvil, {RELAUNCH} sin esa opción.")
+NO_OPENSSL = ("Para que el móvil se conecte de forma segura hace falta el programa openssl, y este ordenador no lo "
+              "tiene. En macOS viene con el sistema y, si falta, se instala con Homebrew («brew install openssl»); "
+              "en Windows lo incluye Git for Windows (git-scm.com); en Linux es el paquete openssl. "
+              f"Cuando esté instalado, {RELAUNCH}.")
+CERT_FAILED = ("Para que el móvil se conecte de forma segura se crea un certificado con el programa openssl, y ha "
+               "fallado: {error}. Comprueba que funciona escribiendo «openssl version» en la terminal y después "
+               + RELAUNCH + ".")
+_local_only = HOST_OPTION
 
 
 def expose(host):
-    global _exposed
-    _exposed = host not in LOOPBACK
-    return _exposed
+    global _local_only
+    _local_only = HOST_OPTION if host in LOOPBACK else ""
+    return not _local_only
+
+
+def local_only(why):
+    global _local_only
+    _local_only = why
+    process.say(why)
 
 
 def lan_ip():
@@ -67,7 +89,7 @@ def bonjour_name():
 
 
 def net_identity():
-    return f"{bonjour_name()}|{lan_ip()}" if _exposed else ""
+    return "" if _local_only else f"{bonjour_name()}|{lan_ip()}"
 
 
 def ensure_cert():
@@ -79,9 +101,7 @@ def ensure_cert():
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
     openssl = next((path for path in OPENSSL_CANDIDATES if shutil.which(path)), None)
     if not openssl:
-        print("ERROR: falta openssl, necesario para el certificado del móvil")
-        print("En Windows lo incluye Git for Windows (git-scm.com); en Linux, el paquete openssl")
-        sys.exit(1)
+        return local_only(NO_OPENSSL)
     try:
         subprocess.run(
             [
@@ -93,8 +113,7 @@ def ensure_cert():
             capture_output=True,
         )
     except (OSError, subprocess.CalledProcessError) as error:
-        print(f"ERROR: no se pudo generar el certificado TLS con openssl: {error}")
-        sys.exit(1)
+        return local_only(CERT_FAILED.format(error=error))
     os.chmod(key, 0o600)
     process.say(f"Certificado creado para {names}")
     return cert, key
@@ -108,8 +127,8 @@ def qr_or_empty(text):
 
 
 def phone_access():
-    if not _exposed:
-        return None
+    if _local_only:
+        return {"off": _local_only}
     return {"url": f"https://{lan_ip()}:{TLS_PORT}/", "name_url": f"https://{bonjour_name()}:{TLS_PORT}/"}
 
 

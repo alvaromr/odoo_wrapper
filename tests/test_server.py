@@ -107,7 +107,7 @@ class FakeTLS:
 class HandlerTest(unittest.TestCase):
     def setUp(self):
         temp_state(self)
-        patcher = patch.object(lan, "_exposed", False)
+        patcher = patch.object(lan, "_local_only", "sin red")
         patcher.start()
         self.addCleanup(patcher.stop)
         c.save_config(**CONFIG)
@@ -300,7 +300,7 @@ class HandlerTest(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIs(payload["can_edit"], False)
             self.assertEqual(payload["state"]["break_minutes"], st.BREAK_DEFAULT)
-            self.assertIsNone(payload["phone"])
+            self.assertEqual(payload["phone"], {"off": "sin red"})
             self.assertEqual((fetch.call_args.args[0].session_id, fetch.call_args.kwargs), ("sid", {"fresh": True}))
             self.get("/api/data")
             self.assertEqual(fetch.call_args.kwargs, {"fresh": False})
@@ -417,8 +417,8 @@ class HandlerTest(unittest.TestCase):
     def test_pairing_hands_the_laptop_session_to_the_phone(self):
         self.assertEqual(self.post("/api/pair", {}, cookie=None)[0], 401)
         self.assertEqual(self.post("/api/pair", {}, ip="10.0.0.9")[0], 403)
-        self.assertEqual(self.post("/api/pair", {})[0], 409)
-        with patch.object(lan, "_exposed", True), patch.object(lan, "lan_ip", return_value="10.0.0.2"), \
+        self.assertEqual(self.post("/api/pair", {})[::2], (409, {"error": "sin red"}))
+        with patch.object(lan, "_local_only", ""), patch.object(lan, "lan_ip", return_value="10.0.0.2"), \
                 patch.object(lan, "bonjour_name", return_value="mac.local"):
             status, _, ip_pair = self.post("/api/pair", {})
             _, _, name_pair = self.post("/api/pair", {"name": True})
@@ -443,7 +443,7 @@ class HandlerTest(unittest.TestCase):
         sv._pairings.clear()
         self.addCleanup(sv._pairings.clear)
         sv._pairings["theirs"] = ("other", time.monotonic() + 60)
-        with patch.object(lan, "_exposed", True), patch.object(lan, "lan_ip", return_value="10.0.0.2"):
+        with patch.object(lan, "_local_only", ""), patch.object(lan, "lan_ip", return_value="10.0.0.2"):
             token = self.post("/api/pair", {})[2]["url"].split("t=")[1]
         self.assertEqual(self.post("/api/pair", {"revoke": True})[2], {"ok": True})
         self.assertEqual(list(sv._pairings), ["theirs"])

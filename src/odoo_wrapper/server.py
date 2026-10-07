@@ -437,8 +437,8 @@ class Handler(BaseHTTPRequestHandler):
             elif body.get("revoke"):
                 revoke_pairings(self.session)
                 self._send(200, {"ok": True})
-            elif not phone:
-                self._send(409, {"error": "El dashboard no escucha en la red: arráncalo con --host"})
+            elif "off" in phone:
+                self._send(409, {"error": phone["off"]})
             else:
                 self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
         elif self.path == "/api/attendance":

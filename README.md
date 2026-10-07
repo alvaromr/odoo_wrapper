@@ -34,8 +34,9 @@ src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.p
 ## Getting started
 
 ```bash
-python3 bin/odoo-dashboard                  # then open http://localhost:8931/ and log in to Odoo once
-python3 bin/odoo-dashboard --host 0.0.0.0   # also serves the LAN over HTTPS; pair your phone from the dashboard
+python3 bin/odoo-dashboard                  # then open http://localhost:8931/ and log in to Odoo once;
+                                            # it also serves the LAN over HTTPS: pair your phone from the dashboard
+python3 bin/odoo-dashboard --host 127.0.0.1 # this machine only, nothing listens on the network
 python3 bin/odoo login                      # the CLI keeps its own session, asked for once too
 python3 bin/odoo status
 ```

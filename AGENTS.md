@@ -100,7 +100,7 @@ change touches:
 ```bash
 # Exposed mode end to end, without touching the real config, sessions or cert
 mkdir -p /tmp/fakehome
-HOME=/tmp/fakehome python3 bin/odoo-dashboard --host 0.0.0.0
+HOME=/tmp/fakehome python3 bin/odoo-dashboard
 
 # Auth and anti-CSRF/rebinding matrix (expected: login page, 401, 401, 403, 303 to /login, 403, 403)
 curl -sk https://<lan-ip>:8443/ | grep -c "Introduce tu usuario"

@@ -32,12 +32,15 @@ Sirve el dashboard de horas en http://localhost:{server.PORT}/ y se queda en mar
 La primera vez pide iniciar sesión en Odoo (URL, base de datos, usuario y contraseña);
 solo se conserva la sesión, en el navegador, nunca la contraseña.
 
+Además escucha en https://<ip de este ordenador>:{lan.TLS_PORT}/ para el móvil, en toda la LAN. Crea el
+certificado con el comando openssl; sin él avisa y se queda solo en este ordenador. La primera vez el
+móvil pedirá aceptar el certificado. El móvil entra emparejándolo desde este ordenador: «Emparejar
+móvil» en el panel muestra un QR de un solo uso que caduca a los {server.PAIR_TTL // 60} min y comparte la sesión del
+navegador. En la red no hay login con contraseña.
+
 Opciones:
-  --host <ip>   Además escucha en https://<ip>:{lan.TLS_PORT}/ para el móvil (0.0.0.0 = toda la LAN).
-                Necesita el comando openssl para crear el certificado; la primera vez el
-                móvil pedirá aceptarlo. El móvil entra emparejándolo desde este ordenador:
-                «Emparejar móvil» en el panel muestra un QR de un solo uso que caduca a los
-                {server.PAIR_TTL // 60} min y comparte la sesión del navegador. En la red no hay login con contraseña.
+  --host <ip>   Dirección en la que escucha para el móvil, en vez de toda la LAN (0.0.0.0).
+                Con 127.0.0.1 no escucha en la red: solo este ordenador, sin móvil.
   --open        Abre el navegador al arrancar.
 
 Si tu usuario de Odoo puede ver fichajes de otras personas, el panel enlaza «Gestión»
@@ -64,11 +67,11 @@ def main():
     if "--host" in sys.argv:
         host_index = sys.argv.index("--host") + 1
         if host_index >= len(sys.argv):
-            print("ERROR: --host necesita una dirección (0.0.0.0 para toda la red)")
+            print("ERROR: --host necesita una dirección (127.0.0.1 para no salir de este ordenador)")
             sys.exit(1)
         host = sys.argv[host_index]
     else:
-        host = "127.0.0.1"
+        host = "0.0.0.0"
     exposed = lan.expose(host)
     grace = process.RESTART_GRACE if os.environ.pop(process.RESTART_ENV, None) else 0
     if process.port_taken(server.PORT, grace):
@@ -84,15 +87,17 @@ def main():
     process.say(f"Dashboard en {url} (Ctrl+C para parar)")
     if not read_config():
         process.say(f"Sin configurar: abre {url} e inicia sesión en Odoo")
-    if exposed:
-        cert, key = lan.ensure_cert()
+    chain = exposed and lan.ensure_cert()
+    if chain:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(cert, key)
+        context.load_cert_chain(*chain)
         tls = ThreadingHTTPServer((host, lan.TLS_PORT), server.Handler)
         tls.socket = context.wrap_socket(tls.socket, server_side=True)
         threading.Thread(target=tls.serve_forever, daemon=True).start()
         process.say(f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/")
         process.say(f"Para entrar desde él, pulsa «Emparejar móvil» en {url}")
+    elif exposed:
+        process.say("Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador")
     threading.Thread(target=process.watch_sources, args=(lan.net_identity,), daemon=True).start()
     threading.Thread(target=cli.keep_alive, daemon=True).start()
     if "--open" in sys.argv:

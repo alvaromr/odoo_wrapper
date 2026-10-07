@@ -739,6 +739,18 @@ test("the hero is three blocks", async () => {
   assert.equal(hero.querySelectorAll(".meter-caption").length, 2);
 });
 
+test("without phone access the block says why and how to fix it instead of offering to pair", async () => {
+  const page = load({ data: payload([], { phone: { off: "Falta openssl. Instálalo." } }) });
+  await page.run("loadAndRender()");
+  const phone = page.document.getElementById("phone");
+  assert.equal(phone.classList.contains("hidden"), false);
+  const [title, what, why] = phone.children[0].children.map(c => c.textContent);
+  assert.equal(title, "Abrir en el móvil");
+  assert.match(what, /^Este panel también se puede usar desde el móvil.*Ahora no está disponible\.$/);
+  assert.equal(why, "Falta openssl. Instálalo.");
+  assert.equal(phone.querySelectorAll(".btn").length, 0);
+});
+
 test("the week's meter has one section per day that expects hours, as wide as those hours", async () => {
   const today = new Date();
   const page = load({ data: payload([session(at(today, 9), null)], {

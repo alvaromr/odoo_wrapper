@@ -11,6 +11,9 @@
  *   hour (8 h 30 m from Monday to Thursday and 6 h on Fridays: four long sections and a short one). The hours are
  *   each day's expected ones, after absences and leaves, so the sections add up to the target the fill is measured
  *   against and a day's boundary is where the week stands once that day is done.
+ * - Where the dashboard does not listen on the LAN (the payload's phone.off, lan.py), the phone block says why and
+ *   how to fix it instead of offering to pair: a missing block gave no reason for the missing QR. It first says
+ *   what the block is for, since whoever reads it may never have seen the QR it replaces.
  * - The break button and the break-length field exist only when the payload says breaks: true, i.e. Odoo
  *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
@@ -297,6 +300,15 @@ export function renderPhone() {
   if (!show) return;
   host.replaceChildren();
   const phone = store.data.phone;
+  if (phone.off) {
+    const off = el("div", "links");
+    off.appendChild(el("h2", null, "Abrir en el móvil"));
+    off.appendChild(el("div", "note", "Este panel también se puede usar desde el móvil, conectado a la misma red"
+      + " que este ordenador: aquí aparecería un código QR para escanearlo con su cámara. Ahora no está disponible."));
+    off.appendChild(el("div", "note", phone.off));
+    host.appendChild(off);
+    return;
+  }
   const views = {
     ip: { label: "Por IP", url: phone.url, note: "Vale en esta red; al cambiar de red, empareja de nuevo." },
     name: { label: "Por nombre", url: phone.name_url, note: "Si tu móvil resuelve mDNS, vale en todas las redes." },

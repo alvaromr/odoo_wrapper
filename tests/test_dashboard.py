@@ -31,7 +31,7 @@ class MainTest(unittest.TestCase):
             "ssl": patch.object(d, "ssl", Mock()),
             "bonjour": patch.object(lan, "bonjour_name", return_value="mac.local"),
             "ip": patch.object(lan, "lan_ip", return_value="10.0.0.2"),
-            "exposed": patch.object(lan, "_exposed", False),
+            "local_only": patch.object(lan, "_local_only", lan.HOST_OPTION),
         }
         self.mocks = {name: p.start() for name, p in patches.items()}
         for p in patches.values():
@@ -50,25 +50,34 @@ class MainTest(unittest.TestCase):
         return out.getvalue()
 
     def test_loopback_only(self):
-        out = self.main()
+        out = self.main("--host", "127.0.0.1")
         self.assertIn("http://localhost:8931/", out)
         self.assertNotIn("móvil", out)
         self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
         self.server.serve_forever.assert_called_once()
         self.mocks["cert"].assert_not_called()
-        self.assertFalse(lan._exposed)
+        self.assertEqual(lan._local_only, lan.HOST_OPTION)
         self.assertNotIn("Sin configurar", out)
         self.assertEqual([call.kwargs["target"] for call in self.mocks["thread"].call_args_list],
                          [pr.watch_sources, cli.keep_alive])
 
-    def test_exposed_serves_tls_too(self):
-        out = self.main("--host", "0.0.0.0")
+    def test_serves_the_whole_lan_over_tls_by_default(self):
+        out = self.main()
         self.assertIn("https://mac.local:8443/", out)
         self.assertIn("https://10.0.0.2:8443/", out)
         self.mocks["cert"].assert_called_once()
         self.mocks["ssl"].SSLContext.return_value.load_cert_chain.assert_called_once_with("c.pem", "k.pem")
         self.assertEqual(self.mocks["server"].call_args_list[1].args[0], ("0.0.0.0", lan.TLS_PORT))
-        self.assertTrue(lan._exposed)
+        self.assertEqual(lan._local_only, "")
+
+    def test_without_a_certificate_it_stays_on_this_machine(self):
+        self.mocks["cert"].return_value = None
+        out = self.main()
+        self.assertIn("solo en este ordenador", out)
+        self.assertNotIn("escucha en https://", out)
+        self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
+        self.mocks["ssl"].SSLContext.assert_not_called()
+        self.server.serve_forever.assert_called_once()
 
     def test_open_launches_the_browser(self):
         self.main("--open")
@@ -100,7 +109,7 @@ class MainTest(unittest.TestCase):
             self.assertNotIn(pr.RESTART_ENV, os.environ)
         self.assertEqual([call.args for call in self.mocks["port_taken"].call_args_list],
                          [(sv.PORT, pr.RESTART_GRACE), (lan.TLS_PORT, pr.RESTART_GRACE, "127.0.0.1")])
-        self.main()
+        self.main("--host", "127.0.0.1")
         self.assertEqual(self.mocks["port_taken"].call_args.args, (sv.PORT, 0))
 
     def test_tls_port_is_probed_on_the_given_host_when_not_wildcard(self):
@@ -119,7 +128,7 @@ class MainTest(unittest.TestCase):
         sock.__enter__ = lambda s: s
         sock.__exit__ = lambda s, *a: None
         sock.connect_ex.return_value = 61
-        with patch.object(sys, "argv", ["dash"]), patch.object(sys, "stdout", tty), patch.object(socket, "socket", return_value=sock), \
+        with patch.object(sys, "argv", ["dash", "--host", "127.0.0.1"]), patch.object(sys, "stdout", tty), patch.object(socket, "socket", return_value=sock), \
                 patch("http.server.ThreadingHTTPServer") as server, patch("odoo_wrapper.client.read_config", return_value=CONFIG), \
                 patch.object(threading, "Thread") as thread, patch.dict(sys.modules):
             del sys.modules["odoo_wrapper.dashboard"]

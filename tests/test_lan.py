@@ -60,6 +60,9 @@ class CertTest(unittest.TestCase):
         which = patch.object(shutil, "which", side_effect=lambda path: path if path == "openssl" else None)
         which.start()
         self.addCleanup(which.stop)
+        local_only = patch.object(lan, "_local_only", "")
+        local_only.start()
+        self.addCleanup(local_only.stop)
 
     def openssl(self, cmd, *args, **kwargs):
         key, cert = cmd[cmd.index("-keyout") + 1], cmd[cmd.index("-out") + 1]
@@ -94,12 +97,12 @@ class CertTest(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertEqual(first, third)
 
-    def test_openssl_failure_is_fatal(self):
+    def test_a_failing_openssl_leaves_no_certificate_and_says_why(self):
         out = io.StringIO()
         with patch.object(subprocess, "run", side_effect=OSError("no openssl")), redirect_stdout(out):
-            with self.assertRaises(SystemExit):
-                lan.ensure_cert()
-        self.assertIn("openssl", out.getvalue())
+            self.assertIsNone(lan.ensure_cert())
+        self.assertIn("no openssl", out.getvalue())
+        self.assertEqual(lan.phone_access(), {"off": lan.CERT_FAILED.format(error="no openssl")})
 
     def test_openssl_is_looked_up_in_the_git_for_windows_folders_too(self):
         bundled = lan.OPENSSL_CANDIDATES[1]
@@ -109,11 +112,12 @@ class CertTest(unittest.TestCase):
         self.assertEqual(run.call_args[0][0][0], bundled)
         shutil.which.side_effect = lambda path: None
         out = io.StringIO()
-        with patch.object(subprocess, "run") as run, redirect_stdout(out), self.assertRaises(SystemExit):
+        with patch.object(subprocess, "run") as run, redirect_stdout(out):
             lan.lan_ip.return_value = "10.0.0.3"
-            lan.ensure_cert()
+            self.assertIsNone(lan.ensure_cert())
         run.assert_not_called()
         self.assertIn("Git for Windows", out.getvalue())
+        self.assertEqual(lan.phone_access(), {"off": lan.NO_OPENSSL})
 
     def test_slug_strips_unsafe_characters(self):
         with patch.object(lan, "bonjour_name", return_value="Ana’s Mac.local"), \
@@ -125,12 +129,14 @@ class CertTest(unittest.TestCase):
 
 
 class PhoneTest(unittest.TestCase):
-    def test_nothing_unless_exposed(self):
-        with patch.object(lan, "_exposed", False):
-            self.assertIsNone(lan.phone_access())
+    def test_why_and_how_when_nothing_listens_on_the_lan(self):
+        with patch.object(lan, "_local_only", "sin red"):
+            self.assertEqual(lan.phone_access(), {"off": "sin red"})
+        lan.expose("127.0.0.1")
+        self.assertEqual(lan.phone_access(), {"off": lan.HOST_OPTION})
 
     def test_urls(self):
-        with patch.object(lan, "_exposed", True), patch.object(lan, "lan_ip", return_value="10.0.0.2"), \
+        with patch.object(lan, "_local_only", ""), patch.object(lan, "lan_ip", return_value="10.0.0.2"), \
                 patch.object(lan, "bonjour_name", return_value="mac.local"):
             self.assertEqual(lan.phone_access(), {"url": "https://10.0.0.2:8443/", "name_url": "https://mac.local:8443/"})
 
