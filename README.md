@@ -7,24 +7,30 @@
 </p>
 
 Clock in and out of an Odoo ERP from the terminal, plus a local web dashboard of your weekly hours. No
-dependencies: Python 3.9+ and its standard library, nothing else.
+dependencies: Python 3.9+ and its standard library, nothing else (one optional command, `odoo notices`, also
+runs the `gws` CLI).
 
 ```
 bin/odoo             clock in / status / history
 bin/odoo-dashboard   web dashboard at http://localhost:8931/
 src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.py (entry point) and the
                      server modules it wires: server.py, data.py, team.py, state.py, lan.py, process.py; qr.py;
+                     sheets.py (Google Sheets for `odoo notices`);
                      templates/ (pages, style.css and the page's scripts in js/)
-.ai/skills/          the agent skill odoo-attendance
+.ai/skills/          the agent skills odoo-attendance and odoo-notices
 ```
 
 ## Features
 
-- **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history` — see `bin/odoo`.
+- **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history`, `notices`, `sheet`
+  — see `bin/odoo`.
 - **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes.
 - **Management view**: for a user who can read other people's attendances, `/gestion` shows everyone's week,
   month or year with punch errors (orange), targets missed, short or over (red) and change requests (blue); a day's dialog
   corrects its punches and approves its change requests.
+- **Warnings sheet**: `odoo notices` appends everyone's punch errors and change requests to a Google Sheets
+  file, and each month's count per employee, leaving alone whatever was changed there by hand;
+  `.ai/skills/odoo-notices/SETUP.md` says what a machine needs first, on macOS, Linux or Windows.
 - **Phone pairing**: HTTPS over the LAN with a one-shot QR that shares the browser's session, no password
   login off `localhost`.
 - **Two-factor login**: asks for the authenticator code once and remembers the device for 90 days.
@@ -62,10 +68,10 @@ built for; code and documentation are in English.
 
 ## Skills
 
-The skill lives in `.ai/skills/`; `.claude/skills` in the repo points there, so an agent opened on this repo
-already has it. To use it from any other project, symlink it into `~/.claude/skills/`.
+The skills live in `.ai/skills/`; `.claude/skills` in the repo points there, so an agent opened on this repo
+already has them. To use one from any other project, symlink it into `~/.claude/skills/`.
 
-It only says when to reach for the CLI and what to confirm first. Everything about using the tools
+Each only says when to reach for the CLI and what to confirm first. Everything about using the tools
 is in `bin/odoo` (no arguments) and `bin/odoo-dashboard --help`; the why of each behaviour — `--host`
 security model, alarms, QR encoder, the gotchas that already cost a debugging session — is in the header of
 each module, and `AGENTS.md` says how to work on the repo. This README does not duplicate them.

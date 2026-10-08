@@ -6,14 +6,16 @@
 ## What this project is
 
 Tooling to clock in/out of an Odoo ERP and to see your own weekly hours. Two entry points over
-one Python package, plus the agent skill that drives the CLI.
+one Python package, plus the agent skills that drive the CLI.
 
 ```
-bin/odoo             CLI: login / status / checkin / checkout / toggle / break / resume / history
+bin/odoo             CLI: login / status / checkin / checkout / toggle / break / resume / history / notices /
+                     sheet
 bin/odoo-dashboard   web dashboard on http://localhost:8931/
 src/odoo_wrapper/
   client.py          Odoo client (web-session auth) and the connection config
   cli.py             the CLI commands and their output
+  sheets.py          Google Sheets for `odoo notices`, as the Google account gws is signed in with
   dashboard.py       entry point: wires the pieces below and serves
   server.py          pages, JSON API, Odoo sessions as the login, same-site guard
   data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
@@ -30,7 +32,8 @@ src/odoo_wrapper/
                      team) and what both use (shared, dayedit: the day dialog); store.js and teamstate.js hold each
                      page's state. Served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
-.ai/skills/          odoo-attendance  (.claude/skills in the repo points there; symlink it into
+.ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
+                     machine for it)  (.claude/skills in the repo points there; symlink each into
                      ~/.claude/skills to use it from other projects)
 ```
 
@@ -44,9 +47,11 @@ Don't duplicate — each fact has one home:
   `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and what each
   flag means), `corrections.py` (what the day dialog writes and when it warns), `state.py` (the shared state),
   `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports), `cli.py` (the commands),
+  `sheets.py` (why gws, and how little is asked of it),
   each file in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
-- **The skill** — only when an agent should reach for the CLI and what to confirm first.
+- **The skills** — only when an agent should reach for the CLI and what to confirm first; `odoo-notices` also
+  carries `SETUP.md`, what a machine needs for `odoo notices` on each operating system.
 - **`README.md`** — human quickstart only.
 - **This file** — how to work on the repo, and the Odoo API notes below.
 
@@ -57,12 +62,15 @@ Read the header of a module before touching it.
 1. **No third-party dependencies. Ever.** Python 3.9+ stdlib only, no venv, no `pip install` needed to run.
    `pyproject.toml` exists so `pip install -e .` *can* expose the commands on PATH, never as a requirement. This
    is why `qr.py` is hand-written instead of pulling `segno`/`qrencode`. A dependency needs the user's explicit
-   agreement, not an assumption that it is more convenient.
+   agreement, not an assumption that it is more convenient. One has it: the `gws` CLI, an external program that
+   only `odoo notices` runs, for the Google sign-in and nothing else (the header of `sheets.py` says why).
 2. **Start the dashboard only through `bin/odoo-dashboard`, and only if nothing listens on port 8931 yet.**
    Never kill and relaunch it (saving a `.py` restarts it by itself) and never patch `PORT`/`TLS_PORT` to dodge
    a busy port; the header of `process.py` says why and how to find the instance holding it.
-3. **Secrets stay in `$HOME`.** Odoo config, the CLI session, TLS cert and key all live in `~/.odoo_dashboard/`;
-   the dashboard's own Odoo sessions live in the browsers. The Odoo password is never stored by anything.
+3. **Secrets stay in `$HOME`.** Odoo config, the CLI session, TLS cert and key, and the warnings spreadsheet's
+   id with the rows written to it, all live in `~/.odoo_dashboard/`; the dashboard's own Odoo sessions live in
+   the browsers, and the Google sign-in in gws's own config and the OS keyring. Neither the Odoo password nor
+   the Google credentials are ever stored by anything here.
    Nothing of this ever enters the repo, not even gitignored: this repo can be pushed anywhere.
 4. **Editing `.ai/skills/` changes the skill immediately, wherever it is symlinked from.** Renaming or moving
    its directory breaks `.claude/skills` and any `~/.claude/skills` link — recreate them if you do.
@@ -116,6 +124,10 @@ curl -s  -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8931/api/atte
 Never test `/api/attendance` with a real action — it would clock the user in or out for real. Use
 `{"action":"bogus"}`, which is rejected with 400 before Odoo is contacted.
 
+Never run `odoo notices` to try something either: it appends to whatever spreadsheet is saved, for real, and
+remembers it did. What it writes is tested against the stand-ins in `tests/`; by hand, only with a copy of the
+spreadsheet saved (`odoo sheet <URL>`).
+
 To verify `qr.py`, decode its output rather than diffing the matrix against a reference library (its header
 says why, and names the `swift`/Vision recipe).
 
@@ -143,9 +155,10 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   punch; `client.py`'s header says how.
 - Status and history are `search_read` on `hr.attendance`, read-only. Odoo stores times in UTC; the tools print
   them in the local timezone.
-- The management view and the per-day targets also read, never write: `hr.contract` (the calendar in force
-  each day), `hr.employee` (name, calendar, user; archived employees are left out, their `departure_date` is
-  only readable by HR officers) and `approval.request` (attendance change requests, found by category name).
+- The management view, the CLI's `notices` (the same payload) and the per-day targets also read, never write:
+  `hr.contract` (the calendar in force each day), `hr.employee` (name, calendar, user; archived employees are
+  left out, their `departure_date` is only readable by HR officers) and `approval.request` (attendance change
+  requests, found by category name).
   Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
   details.
 - The day dialog (`corrections.py`) is the only other writer: it `write`s, `create`s or `unlink`s `hr.attendance`

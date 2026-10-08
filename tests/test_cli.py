@@ -1,12 +1,13 @@
 """Unit tests for the attendance CLI: what each command prints and how main() dispatches."""
 
 import io
+import json
 import os
 import runpy
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -140,6 +141,160 @@ class CommandTest(unittest.TestCase):
         self.assertIn("No hay registros en los últimos 7 días", self.run_cmd(client(self.EMP, kw([])), "history"))
 
 
+def day(iso, flags=(), requests=()):
+    return {"date": iso, "flags": list(flags), "requests": list(requests)}
+
+
+def typed(cell):
+    try:
+        return (datetime.strptime(cell, "%d/%m/%Y").date() - cli.SHEET_EPOCH).days
+    except (TypeError, ValueError):
+        return cell
+
+
+class FakeSheets:
+    """Stands in for sheets.Sheets with its tabs in memory; like Sheets, it stores a typed date as its serial
+    number and answers a range past the last column with nothing for that row."""
+
+    def __init__(self, spreadsheet="hoja", **tabs):
+        self.id = spreadsheet
+        self.tabs = {"Avisos 2026": [], "Avisos Totales": [], **tabs}
+        self.appended = []
+
+    def get(self, cells):
+        tab, columns = cells.split("!")
+        return [row[2:3] for row in self.tabs[tab]] if columns == "D4:D" else self.tabs[tab]
+
+    def append(self, cells, rows):
+        self.appended.append((cells, rows))
+        self.tabs[cells.split("!")[0]] += [[typed(cell) for cell in row] for row in rows]
+
+
+class NoticesTest(unittest.TestCase):
+    TODAY = date(2026, 10, 8)
+    NOW = "2026-10-08T10:00:00+02:00"
+    SEPTEMBER = {"start": "2026-09-01", "stop": "2026-10-01", "generated_at": NOW, "employees": [
+        {"name": "Bea", "days": [day("2026-08-31", ["open"]), day("2026-09-02", ["open", "long"], [{}]),
+                                 day("2026-09-03"), day("2026-09-04", ["empty"])]},
+        {"name": "Íñigo", "days": [day("2026-09-02", requests=[{}, {}]), day("2026-10-01", ["empty"])]},
+    ]}
+    OCTOBER = {"start": "2026-10-01", "stop": "2026-11-01", "generated_at": NOW, "employees": [
+        {"name": "Íñigo", "days": [day("2026-10-02", ["empty"]), day("2026-10-08", ["long"])]},
+    ]}
+    SEPTEMBER_ROWS = [["Bea", "Septiembre", "02/09/2026", "Incidencia"], ["Bea", "Septiembre", "02/09/2026", "Solicitud"],
+                      ["Íñigo", "Septiembre", "02/09/2026", "Solicitud"], ["Bea", "Septiembre", "04/09/2026", "Incidencia"]]
+    OCTOBER_ROWS = [["Íñigo", "Octubre", "02/10/2026", "Incidencia"]]
+
+    def setUp(self):
+        temp_state(self)
+        c.write_private(cli.SHEET_FILE, "hoja")
+
+    def run_notices(self, sheets, today=TODAY, stdin=None, **payloads):
+        months = {"2026-09-01": self.SEPTEMBER, "2026-10-01": self.OCTOBER, **payloads}
+        out = io.StringIO()
+        with patch.object(cli, "Sheets", return_value=sheets) as opened, patch.object(sys, "stdin", stdin), \
+                patch.object(cli.team, "build_team", side_effect=lambda *span: months[span[3].isoformat()]) as build, \
+                redirect_stdout(out):
+            self.opened, self.build = opened, build
+            cli.notices("odoo", today)
+        return out.getvalue()
+
+    def test_the_previous_month_is_closed_and_the_current_one_brought_up_to_yesterday(self):
+        sheets = FakeSheets()
+        self.assertEqual(self.run_notices(sheets), (
+            "Avisos de septiembre añadidos a «Avisos 2026»: 4\n"
+            "Empleados con avisos en septiembre, anotados en «Avisos Totales»: 2\n"
+            "Avisos de octubre añadidos a «Avisos 2026»: 1\n"))
+        self.opened.assert_called_once_with("hoja")
+        self.assertEqual(sheets.appended, [
+            ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS),
+            ("Avisos Totales!B4:D", [["Bea", 3, "Septiembre"], ["Íñigo", 1, "Septiembre"]]),
+            ("Avisos 2026!B4:E", self.OCTOBER_ROWS),
+        ])
+        self.assertEqual([call.args for call in self.build.call_args_list], [
+            ("odoo", date(2026, 8, 31), 5, date(2026, 9, 1), date(2026, 10, 1)),
+            ("odoo", date(2026, 9, 28), 5, date(2026, 10, 1), date(2026, 11, 1)),
+        ])
+
+    def test_a_closed_month_is_left_alone_and_the_sheet_alone_is_enough_to_add_nothing_twice(self):
+        sheets = FakeSheets()
+        self.run_notices(sheets)
+        os.remove(cli.WRITTEN_FILE)
+        self.assertEqual(self.run_notices(sheets), "Avisos de octubre añadidos a «Avisos 2026»: 0\n")
+        self.assertEqual(sheets.appended[3:], [("Avisos 2026!B4:E", [])])
+        self.assertEqual(self.build.call_count, 1)
+
+    def test_rows_the_sheet_already_has_are_left_out_whatever_else_they_carry(self):
+        sheets = FakeSheets(**{
+            "Avisos 2026": [["Bea", "Septiembre", 46267, "Incidencia", "Informal", "Discord"], ["Íñigo"], [],
+                            ["Bea", "Septiembre", "04/09/2026", "Incidencia"]],
+            "Avisos Totales": [["Zoe", 2, "Agosto"], []],
+        })
+        self.run_notices(sheets)
+        self.assertEqual(sheets.appended[0], ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS[1:]))
+        self.assertEqual(sheets.appended[1], ("Avisos Totales!B4:D", [["Bea", 4, "Septiembre"], ["Íñigo", 1, "Septiembre"]]))
+
+    def test_a_row_written_once_never_comes_back_however_the_sheet_was_changed_by_hand(self):
+        self.run_notices(FakeSheets())
+        rewritten = [["Ana María", "Octubre", 46300, "Solicitud"]]
+        for by_hand in ([], rewritten):
+            sheets = FakeSheets(**{"Avisos 2026": list(by_hand)})
+            self.run_notices(sheets)
+            self.assertEqual([rows for _, rows in sheets.appended], [[], [], []])
+            self.assertEqual(sheets.tabs, {"Avisos 2026": by_hand, "Avisos Totales": []})
+
+    def test_an_append_that_fails_notes_nothing_so_the_next_run_adds_it_all(self):
+        broken = FakeSheets()
+        broken.append = unittest.mock.Mock(side_effect=cli.SheetsError("Google no responde"))
+        with self.assertRaises(cli.SheetsError):
+            self.run_notices(broken)
+        self.assertFalse(os.path.exists(cli.WRITTEN_FILE))
+        sheets = FakeSheets()
+        self.run_notices(sheets)
+        self.assertEqual(len(sheets.tabs["Avisos 2026"]), 5)
+        self.assertEqual(json.loads(c.read_private(cli.WRITTEN_FILE)), {"hoja": self.SEPTEMBER_ROWS + self.OCTOBER_ROWS})
+
+    def test_each_spreadsheet_remembers_its_own_rows(self):
+        self.run_notices(FakeSheets())
+        other = FakeSheets("otra")
+        self.run_notices(other)
+        self.assertEqual(len(other.tabs["Avisos 2026"]), 5)
+        self.assertEqual(sorted(json.loads(c.read_private(cli.WRITTEN_FILE))), ["hoja", "otra"])
+
+    def test_a_memory_that_cannot_be_read_is_an_empty_one(self):
+        for broken in ("no", "[1]", "7"):
+            c.write_private(cli.WRITTEN_FILE, broken)
+            sheets = FakeSheets()
+            self.run_notices(sheets)
+            self.assertEqual(len(sheets.tabs["Avisos 2026"]), 5)
+
+    def test_january_closes_december_in_last_years_tab(self):
+        december = {"start": "2026-12-01", "stop": "2027-01-01", "generated_at": "2027-01-05T10:00:00+01:00",
+                    "employees": [{"name": "Bea", "days": [day("2026-12-31", ["open"])]}]}
+        january = {"start": "2027-01-01", "stop": "2027-02-01", "generated_at": "2027-01-05T10:00:00+01:00",
+                   "employees": [{"name": "Bea", "days": [day("2027-01-04", requests=[{}])]}]}
+        sheets = FakeSheets(**{"Avisos 2027": []})
+        self.run_notices(sheets, date(2027, 1, 5), **{"2026-12-01": december, "2027-01-01": january})
+        self.assertEqual(sheets.appended, [
+            ("Avisos 2026!B4:E", [["Bea", "Diciembre", "31/12/2026", "Incidencia"]]),
+            ("Avisos Totales!B4:D", [["Bea", 1, "Diciembre"]]),
+            ("Avisos 2027!B4:E", [["Bea", "Enero", "04/01/2027", "Solicitud"]]),
+        ])
+
+    def test_without_a_saved_spreadsheet_it_is_asked_for_on_a_terminal_and_refused_without_one(self):
+        os.remove(cli.SHEET_FILE)
+        for no_terminal in (None, io.StringIO()):
+            with self.assertRaisesRegex(c.OdooError, "No hay hoja de avisos guardada"):
+                self.run_notices(FakeSheets(), stdin=no_terminal)
+            self.opened.assert_not_called()
+            self.build.assert_not_called()
+        with patch("builtins.input", return_value="https://docs.google.com/spreadsheets/d/nueva/edit") as asked:
+            self.run_notices(FakeSheets("nueva"), stdin=SimpleNamespace(isatty=lambda: True))
+            self.run_notices(FakeSheets("nueva"), stdin=SimpleNamespace(isatty=lambda: True))
+        asked.assert_called_once_with("Dirección de la hoja de avisos: ")
+        self.opened.assert_called_once_with("nueva")
+
+
 class StopLoop(Exception):
     pass
 
@@ -185,6 +340,31 @@ class MainTest(unittest.TestCase):
                 code, _, err = self.run_main("history", days)
                 self.assertEqual(code, 1)
                 self.assertIn(f"ERROR: history espera un número de días, no «{days}»", err)
+
+    def test_notices_run_for_today_and_what_google_refuses_goes_to_stderr(self):
+        with patch.object(cli, "cli_client") as odoo, patch.object(cli, "notices") as notices:
+            with patch.object(sys, "argv", ["odoo", "notices"]):
+                cli.main()
+            notices.assert_called_once_with(odoo.return_value, date.today())
+            notices.side_effect = cli.SheetsError("Google no responde (sin red)")
+            code, _, err = self.run_main("notices")
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR: Google no responde (sin red)", err)
+
+    def test_sheet_remembers_the_spreadsheet_of_an_address_without_a_session(self):
+        home = temp_state(self)
+        code, _, err = self.run_main("sheet")
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR: No hay hoja de avisos guardada. Ejecuta: odoo sheet", err)
+        code, _, err = self.run_main("sheet", "https://example.com/hoja")
+        self.assertEqual(code, 1)
+        self.assertIn("«https://example.com/hoja» no es la dirección de una hoja de cálculo de Google", err)
+        for argv in (["https://docs.google.com/spreadsheets/d/1mF_a-b9/edit?usp=sharing"], []):
+            out = io.StringIO()
+            with patch.object(sys, "argv", ["odoo", "sheet", *argv]), redirect_stdout(out):
+                cli.main()
+            self.assertEqual(out.getvalue(), "1mF_a-b9\n")
+        self.assertEqual(os.stat(os.path.join(home, "notices_sheet")).st_mode & 0o777, 0o600)
 
     def test_odoo_errors_go_to_stderr(self):
         with patch.object(cli, "cli_client", side_effect=c.OdooError("sin configurar")):

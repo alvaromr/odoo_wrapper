@@ -123,6 +123,8 @@ def temp_state(test):
         (c, "STATE_DIR", home.name), (c, "CONFIG_FILE", os.path.join(home.name, "config.json")),
         (cli, "CLI_SESSION_FILE", os.path.join(home.name, "cli_session")),
         (cli, "CLI_DEVICE_FILE", os.path.join(home.name, "cli_device")),
+        (cli, "SHEET_FILE", os.path.join(home.name, "notices_sheet")),
+        (cli, "WRITTEN_FILE", os.path.join(home.name, "notices_written")),
         (lan, "STATE_DIR", home.name), (pr, "STATE_DIR", home.name),
         (st, "STATE_FILE", os.path.join(home.name, "state.json")),
         (pr, "LOG_FILE", os.path.join(home.name, "dashboard.log")),
