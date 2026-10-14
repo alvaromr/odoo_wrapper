@@ -1777,8 +1777,9 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   const hero = doc.getElementById("hero");
   assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Volver del descanso", "Fichar salida"]);
   const notes = hero.querySelectorAll(".note").map(n => n.textContent);
-  assert.ok(notes.includes("Comida de hoy: 30m sin fichar"));
-  assert.ok(notes.includes("Descanso fichado hoy: 1h 15m (en curso)"));
+  assert.ok(notes.includes("Comida de hoy: 30m ausente"));
+  assert.equal(hero.querySelectorAll(".meter-caption")[0].children[1].textContent, "1h 45m · 23 %");
+  assert.ok(notes.includes("Descanso de hoy: 1h 15m ausente (en curso)"));
   assert.ok(notes.includes("Mar 15 sep · Médico 30m · 1h 45m fichadas"));
   const mute = hero.querySelectorAll(".icon-btn")[0];
   mute.listeners.click[0]();
@@ -1805,7 +1806,7 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "▲ +2h 15m vs 39h");
   const monday = card.querySelectorAll(".dayrow")[0];
   assert.equal(monday.querySelectorAll(".rest").length, 1);
-  assert.deepEqual(hover(page, monday), ["Lun 7 sep", "Total 8h 45m", "Previsto 8h", "Comida (sin fichar) 45m", "Descanso 15m",
+  assert.deepEqual(hover(page, monday), ["Lun 7 sep", "Total 8h 45m", "Previsto 8h", "Comida (ausente) 45m", "Descanso 15m",
     "08:00 – 12:00 4h", "12:00 – 12:15 · descanso 15m", "12:15 – 13:00 45m", "13:45 – 17:30 3h 45m"]);
   assert.deepEqual(hover(page, card.querySelectorAll(".dayrow")[1]).slice(0, 4), ["Mar 8 sep", "Total 8h 30m", "Previsto 7h", "Permiso · Médico 1h"]);
   page.run("calOffset = 2; renderCalendar()");
@@ -1987,7 +1988,7 @@ test("the dashboard's texts in their other cases", () => {
 
   page.run("renderHero()");
   const hero = page.document.getElementById("hero");
-  assert.ok(hero.querySelectorAll(".note").some(n => n.textContent === "Descanso fichado hoy: 15m"));
+  assert.ok(hero.querySelectorAll(".note").some(n => n.textContent === "Descanso de hoy: 15m ausente"));
   page.run(`store.absMap = new Map([["2026-09-15", "Festivo"]]); renderHero()`);
   assert.ok(hero.querySelectorAll(".note").some(n => /^Mar 15 sep · Festivo · /.test(n.textContent)));
   assert.equal(hero.querySelectorAll(".btn").find(b => b.textContent === "Fichar salida").classList.contains("pulse"), false);

@@ -167,8 +167,8 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
   dayBlock.appendChild(dayMeter);
   const dayCap = el("div", "meter-caption strong");
   dayCap.appendChild(el("span", null, "Jornada de hoy"));
-  dayCap.appendChild(el("span", null,
-    day.expected > 0 ? `${Math.round(day.hours / day.expected * 100)} %` : "sin objetivo"));
+  dayCap.appendChild(el("span", null, `${fmtHM(day.hours)} · `
+    + (day.expected > 0 ? `${Math.round(day.hours / day.expected * 100)} %` : "sin objetivo")));
   dayBlock.appendChild(dayCap);
   box.appendChild(dayBlock);
 
@@ -210,11 +210,11 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
     box.appendChild(el("div", "note", "Sin fichajes registrados"));
   }
   if (lunchDone > 0.01) {
-    box.appendChild(el("div", "note", `Comida de hoy: ${fmtShort(lunchDone)} sin fichar`));
+    box.appendChild(el("div", "note", `Comida de hoy: ${fmtShort(lunchDone)} ausente`));
   }
   if (restToday > 0.01) {
     box.appendChild(el("div", "note",
-      `Descanso fichado hoy: ${fmtShort(restToday)}${open && open.rest ? " (en curso)" : ""}`));
+      `Descanso de hoy: ${fmtShort(restToday)} ausente${open && open.rest ? " (en curso)" : ""}`));
   }
   if (day.expected > 0 && !store.other) {
     const cfg = el("div", "note durations");
@@ -575,7 +575,7 @@ export function renderCalendar() {
     + " El descanso fichado va en morado, en el tramo en que ocurrió; en naranja, las jornadas de más de "
     + `${fmtHM(store.data.long_hours)} en total, las entradas sin cerrar y los días con`
     + " jornada prevista sin fichar, casi siempre un fichaje olvidado."
-    + " En el horario, cada bloque es un fichaje en su hora real; los huecos entre bloques son tiempo sin fichar,"
+    + " En el horario, cada bloque es un fichaje en su hora real; los huecos entre bloques son tiempo ausente,"
     + " la comida por ejemplo, y no cuentan."
     + " Los festivos y ausencias aprobadas se marcan solos (🏖) y no cuentan en el objetivo de su semana;"
     + " los permisos de horas (médico, etc.) restan de la jornada prevista de su día y aparecen en el horario"
@@ -675,7 +675,7 @@ export function renderCalendar() {
       else if (d.expected > 0) t.appendChild(tipRow("Previsto", fmtHM(d.expected)));
       d.leaves.forEach(l => t.appendChild(tipRow(`Permiso · ${l.type}`, fmtShort(l.hours))));
       const gap = unloggedGap(d.sessions, d.leaves);
-      if (gap > 0.01) t.appendChild(tipRow("Comida (sin fichar)", fmtShort(gap)));
+      if (gap > 0.01) t.appendChild(tipRow("Comida (ausente)", fmtShort(gap)));
       if (d.rest > 0.01) t.appendChild(tipRow("Descanso", fmtShort(d.rest)));
       if (d.sessions.length) {
         t.appendChild(el("div", "t-sep"));
