@@ -68,7 +68,8 @@ Read the header of a module before touching it.
    agreement, not an assumption that it is more convenient. Two have it: the `gws` CLI, an external program that
    only `odoo notices` runs, for the Google sign-in and nothing else (the header of `sheets.py` says why); and
    uv, the installer the README sends users to, which runs nothing once the commands are installed.
-2. **Start the dashboard only through `bin/odoo-dashboard`, and only if nothing listens on port 8931 yet.**
+2. **Start the dashboard only through `bin/odoo-dashboard` or the login entry of the development install
+   (below), and only if nothing listens on port 8931 yet.**
    Never kill and relaunch it (saving a `.py` restarts it by itself) and never patch `PORT`/`TLS_PORT` to dodge
    a busy port; the header of `process.py` says why and how to find the instance holding it.
 3. **Secrets stay in `$HOME`.** Odoo config, the CLI session, TLS cert and key, and the warnings spreadsheet's
@@ -92,6 +93,29 @@ Read the header of a module before touching it.
 - Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
+
+## Installing for development
+
+The README installs a user's copy: the commands from GitHub's `main`, the skills as a plugin cached from it.
+Neither follows the repo. On the machine where the repo is worked on, install from the working copy
+instead, so that the commands on the PATH, the dashboard started at login and the skills all run what you
+edit, and saving a `.py` restarts the dashboard as rule 2 expects:
+
+```bash
+uv tool install --force --editable <repo>          # odoo and odoo-dashboard run this copy's src/
+odoo-dashboard --autostart on                       # the login entry follows: it names the interpreter
+claude plugin marketplace remove odoo-wrapper       # only if the user's install is there
+claude plugin install odoo --marketplace <repo>     # reads .ai/skills in place, no cached copy
+```
+
+The README's steps again, with `--force` on uv's, go back to a user's install. Two checks need more than
+the editable install, before merging a change that could break them:
+
+- **The package as built** (`pyproject.toml`, a new file the package ships): `uv tool install --force
+  --reinstall <repo>` installs this copy as a user gets it. Without `--reinstall` uv reuses its cached build
+  of the folder and the old code stays. Go back to the editable install afterwards.
+- **The install from GitHub** (`pyproject.toml`, `.claude-plugin/`): push a branch and install from it with
+  the README's commands, `git+…@<branch>` for uv and `…odoo_wrapper.git#<branch>` for the plugin.
 
 ## How to verify changes
 

@@ -59,8 +59,10 @@ To update: `uv tool upgrade odoo-wrapper` and `claude plugin update odoo@odoo-wr
 `odoo-dashboard --autostart off`, `uv tool uninstall odoo-wrapper` and `claude plugin uninstall
 odoo@odoo-wrapper`; `~/.odoo_dashboard/` stays until you delete it.
 
-From a copy of the repo, as when working on it, the launchers in `bin/` run the working copy with no
-install at all: `python3 bin/odoo-dashboard`, `python3 bin/odoo status` (`py bin\odoo …` on Windows).
+That is a user's install, which follows GitHub. To work on the code, `AGENTS.md` § Installing for
+development sets up a machine whose commands, dashboard and skills run the working copy instead; the
+launchers in `bin/` also run it with no install at all: `python3 bin/odoo status` (`py bin\odoo …` on
+Windows).
 
 The first login asks for the Odoo URL, database, user and password. Only the session Odoo returns is kept —
 in the browser for the dashboard, in `~/.odoo_dashboard/cli_session` for the CLI — never the password. URL,
