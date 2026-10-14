@@ -16,7 +16,8 @@
   stale instance once survived 13 days on another port serving outdated code. Find the process holding the
   port instead (lsof -nP -iTCP:8931 -sTCP:LISTEN; ss -ltnp on Linux; netstat -ano on Windows). It may be an
   installed copy started at login (autostart.py), which follows its own files, not the repo's: its command
-  line names the folder it runs from.
+  line names the folder it runs from. Installing over it restarts it like an edit; from a folder that takes
+  `uv tool install --force --reinstall <folder>`, since plain --force reuses uv's cached build unchanged.
 - Never pipe it into `python3 -`: a stdin heredoc breaks the self-restart, which re-execs an empty stdin.
 - Started without a terminal it points stdout and stderr at ~/.odoo_dashboard/dashboard.log itself (set
   aside as .1 past LOG_MAX at the next start; every message carries a timestamp), so restarts, launchers and
