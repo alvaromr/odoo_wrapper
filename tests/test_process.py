@@ -85,6 +85,21 @@ class OutputTest(unittest.TestCase):
             pr.say("hola")
         self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d hola\n$")
 
+    def test_no_streams_at_all_take_the_log(self):
+        home = temp_state(self)
+        with patch.object(sys, "stdout", None), patch.object(sys, "stderr", None), patch.object(os, "dup2") as dup2:
+            pr.own_the_output()
+            self.assertIs(sys.stdout, sys.stderr)
+            self.assertEqual(sys.stdout.name, os.path.join(home, "dashboard.log"))
+            sys.stdout.close()
+        dup2.assert_not_called()
+
+    def test_the_launch_command_needs_no_pythonpath(self):
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        done = subprocess.run(pr.launch_command(["--help"]), env=env, cwd=temp_state(self), capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0)
+        self.assertIn("Uso: odoo-dashboard", done.stdout)
+
     def test_a_closed_stream_counts_as_no_terminal(self):
         temp_state(self)
         broken = SimpleNamespace(isatty=Mock(side_effect=ValueError), fileno=lambda: 1)
@@ -143,7 +158,7 @@ class WatchTest(unittest.TestCase):
         with patch.object(sys, "argv", ["dash", "--host", "0.0.0.0", "--open"]):
             execv, out = self.watch([{"a.py": 1}, {"a.py": 2}], ["", ""], 30)
         self.assertIn("Cambio en a.py", out)
-        execv.assert_called_once_with(sys.executable, [sys.executable, "-m", "odoo_wrapper.dashboard", "--host", "0.0.0.0"])
+        execv.assert_called_once_with(sys.executable, pr.launch_command(["--host", "0.0.0.0"]))
 
     def test_a_network_change_restarts(self):
         execv, out = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1", "mac|2"], -1)
@@ -163,7 +178,7 @@ class WatchTest(unittest.TestCase):
                 pr.restart(["--host", "0.0.0.0"])
         execv.assert_not_called()
         popen.assert_called_once()
-        self.assertEqual(popen.call_args.args[0], [sys.executable, "-m", "odoo_wrapper.dashboard", "--host", "0.0.0.0"])
+        self.assertEqual(popen.call_args.args[0], pr.launch_command(["--host", "0.0.0.0"]))
         self.assertEqual(popen.call_args.kwargs["env"][pr.RESTART_ENV], "1")
         exit_.assert_called_once_with(0)
 

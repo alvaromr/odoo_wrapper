@@ -99,6 +99,25 @@ class MainTest(unittest.TestCase):
         self.mocks["port_taken"].side_effect = [False, True]
         self.assertIn("8443", self.fails("--host", "0.0.0.0"))
 
+    def test_autostart_switches_and_says_what_it_did(self):
+        with patch.object(d.autostart, "set_autostart") as switch:
+            self.assertIn("arrancará solo", self.fails("--autostart", "on"))
+            self.assertIn("ya no arrancará", self.fails("--autostart", "off"))
+        self.assertEqual([call.args for call in switch.call_args_list], [(True,), (False,)])
+        self.mocks["own_the_output"].assert_not_called()
+        self.server.serve_forever.assert_not_called()
+
+    def test_autostart_needs_on_or_off(self):
+        with patch.object(d.autostart, "set_autostart") as switch:
+            self.assertIn("necesita on u off", self.fails("--autostart"))
+            self.assertIn("necesita on u off", self.fails("--autostart", "yes"))
+        switch.assert_not_called()
+
+    def test_autostart_reports_what_the_system_refused(self):
+        for error in (FileNotFoundError("systemctl"), d.subprocess.CalledProcessError(1, ["systemctl"])):
+            with patch.object(d.autostart, "set_autostart", side_effect=error):
+                self.assertIn("no se pudo cambiar el arranque", self.fails("--autostart", "on"))
+
     def test_host_flag_needs_a_value(self):
         self.assertIn("--host necesita una dirección", self.fails("--host"))
         self.server.serve_forever.assert_not_called()

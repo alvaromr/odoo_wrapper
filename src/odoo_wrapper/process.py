@@ -1,20 +1,27 @@
 """Process plumbing of the dashboard: its log, the self-restart on source or network changes, the port check.
 
 - Editing any .py of the package restarts the server by itself: a watcher compares mtimes every
-  WATCH_INTERVAL seconds and re-execs `python -m odoo_wrapper.dashboard` with the same arguments (minus
-  --open), same PID and ports. Never kill and relaunch it by hand; that is how duplicate stale instances
-  appear. On Windows execv cannot replace the process, so restart() spawns the child with
-  ODOO_DASHBOARD_RESTART=1 and exits, and the child waits up to RESTART_GRACE seconds for the ports to free
-  instead of refusing them as "another instance". Untested on a real Windows machine.
+  WATCH_INTERVAL seconds and re-execs launch_command() with the same arguments (minus --open), same PID and
+  ports. Never kill and relaunch it by hand; that is how duplicate stale instances appear. On Windows execv
+  cannot replace the process, so restart() spawns the child with ODOO_DASHBOARD_RESTART=1 and exits, and the
+  child waits up to RESTART_GRACE seconds for the ports to free instead of refusing them as "another
+  instance". Untested on a real Windows machine.
+- launch_command() is how the dashboard is started from outside a launcher, here and by autostart.py: the
+  interpreter running now with a one-line bootstrap that puts the package's folder first on sys.path, as the
+  launchers in bin/ do. It runs the same from a copy of the repo and from an install made with uv, with no
+  environment variable, which a login entry cannot always carry.
 - The same watcher polls the network identity the caller hands it (name and LAN IP) every NET_INTERVAL
   seconds and restarts on a change, so the phone certificate follows DHCP changes and renames.
 - It refuses to start when something already listens on the port. Never patch the ports to dodge that: a
   stale instance once survived 13 days on another port serving outdated code. Find the process holding the
-  port instead (lsof -nP -iTCP:8931 -sTCP:LISTEN; ss -ltnp on Linux; netstat -ano on Windows).
+  port instead (lsof -nP -iTCP:8931 -sTCP:LISTEN; ss -ltnp on Linux; netstat -ano on Windows). It may be an
+  installed copy started at login (autostart.py), which follows its own files, not the repo's: its command
+  line names the folder it runs from.
 - Never pipe it into `python3 -`: a stdin heredoc breaks the self-restart, which re-execs an empty stdin.
 - Started without a terminal it points stdout and stderr at ~/.odoo_dashboard/dashboard.log itself (set
   aside as .1 past LOG_MAX at the next start; every message carries a timestamp), so restarts, launchers and
-  shells cannot decide the destination. A background launch once inherited a log path in another project's
+  shells cannot decide the destination. Under pythonw.exe (Windows, started at login) there are no streams
+  at all, so the log takes their place. A background launch once inherited a log path in another project's
   scratchpad and the restarts carried that descriptor for days.
 - source_version is the newest mtime across the package and its templates; a page on localhost polls it and
   reloads when it moves, so an edit needs no manual refresh.
@@ -30,6 +37,7 @@ from datetime import datetime
 from .client import STATE_DIR
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+BOOTSTRAP = f"import sys; sys.path.insert(0, {os.path.dirname(HERE)!r}); from odoo_wrapper.dashboard import main; main()"
 TEMPLATES = os.path.join(HERE, "templates")
 WATCHED = [os.path.join(HERE, name) for name in sorted(os.listdir(HERE)) if name.endswith(".py")]
 SOURCES = WATCHED + sorted(
@@ -57,6 +65,9 @@ def own_the_output():
     if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > LOG_MAX:
         os.replace(LOG_FILE, LOG_FILE + ".1")
     log = open(LOG_FILE, "a", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = sys.stderr = log
+        return
     for stream in (sys.stdout, sys.stderr):
         os.dup2(log.fileno(), stream.fileno())
 
@@ -104,8 +115,12 @@ def watch_sources(net_identity=lambda: ""):
         restart([a for a in sys.argv[1:] if a != "--open"])
 
 
+def launch_command(args=(), executable=None):
+    return [executable or sys.executable, "-c", BOOTSTRAP, *args]
+
+
 def restart(args):
-    command = [sys.executable, "-m", "odoo_wrapper.dashboard", *args]
+    command = launch_command(args)
     if sys.platform != "win32":
         os.execv(sys.executable, command)
     subprocess.Popen(command, env={**os.environ, RESTART_ENV: "1"})

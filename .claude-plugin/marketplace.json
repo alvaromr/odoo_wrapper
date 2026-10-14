@@ -1,0 +1,16 @@
+{
+  "name": "odoo-wrapper",
+  "description": "Skills that drive the odoo CLI: clocking in and out, and the attendance warnings spreadsheet",
+  "owner": {
+    "name": "Alvaro Martin Rodriguez"
+  },
+  "plugins": [
+    {
+      "name": "odoo",
+      "source": "./.ai",
+      "description": "odoo-attendance (clock in and out, breaks, history) and odoo-notices (the warnings spreadsheet)",
+      "repository": "https://github.com/alvaromr/odoo_wrapper",
+      "license": "MIT"
+    }
+  ]
+}

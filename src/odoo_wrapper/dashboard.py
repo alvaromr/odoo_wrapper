@@ -9,6 +9,7 @@ itself at its top:
   state.py     the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py       phone access: LAN address and name, self-signed certificate, QR
   process.py   log, self-restart on source or network changes, port check
+  autostart.py what --autostart registers so the dashboard starts at login, on each system
   cli.py       the CLI, whose Odoo session is kept alive from here
 
 The page is documented at the top of each file in templates/js/ and of templates/style.css, the QR
@@ -18,15 +19,17 @@ and what the Odoo side offers in AGENTS.md § Odoo API notes.
 
 import os
 import ssl
+import subprocess
 import sys
 import threading
 import webbrowser
 from http.server import ThreadingHTTPServer
 
-from . import cli, lan, process, server
+from . import autostart, cli, lan, process, server
 from .client import STATE_DIR, read_config
 
 USAGE = f"""Uso: odoo-dashboard [--host <ip>] [--open]
+       odoo-dashboard --autostart on|off
 
 Sirve el dashboard de horas en http://localhost:{server.PORT}/ y se queda en marcha hasta Ctrl+C.
 La primera vez pide iniciar sesión en Odoo (URL, base de datos, usuario y contraseña);
@@ -42,6 +45,12 @@ Opciones:
   --host <ip>   Dirección en la que escucha para el móvil, en vez de toda la LAN (0.0.0.0).
                 Con 127.0.0.1 no escucha en la red: solo este ordenador, sin móvil.
   --open        Abre el navegador al arrancar.
+  --autostart on|off
+                Con on, el dashboard arranca solo cada vez que inicias sesión, con las opciones por
+                defecto, y se lanza ya; con off deja de arrancar solo, pero el que esté en marcha
+                sigue. Lo registra en el sistema para tu usuario: en macOS un LaunchAgent
+                (~/Library/LaunchAgents/{autostart.LABEL}.plist), en Linux un servicio de
+                systemd --user ({autostart.UNIT}) y en Windows la clave Run de tu usuario.
 
 Si tu usuario de Odoo puede ver fichajes de otras personas, el panel enlaza «Gestión»
 (http://localhost:{server.PORT}/gestion): semana, mes o año de cada persona que Odoo te deja ver,
@@ -58,18 +67,44 @@ Ficheros, en {STATE_DIR}:
   cert-<red>.pem, key-<red>.pem   un certificado por red (nombre e IP); al volver a una red conocida se reutiliza
   dashboard.log  salida del servidor cuando no hay terminal; al pasar de 1 MB se aparta como .1"""
 
+AUTOSTART_DONE = {
+    "on": "El dashboard arrancará solo cada vez que inicies sesión, y ya se ha lanzado: "
+          f"http://localhost:{server.PORT}/\nSi ya había otro en marcha, sigue ese.",
+    "off": "El dashboard ya no arrancará al iniciar sesión; el que esté en marcha sigue hasta que lo pares o "
+           "cierres sesión.",
+}
+
+
+def option(name):
+    index = sys.argv.index(name) + 1
+    return sys.argv[index] if index < len(sys.argv) else None
+
+
+def switch_autostart(choice):
+    if choice not in AUTOSTART_DONE:
+        print("ERROR: --autostart necesita on u off")
+        sys.exit(1)
+    try:
+        autostart.set_autostart(choice == "on")
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"ERROR: no se pudo cambiar el arranque al iniciar sesión: {error}")
+        sys.exit(1)
+    print(AUTOSTART_DONE[choice])
+    sys.exit(0)
+
 
 def main():
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
         print(USAGE)
         sys.exit(0)
+    if "--autostart" in sys.argv:
+        switch_autostart(option("--autostart"))
     process.own_the_output()
     if "--host" in sys.argv:
-        host_index = sys.argv.index("--host") + 1
-        if host_index >= len(sys.argv):
+        host = option("--host")
+        if host is None:
             print("ERROR: --host necesita una dirección (127.0.0.1 para no salir de este ordenador)")
             sys.exit(1)
-        host = sys.argv[host_index]
     else:
         host = "0.0.0.0"
     exposed = lan.expose(host)

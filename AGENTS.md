@@ -24,6 +24,7 @@ src/odoo_wrapper/
   state.py           the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
+  autostart.py       the login entry `--autostart` registers on each system
   qr.py              hand-written QR encoder
   templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
                      (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
@@ -33,8 +34,9 @@ src/odoo_wrapper/
                      page's state. Served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
-                     machine for it)  (.claude/skills in the repo points there; symlink each into
-                     ~/.claude/skills to use it from other projects)
+                     machine for it); .claude/skills in the repo points there
+.claude-plugin/      marketplace.json: publishes .ai/ as the Claude Code plugin `odoo`, its skills/ the
+                     plugin's default skills folder
 ```
 
 ## Where the documentation lives
@@ -46,13 +48,14 @@ Don't duplicate — each fact has one home:
 - **The header of each module** — why it behaves as it does: `server.py` (sessions, same-site guard, API),
   `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and what each
   flag means), `corrections.py` (what the day dialog writes and when it warns), `state.py` (the shared state),
-  `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports), `cli.py` (the commands),
+  `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports, how it is launched),
+  `autostart.py` (the login entry on each system), `cli.py` (the commands),
   `sheets.py` (why gws, and how little is asked of it),
   each file in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
 - **The skills** — only when an agent should reach for the CLI and what to confirm first; `odoo-notices` also
   carries `SETUP.md`, what a machine needs for `odoo notices` on each operating system.
-- **`README.md`** — human quickstart only.
+- **`README.md`** — human quickstart only, the install included.
 - **This file** — how to work on the repo, and the Odoo API notes below.
 
 Read the header of a module before touching it.
@@ -60,10 +63,11 @@ Read the header of a module before touching it.
 ## Hard rules
 
 1. **No third-party dependencies. Ever.** Python 3.9+ stdlib only, no venv, no `pip install` needed to run.
-   `pyproject.toml` exists so `pip install -e .` *can* expose the commands on PATH, never as a requirement. This
+   `pyproject.toml` is what installers read, never a requirement to run from the repo. This
    is why `qr.py` is hand-written instead of pulling `segno`/`qrencode`. A dependency needs the user's explicit
-   agreement, not an assumption that it is more convenient. One has it: the `gws` CLI, an external program that
-   only `odoo notices` runs, for the Google sign-in and nothing else (the header of `sheets.py` says why).
+   agreement, not an assumption that it is more convenient. Two have it: the `gws` CLI, an external program that
+   only `odoo notices` runs, for the Google sign-in and nothing else (the header of `sheets.py` says why); and
+   uv, the installer the README sends users to, which runs nothing once the commands are installed.
 2. **Start the dashboard only through `bin/odoo-dashboard`, and only if nothing listens on port 8931 yet.**
    Never kill and relaunch it (saving a `.py` restarts it by itself) and never patch `PORT`/`TLS_PORT` to dodge
    a busy port; the header of `process.py` says why and how to find the instance holding it.
@@ -72,8 +76,10 @@ Read the header of a module before touching it.
    the browsers, and the Google sign-in in gws's own config and the OS keyring. Neither the Odoo password nor
    the Google credentials are ever stored by anything here.
    Nothing of this ever enters the repo, not even gitignored: this repo can be pushed anywhere.
-4. **Editing `.ai/skills/` changes the skill immediately, wherever it is symlinked from.** Renaming or moving
-   its directory breaks `.claude/skills` and any `~/.claude/skills` link — recreate them if you do.
+4. **Editing `.ai/skills/` changes the skill immediately, wherever it is symlinked from**, and for everyone
+   with the plugin once pushed and updated. Renaming or moving `.ai/` or its `skills/` breaks `.claude/skills`,
+   any `~/.claude/skills` link and the plugin's `source` in `.claude-plugin/marketplace.json` — fix them if
+   you do, and run `claude plugin validate .` after touching either.
 5. **Don't touch the user's real `~/.odoo_dashboard/`** to test something. Point `HOME` at a throwaway directory
    instead (see below).
 6. Communicate with the user in Spanish. Code, comments and documentation in English; every string the user
@@ -127,6 +133,10 @@ Never test `/api/attendance` with a real action — it would clock the user in o
 Never run `odoo notices` to try something either: it appends to whatever spreadsheet is saved, for real, and
 remembers it did. What it writes is tested against the stand-ins in `tests/`; by hand, only with a copy of the
 spreadsheet saved (`odoo sheet <URL>`).
+
+Never run `odoo-dashboard --autostart on` to try it: it registers a real login entry for the user and starts
+a dashboard through the system, whatever `HOME` says. What it writes is tested with the system calls mocked;
+by hand, generate the entry in a throwaway `HOME` with them mocked and lint it (`plutil -lint` on macOS).
 
 To verify `qr.py`, decode its output rather than diffing the matrix against a reference library (its header
 says why, and names the `swift`/Vision recipe).
