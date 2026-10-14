@@ -7,10 +7,15 @@
   serves a copy of the repo and an install made with uv. On Windows it is the pythonw.exe beside it, so no
   console window opens. Running `on` again rewrites the entry, which follows the interpreter after a
   reinstall.
-- `on` also starts the dashboard now, through the same mechanism (launchctl bootstrap, systemctl --now, a
+- `on` also starts the dashboard now, through the same mechanism (launchctl bootstrap, systemctl restart, a
   detached process on Windows). With another dashboard already listening the new one refuses the port and
   exits, as any second instance does; that is why nothing asks the system to keep it alive, which would
   relaunch it in a loop.
+- A dashboard the entry already started is replaced, not left running: macOS boots the job out first
+  (launchctl waits for it to exit) and Linux restarts the unit. Switching installs deletes the old copy's
+  files under the running process, which the source watcher does not take for a change, so `on` is the step
+  that moves it to the new one. Windows keeps no handle on the process it started, so there it only takes
+  over at the next login.
 - `off` only removes the entry: the dashboard running keeps going until it is stopped or the session ends.
 - ExecStart in a systemd unit is not a shell line: quotes, backslashes, `%` and `$` mean something to systemd
   itself, hence SYSTEMD_ESCAPES on each argument.
@@ -62,7 +67,9 @@ def systemctl(*args, check=True):
 
 def mac_on():
     write(launch_agent(), plistlib.dumps({"Label": LABEL, "ProgramArguments": command(), "RunAtLoad": True}))
-    subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", launch_agent()], capture_output=True)
+    session = f"gui/{os.getuid()}"
+    subprocess.run(["launchctl", "bootout", f"{session}/{LABEL}"], capture_output=True)
+    subprocess.run(["launchctl", "bootstrap", session, launch_agent()], capture_output=True)
 
 
 def mac_off():
@@ -77,7 +84,8 @@ def linux_on():
         "[Install]\nWantedBy=default.target\n"
     ).encode())
     systemctl("daemon-reload")
-    systemctl("enable", "--now", UNIT)
+    systemctl("enable", UNIT)
+    systemctl("restart", UNIT)
 
 
 def linux_off():

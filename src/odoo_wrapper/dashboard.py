@@ -47,8 +47,9 @@ Opciones:
   --open        Abre el navegador al arrancar.
   --autostart on|off
                 Con on, el dashboard arranca solo cada vez que inicias sesión, con las opciones por
-                defecto, y se lanza ya; con off deja de arrancar solo, pero el que esté en marcha
-                sigue. Lo registra en el sistema para tu usuario: en macOS un LaunchAgent
+                defecto, y se lanza ya; si ya estaba en marcha así, se reinicia con lo instalado
+                ahora (en Windows, desde el próximo inicio de sesión). Con off deja de arrancar solo,
+                pero el que esté en marcha sigue. Lo registra en el sistema para tu usuario: en macOS un LaunchAgent
                 (~/Library/LaunchAgents/{autostart.LABEL}.plist), en Linux un servicio de
                 systemd --user ({autostart.UNIT}) y en Windows la clave Run de tu usuario.
 
@@ -69,7 +70,7 @@ Ficheros, en {STATE_DIR}:
 
 AUTOSTART_DONE = {
     "on": "El dashboard arrancará solo cada vez que inicies sesión, y ya se ha lanzado: "
-          f"http://localhost:{server.PORT}/\nSi ya había otro en marcha, sigue ese.",
+          f"http://localhost:{server.PORT}/\nSi ya había otro en marcha lanzado a mano, sigue ese.",
     "off": "El dashboard ya no arrancará al iniciar sesión; el que esté en marcha sigue hasta que lo pares o "
            "cierres sesión.",
 }

@@ -49,12 +49,14 @@ class CommandTest(AutostartCase):
 
 
 class MacTest(AutostartCase):
-    def test_on_writes_a_launch_agent_and_loads_it(self):
+    def test_on_writes_a_launch_agent_and_reloads_it(self):
         self.on("darwin")
         path = os.path.join(self.home, "Library", "LaunchAgents", f"{au.LABEL}.plist")
         with open(path, "rb") as f:
             self.assertEqual(plistlib.load(f), {"Label": au.LABEL, "ProgramArguments": au.command(), "RunAtLoad": True})
-        self.assertEqual(self.run_.call_args.args[0], ["launchctl", "bootstrap", f"gui/{os.getuid()}", path])
+        session = f"gui/{os.getuid()}"
+        self.assertEqual([c.args[0] for c in self.run_.call_args_list],
+                         [["launchctl", "bootout", f"{session}/{au.LABEL}"], ["launchctl", "bootstrap", session, path]])
 
     def test_off_removes_it_and_tolerates_its_absence(self):
         self.on("darwin")
@@ -64,13 +66,13 @@ class MacTest(AutostartCase):
 
 
 class LinuxTest(AutostartCase):
-    def test_on_writes_a_user_unit_and_enables_it_now(self):
+    def test_on_writes_a_user_unit_and_restarts_it(self):
         self.on("linux")
         with open(os.path.join(self.home, ".config", "systemd", "user", au.UNIT)) as f:
             unit = f.read()
         self.assertIn(f'ExecStart="{sys.executable}" "-c" ', unit)
         self.assertIn("WantedBy=default.target", unit)
-        self.assertEqual([c.args[0][2:] for c in self.run_.call_args_list], [["daemon-reload"], ["enable", "--now", au.UNIT]])
+        self.assertEqual([c.args[0][2:] for c in self.run_.call_args_list], [["daemon-reload"], ["enable", au.UNIT], ["restart", au.UNIT]])
         self.assertTrue(all(c.kwargs["check"] for c in self.run_.call_args_list))
 
     def test_the_xdg_config_folder_is_respected(self):
