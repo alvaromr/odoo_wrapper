@@ -201,7 +201,8 @@ const session = (start, end, rest = false) => ({
 const payload = (sessions, extra = {}) => ({
   employee: "Ana", breaks: true, phone: null, generated_at: new Date().toISOString(), weeks: 12,
   sessions, absences: [], schedule: null, long_hours: 12,
-  state: { lunch: null, lunch_minutes: 30, break_minutes: 15, muted: false, lunch_done: false, punched_at: null },
+  state: { lunch: null, lunch_minutes: 30, break_minutes: 15, lunch_button_from: 810, lunch_button_to: 960,
+    muted: false, lunch_done: false, punched_at: null },
   ...extra,
 });
 
@@ -255,14 +256,35 @@ test("the schedule sentence groups days by hours", () => {
   assert.equal(run("scheduleSentence()"), "8h los lunes y martes");
 });
 
-test("lunch opens at the calendar's lunch time and only on days that have one", () => {
+test("lunch opens from 13:30 to 16:00 and only on days whose calendar has one", () => {
   const { run } = withData([]);
+  run("store.lunchFrom = [14, 14, 14, 14, null, null, null]");
   assert.equal(run("lunchOpen(new Date(2026, 8, 15, 13, 29))"), false);
   assert.equal(run("lunchOpen(new Date(2026, 8, 15, 13, 30))"), true);
-  assert.equal(run("lunchOpen(new Date(2026, 8, 18, 15, 0))"), false);
+  assert.equal(run("lunchOpen(new Date(2026, 8, 15, 15, 59))"), true);
+  assert.equal(run("lunchOpen(new Date(2026, 8, 15, 16, 0))"), false);
+  assert.equal(run("lunchOpen(new Date(2026, 8, 18, 14, 0))"), false);
   assert.equal(run("lunchHours({ date: new Date(2026, 8, 14) })"), 0.5);
   assert.equal(run("lunchHours({ date: new Date(2026, 8, 18) })"), 0);
   assert.equal(run("lunchHours({ date: new Date(2026, 8, 14), vacation: true })"), 0);
+});
+
+test("the hero offers lunch inside its window until it is taken", async () => {
+  const two = new Date(2026, 8, 15, 14, 0);
+  class AtTwo extends RealDate {
+    constructor(...args) {
+      if (args.length) super(...args);
+      else super(two);
+    }
+    static now() { return two.getTime(); }
+  }
+  const schedule = { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] };
+  const page = load({ data: payload([session(at(two, 9), null)], { schedule }), globals: { Date: AtTwo } });
+  await page.run("loadAndRender()");
+  const buttons = () => page.document.getElementById("hero").querySelectorAll(".btn").map(b => b.textContent);
+  assert.deepEqual(buttons(), ["Fichar salida", "Salir a comer", "Salir a descanso"]);
+  page.run("store.state.lunch_done = true; renderHero()");
+  assert.deepEqual(buttons(), ["Fichar salida", "Salir a descanso"]);
 });
 
 test("without a schedule nothing is expected and the page says so", async () => {
@@ -482,12 +504,12 @@ test("loading renders the page from the server payload", async () => {
   assert.equal(phone.classList.contains("hidden"), false);
   assert.equal(phone.querySelectorAll(".qr").length, 0);
   const buttons = () => phone.querySelector(".seg").children;
-  assert.deepEqual(buttons().map(b => [b.textContent, b.getAttribute("aria-pressed")]), [["Por IP", "true"], ["Por nombre", "false"]]);
-  assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/");
+  assert.deepEqual(buttons().map(b => [b.textContent, b.getAttribute("aria-pressed")]), [["Por nombre", "true"], ["Por IP", "false"]]);
+  assert.equal(phone.querySelector(".url").textContent, "https://mac.local:8443/");
   assert.equal(phone.querySelector(".btn").textContent, "Emparejar móvil");
   buttons()[1].listeners.click[0]();
   assert.deepEqual(buttons().map(b => b.getAttribute("aria-pressed")), ["false", "true"]);
-  assert.equal(phone.querySelector(".url").textContent, "https://mac.local:8443/");
+  assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/");
 });
 
 test("pairing shows a one-shot QR that expires", async () => {
@@ -504,7 +526,7 @@ test("pairing shows a one-shot QR that expires", async () => {
   const phone = document.getElementById("phone");
   const pairButton = () => phone.querySelector(".btn");
   await pairButton().listeners.click[0]();
-  assert.deepEqual(pairs, [{ name: false }]);
+  assert.deepEqual(pairs, [{ name: true }]);
   assert.equal(phone.querySelectorAll(".qr").length, 1);
   assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/pair?t=tok");
   assert.match(phone.querySelector(".note").textContent, /caduca en 120 s/);
@@ -526,7 +548,7 @@ test("pairing shows a one-shot QR that expires", async () => {
   phone.querySelector(".seg").children[1].listeners.click[0]();
   pairReply = { ok: false, status: 409, json: async () => ({ error: "sin --host" }) };
   await pairButton().listeners.click[0]();
-  assert.deepEqual(pairs.at(-1), { name: true });
+  assert.deepEqual(pairs.at(-1), { name: false });
   assert.match(phone.querySelector(".note").textContent, /No se pudo emparejar: sin --host/);
 });
 
@@ -537,12 +559,12 @@ test("without the Descanso reason the page offers no break", async () => {
     const page = load({ data: payload([session(at(today, 9), null)], { schedule, breaks }) });
     await page.run("loadAndRender()");
     const hero = page.document.getElementById("hero");
-    return [...hero.querySelectorAll(".btn").map(b => b.textContent), ...hero.querySelectorAll(".duration").map(f => f.children[0])];
+    return hero.querySelectorAll(".btn").map(b => b.textContent);
   };
   const withBreaks = await texts(true), without = await texts(false);
-  assert.deepEqual(withBreaks.filter(t => t.includes("escanso")), ["Salir a descanso", "Descanso "]);
+  assert.deepEqual(withBreaks.filter(t => t.includes("escanso")), ["Salir a descanso"]);
   assert.deepEqual(without.filter(t => t.includes("escanso")), []);
-  assert.ok(without.includes("Fichar salida") && without.includes("Comida "));
+  assert.ok(without.includes("Fichar salida"));
 });
 
 test("a failed first load keeps retrying once a minute", async () => {
@@ -1745,13 +1767,50 @@ test("an armed punch button disarms by itself after four seconds", async () => {
   disarm();
   assert.equal(button.textContent, "Fichar salida");
   assert.deepEqual(["arm", "pulse"].map(c => button.classList.contains(c)), [false, true]);
-  const field = hero.querySelectorAll(".lunch-input")[0];
-  field.value = "999";
-  field.listeners.change[0]();
-  field.value = "abc";
-  field.listeners.change[0]();
-  const posts = page.calls.fetch.filter(([url, opts]) => url === "/api/state" && opts?.method === "POST").map(([, o]) => JSON.parse(o.body));
-  assert.deepEqual(posts.map(p => Object.values(p)[0]), [240, 0]);
+});
+
+test("the gear opens the settings, each saved on change and explained in its tooltip", async () => {
+  const posts = [];
+  const data = payload([session(at(new Date(), 9), null)]);
+  const page = load({ fetchImpl: async (url, opts) => {
+    if (url !== "/api/state") return { ok: true, status: 200, json: async () => data };
+    posts.push(JSON.parse(opts.body));
+    return { ok: true, status: 200, json: async () => ({ ...page.run("store.state"), ...posts.at(-1) }) };
+  } });
+  await page.run("loadAndRender()");
+  const doc = page.document, dialog = doc.getElementById("settingsDialog"), tip = doc.getElementById("tip");
+  doc.getElementById("hero").querySelectorAll(".icon-btn").find(b => b.title === "Ajustes").listeners.click[0]();
+  assert.equal(dialog.open, true);
+  assert.ok(dialog.children.includes(tip));
+  const rows = dialog.querySelectorAll(".setting");
+  assert.deepEqual(rows.map(r => r.children[0].textContent), ["Comida", "Descanso", "Botón «Salir a comer»"]);
+  rows[2].listeners.pointerenter[0]({ clientX: 0, clientY: 0 });
+  assert.match(tip.children[0].textContent, /^Horas entre las que aparece el botón/);
+
+  const minutes = dialog.querySelectorAll(".lunch-input")[0];
+  for (const value of ["999", "abc"]) {
+    minutes.value = value;
+    await minutes.listeners.change[0]();
+  }
+  assert.equal(minutes.value, 0);
+  const [from, to] = dialog.querySelectorAll(".clock-input");
+  assert.deepEqual([from.value, to.value], ["13:30", "16:00"]);
+  from.value = "13:05";
+  await from.listeners.change[0]();
+  assert.deepEqual(posts, [{ lunch_minutes: 240 }, { lunch_minutes: 0 }, { lunch_button_from: 785 }]);
+  to.value = "12:00";
+  await to.listeners.change[0]();
+  assert.match(doc.getElementById("settingsNote").textContent, /^No se ha guardado/);
+  to.value = "";
+  await to.listeners.change[0]();
+  assert.deepEqual([to.value, doc.getElementById("settingsNote").textContent, posts.length], ["16:00", "", 3]);
+
+  dialog.querySelectorAll(".btn")[0].listeners.click[0]();
+  dialog.listeners.close[0]();
+  assert.equal(dialog.open, false);
+  assert.ok(doc.body.children.includes(tip));
+  page.run("store.data.breaks = false; openSettings()");
+  assert.equal(dialog.querySelectorAll(".setting").length, 2);
 });
 
 test("a full fortnight draws every part of the dashboard: break, lunch, leave, holidays and progress", async () => {
@@ -1777,20 +1836,20 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   const hero = doc.getElementById("hero");
   assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Volver del descanso", "Fichar salida"]);
   const notes = hero.querySelectorAll(".note").map(n => n.textContent);
-  assert.ok(notes.includes("Comida de hoy: 30m ausente"));
+  assert.ok(notes.includes("Ausente hoy: 30m"));
   assert.equal(hero.querySelectorAll(".meter-caption")[0].children[1].textContent, "1h 45m · 23 %");
   assert.ok(notes.includes("Descanso de hoy: 1h 15m ausente (en curso)"));
   assert.ok(notes.includes("Mar 15 sep · Médico 30m · 1h 45m fichadas"));
-  const mute = hero.querySelectorAll(".icon-btn")[0];
-  mute.listeners.click[0]();
+  const mute = () => hero.querySelectorAll(".icon-btn").find(b => b.title.endsWith("avisos"));
+  mute().listeners.click[0]();
   await settle();
   assert.equal(page.run("store.state.muted"), true);
   page.run("renderHero()");
-  hero.querySelectorAll(".icon-btn")[0].listeners.click[0]();
+  mute().listeners.click[0]();
   await settle();
   assert.equal(page.run("store.state.muted"), false);
   page.run("store.data.sessions.at(-1).rest = false; indexSessions(); renderHero()");
-  assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Fichar salida", "Salir a comer", "Salir a descanso"]);
+  assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Fichar salida", "Salir a descanso"]);
 
   const card = doc.getElementById("weekCal");
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "en curso · faltan 29h 45m");
@@ -1806,7 +1865,7 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "▲ +2h 15m vs 39h");
   const monday = card.querySelectorAll(".dayrow")[0];
   assert.equal(monday.querySelectorAll(".rest").length, 1);
-  assert.deepEqual(hover(page, monday), ["Lun 7 sep", "Total 8h 45m", "Previsto 8h", "Comida (ausente) 45m", "Descanso 15m",
+  assert.deepEqual(hover(page, monday), ["Lun 7 sep", "Total 8h 45m", "Previsto 8h", "Ausente 45m", "Descanso 15m",
     "08:00 – 12:00 4h", "12:00 – 12:15 · descanso 15m", "12:15 – 13:00 45m", "13:45 – 17:30 3h 45m"]);
   assert.deepEqual(hover(page, card.querySelectorAll(".dayrow")[1]).slice(0, 4), ["Mar 8 sep", "Total 8h 30m", "Previsto 7h", "Permiso · Médico 1h"]);
   page.run("calOffset = 2; renderCalendar()");

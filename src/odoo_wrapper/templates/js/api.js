@@ -50,8 +50,7 @@ export async function refreshState() {
       await loadAndRender();
       return;
     }
-    const keys = ["lunch", "lunch_minutes", "break_minutes", "muted", "lunch_done", "punched_at"];
-    if (keys.every(k => next[k] === store.state[k])) return;
+    if (Object.keys(next).every(k => next[k] === store.state[k])) return;
     if (next.lunch !== store.state.lunch) LastRing.lunch = 0;
     store.state = next;
     renderHero();

@@ -29,8 +29,8 @@ import { fmtHM, dayKey, isoDay, fmtDay, fmtYear } from "./format.js";
 export function lunchFrom(date) { return store.lunchFrom[(date.getDay() + 6) % 7]; }
 
 export function lunchOpen(at = new Date()) {
-  const from = lunchFrom(at);
-  return from != null && at.getHours() + at.getMinutes() / 60 >= from;
+  const minute = at.getHours() * 60 + at.getMinutes();
+  return lunchFrom(at) != null && minute >= store.state.lunch_button_from && minute < store.state.lunch_button_to;
 }
 
 export function lunchHours(day) {
@@ -116,7 +116,6 @@ export function buildWeek(offset) {
   const sunday = days[6].date;
   return {
     monday, sunday, days, total, rest, target,
-    sessions: days.flatMap(d => d.sessions),
     delta: total - target,
     current: monday <= store.today && store.today <= sunday,
     complete: sunday < store.today,

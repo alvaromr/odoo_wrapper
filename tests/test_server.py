@@ -511,6 +511,15 @@ class HandlerTest(unittest.TestCase):
         status, _, payload = self.post("/api/state", {"break_minutes": 999})
         self.assertEqual(status, 400)
         self.assertIn("break_minutes", payload["error"])
+        status, _, payload = self.post("/api/state", {"lunch_button_from": 780, "lunch_button_to": 1439})
+        self.assertEqual((status, payload["lunch_button_from"], payload["lunch_button_to"]), (200, 780, 1439))
+        status, _, payload = self.post("/api/state", {"lunch_button_from": 1440})
+        self.assertEqual(status, 400)
+        self.assertIn("lunch_button_from", payload["error"])
+        status, _, payload = self.post("/api/state", {"lunch_button_to": 780, "muted": 0})
+        self.assertEqual(status, 400)
+        self.assertIn("antes", payload["error"])
+        self.assertTrue(self.get("/api/state")[2]["muted"])
         self.assertEqual(self.post("/otro", {})[0], 404)
 
     def test_punch_errors(self):

@@ -13,7 +13,7 @@
  * - On localhost the page also polls /api/version and reloads itself when a source file changes.
  */
 import { store, LOOPBACK, TickMs } from "./store.js";
-import { busy } from "./ui.js";
+import { busy, wireSettings } from "./ui.js";
 import { setClock, indexSessions } from "./week.js";
 import { isoDay } from "./format.js";
 import { renderHero, renderAll, setRangeMonths, punchText } from "./render.js";
@@ -108,6 +108,7 @@ document.getElementById("refreshBtn").addEventListener("click", async e => {
 wireLogout(document.getElementById("logoutBtn"));
 wireMouseHistory();
 wireDayDialog();
+wireSettings();
 onDaySaved(() => loadAndRender(true));
 
 loadFirst();

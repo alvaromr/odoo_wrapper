@@ -16,9 +16,10 @@
  * blue is kept for change requests, which used to share it with too many hours.
  * Light and dark both ship; the page follows prefers-color-scheme.
  *
- * Breaks: in the day and week meters and the calendar rows each break is drawn
+ * Breaks: in the day meter and the calendar rows each break is drawn
  * where it happened along the bar, never stacked at the end (an end segment
- * reads as "on a break right now"). The weekly chart instead stacks the sums,
+ * reads as "on a break right now"); the week meter shows none (render.js says
+ * why). The weekly chart instead stacks the sums,
  * break at the bottom of the column, work above. Lunch appears in no bar: it is
  * not worked time, and a segment for it made the column incomparable with the
  * target line (tried and dropped). The violet is the

@@ -4,17 +4,20 @@
  *
  * - The hero offers check in (Normal), check out, leave for lunch (a check-out that also stamps the lunch),
  *   leave for break (check-out + check-in as Descanso) and return from break (check-out + check-in as
- *   Normal). The lunch button only shows from that day's lunch time onwards (the start of the lunch gap in
- *   the Odoo calendar) and disappears for the rest of the day once used. A UI guard, not a server rule: the
- *   action is a plain check-out and stays valid at any hour.
+ *   Normal). The lunch button only shows inside its window (13:30 to 16:00 unless set otherwise), on days whose Odoo
+ *   calendar has a lunch, and disappears for the rest of the day once used. A UI guard, not a server rule: the
+ *   action is a plain check-out and stays valid at any hour. Nothing in Odoo tells which gap was lunch, so the
+ *   hero and the day's tooltip call every gap time away («Ausente»), not lunch. The durations and that window
+ *   are set in «Ajustes», the gear beside the bell (ui.js).
  * - The week's meter is a gauge: one section per day that expects hours, as wide as those hours and notched every
  *   hour (8 h 30 m from Monday to Thursday and 6 h on Fridays: four long sections and a short one). The hours are
  *   each day's expected ones, after absences and leaves, so the sections add up to the target the fill is measured
- *   against and a day's boundary is where the week stands once that day is done.
+ *   against and a day's boundary is where the week stands once that day is done. Its fill is one colour, breaks
+ *   included: they count like any other hour, and a week's worth of violet segments read as hours apart.
  * - Where the dashboard does not listen on the LAN (the payload's phone.off, lan.py), the phone block says why and
  *   how to fix it instead of offering to pair: a missing block gave no reason for the missing QR. It first says
  *   what the block is for, since whoever reads it may never have seen the QR it replaces.
- * - The break button and the break-length field exist only when the payload says breaks: true, i.e. Odoo
+ * - The break button and the break row of «Ajustes» exist only when the payload says breaks: true, i.e. Odoo
  *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
  * - Every sentence quoting the schedule is generated from it (scheduleSentence).
@@ -74,7 +77,7 @@ import {
 } from "./format.js";
 import { openDayOf } from "./dayedit.js";
 import { el, api, attachTip, tipRow } from "./shared.js";
-import { fillBar, minutesField, bellIcon, qrIcon, actionButton } from "./ui.js";
+import { fillBar, bellIcon, gearIcon, qrIcon, actionButton, openSettings } from "./ui.js";
 import { saveState } from "./api.js";
 import { stopFlash, notifyStatus } from "./alarms.js";
 
@@ -153,7 +156,7 @@ export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, le
   return main;
 }
 
-export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
+export function heroMeters(week, day, open, remaining, restToday, away) {
   const box = el("div", "meter-box");
 
   const dayBlock = el("div", "meter-block");
@@ -177,7 +180,7 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
     const meter = el("div", "meter week");
     const fill = el("div", "fill");
     fill.style.width = Math.min(week.total / week.target * 100, 100) + "%";
-    meter.appendChild(fillBar(fill, week.sessions, week.total));
+    meter.appendChild(fill);
     const scale = el("div", "scale");
     for (const d of week.days.filter(d => d.expected > 0)) {
       scale.appendChild(el("div", "day")).style.setProperty("--hours", d.expected);
@@ -209,19 +212,12 @@ export function heroMeters(week, day, open, remaining, restToday, lunchDone) {
   } else {
     box.appendChild(el("div", "note", "Sin fichajes registrados"));
   }
-  if (lunchDone > 0.01) {
-    box.appendChild(el("div", "note", `Comida de hoy: ${fmtShort(lunchDone)} ausente`));
+  if (away > 0.01) {
+    box.appendChild(el("div", "note", `Ausente hoy: ${fmtShort(away)}`));
   }
   if (restToday > 0.01) {
     box.appendChild(el("div", "note",
       `Descanso de hoy: ${fmtShort(restToday)} ausente${open && open.rest ? " (en curso)" : ""}`));
-  }
-  if (day.expected > 0 && !store.other) {
-    const cfg = el("div", "note durations");
-    cfg.appendChild(minutesField("Comida", "lunch_minutes",
-      lunchHours(day) > 0 ? "" : " · hoy sin comida prevista"));
-    if (store.data.breaks) cfg.appendChild(minutesField("Descanso", "break_minutes", ""));
-    box.appendChild(cfg);
   }
   return box;
 }
@@ -258,7 +254,14 @@ export function heroActions(open, day, dayRemaining) {
 
   store.notifyArgs = [open, day, dayRemaining];
   store.notifyEl = el("div", "note", notifyStatus(...store.notifyArgs));
+  const settings = el("button", "icon-btn");
+  settings.type = "button";
+  settings.title = "Ajustes";
+  settings.setAttribute("aria-label", settings.title);
+  settings.appendChild(gearIcon());
+  settings.addEventListener("click", openSettings);
   const notify = el("div", "notify-row");
+  notify.appendChild(settings);
   notify.appendChild(mute);
   notify.appendChild(store.notifyEl);
   actions.appendChild(notify);
@@ -275,8 +278,8 @@ export function renderHero() {
   const restToday = day.rest;
   const open = store.data.sessions.find(s => !s.out);
   const working = open && new Date(open.in) >= store.today;
-  const lunchDone = unloggedGap(day.sessions, day.leaves);
-  const lunchLeft = lunchDone > 0.01 ? 0 : lunchHours(day);
+  const away = unloggedGap(day.sessions, day.leaves);
+  const lunchLeft = away > 0.01 ? 0 : lunchHours(day);
   const leaveAt = working && dayRemaining > 0
     ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6)
     : null;
@@ -284,12 +287,12 @@ export function renderHero() {
   const hero = document.getElementById("hero");
   hero.replaceChildren();
   hero.appendChild(heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, Boolean(open && !working)));
-  hero.appendChild(heroMeters(week, day, open, remaining, restToday, lunchDone));
+  hero.appendChild(heroMeters(week, day, open, remaining, restToday, away));
   if (!store.other) hero.appendChild(heroActions(open, day, dayRemaining));
 }
 
 /* ---------- acceso desde el móvil ---------- */
-let phoneView = "ip";
+let phoneView = "name";
 let pairing = null;
 let pairError = "";
 
@@ -310,8 +313,8 @@ export function renderPhone() {
     return;
   }
   const views = {
-    ip: { label: "Por IP", url: phone.url, note: "Vale en esta red; al cambiar de red, empareja de nuevo." },
     name: { label: "Por nombre", url: phone.name_url, note: "Si tu móvil resuelve mDNS, vale en todas las redes." },
+    ip: { label: "Por IP", url: phone.url, note: "Vale en esta red; al cambiar de red, empareja de nuevo." },
   };
   const left = pairing ? Math.ceil((pairing.until - Date.now()) / 1000) : 0;
   if (left <= 0) pairing = null;
@@ -675,7 +678,7 @@ export function renderCalendar() {
       else if (d.expected > 0) t.appendChild(tipRow("Previsto", fmtHM(d.expected)));
       d.leaves.forEach(l => t.appendChild(tipRow(`Permiso · ${l.type}`, fmtShort(l.hours))));
       const gap = unloggedGap(d.sessions, d.leaves);
-      if (gap > 0.01) t.appendChild(tipRow("Comida (ausente)", fmtShort(gap)));
+      if (gap > 0.01) t.appendChild(tipRow("Ausente", fmtShort(gap)));
       if (d.rest > 0.01) t.appendChild(tipRow("Descanso", fmtShort(d.rest)));
       if (d.sessions.length) {
         t.appendChild(el("div", "t-sep"));

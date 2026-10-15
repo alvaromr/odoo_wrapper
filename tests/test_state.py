@@ -18,6 +18,10 @@ class MinutesTest(unittest.TestCase):
         for value in (-1, st.MINUTES_MAX + 1, "30", 30.5, None, True, False, [30]):
             self.assertEqual(st.valid_minutes(value, 99), 99, value)
 
+    def test_a_setting_may_have_its_own_top(self):
+        self.assertEqual(st.valid_minutes(st.LAST_MINUTE, 99, st.LAST_MINUTE), st.LAST_MINUTE)
+        self.assertEqual(st.valid_minutes(st.LAST_MINUTE + 1, 99, st.LAST_MINUTE), 99)
+
 
 class StateTest(unittest.TestCase):
     def setUp(self):
@@ -26,9 +30,17 @@ class StateTest(unittest.TestCase):
     def test_defaults_without_a_file(self):
         self.assertEqual(st.read_state(3), {
             "lunch": None, "lunch_minutes": st.LUNCH_DEFAULT,
-            "break_minutes": st.BREAK_DEFAULT, "muted": False, "lunch_done": False,
-            "punched_at": None,
+            "break_minutes": st.BREAK_DEFAULT, "lunch_button_from": 810, "lunch_button_to": 960,
+            "muted": False, "lunch_done": False, "punched_at": None,
         })
+
+    def test_the_lunch_buttons_window_is_kept_and_a_broken_one_dropped(self):
+        st.write_state(3, lunch_button_from=0, lunch_button_to=st.LAST_MINUTE)
+        self.assertEqual([st.read_state(3)[k] for k in ("lunch_button_from", "lunch_button_to")], [0, 1439])
+        for window in ({"lunch_button_from": 900, "lunch_button_to": 900}, {"lunch_button_to": 600}):
+            with open(st.STATE_FILE, "w") as f:
+                json.dump({"3": window}, f)
+            self.assertEqual([st.read_state(3)[k] for k in ("lunch_button_from", "lunch_button_to")], [810, 960])
 
     def test_unreadable_file_falls_back_to_defaults(self):
         for content in ("{roto", "", "[]", '"texto"'):

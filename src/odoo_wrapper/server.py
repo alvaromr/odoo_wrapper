@@ -420,16 +420,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send(401, {"error": "no autorizado"})
             return
         if self.path == "/api/state":
+            uid = _sessions[self.session]
             changes = {}
-            for key in ("lunch_minutes", "break_minutes"):
+            for key, top in state.MINUTE_LIMITS.items():
                 if key in body:
-                    if state.valid_minutes(body[key], None) is None:
+                    if state.valid_minutes(body[key], None, top) is None:
                         self._send(400, {"error": f"{key} fuera de rango: {body[key]}"})
                         return
                     changes[key] = body[key]
+            if not state.window_ok({**state.read_state(uid), **changes}):
+                self._send(400, {"error": "El botón de comida tiene que aparecer antes de la hora en que desaparece"})
+                return
             if "muted" in body:
                 changes["muted"] = bool(body["muted"])
-            self._send(200, state.write_state(_sessions[self.session], **changes))
+            self._send(200, state.write_state(uid, **changes))
         elif self.path == "/api/pair":
             phone = lan.phone_access()
             if not self._local():

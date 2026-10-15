@@ -11,7 +11,7 @@
  *
  * - store.data is the last payload from /api/data; store.now/store.today the clock it was rendered with;
  *   store.byDay, store.absMap and store.leaveMap the indexes built from it; store.state the shared state
- *   (lunch stamp, durations, mute).
+ *   (lunch stamp, settings, mute).
  * - store.contractHours holds the payload's contract_hours ({date: hours}, data.py): the days whose contract
  *   in force asked for other hours than the current schedule, which a day's expected hours take first.
  * - store.expected, store.lunchFrom and store.weekTarget come only from the schedule in the payload;
@@ -38,7 +38,8 @@ export const RetryAfter = 60000;
 
 export const store = {
   data: null, now: null, today: null, byDay: new Map(), absMap: new Map(), leaveMap: new Map(),
-  state: { lunch: null, lunch_minutes: 30, break_minutes: 15, muted: false, lunch_done: false, punched_at: null },
+  state: { lunch: null, lunch_minutes: 30, break_minutes: 15, lunch_button_from: 810, lunch_button_to: 960,
+    muted: false, lunch_done: false, punched_at: null },
   expected: NoSchedule.hours, lunchFrom: NoSchedule.lunch_from, weekTarget: 0, contractHours: new Map(), since: "",
   other: null, loadedAt: 0, triedAt: 0, punchEl: null, punchEv: null, notifyEl: null, notifyArgs: null,
 };

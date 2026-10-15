@@ -53,13 +53,20 @@
   .meter-caption.strong { font-size: 13px; color: var(--foreground); font-weight: 550; }
   .meter-block { display: flex; flex-direction: column; gap: 5px; }
   .hero .note { font-size: 12px; color: var(--muted-foreground); }
-  .durations { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .settings { display: grid; gap: 4px; }
+  .setting {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px;
+    padding: 6px 8px; margin: 0 -8px; border-radius: var(--radius-sm);
+  }
+  .setting:hover, .setting:focus-visible { background: var(--muted); }
+  .setting-name { flex: 1 1 160px; }
   .duration { display: inline-flex; align-items: center; gap: 6px; }
-  .lunch-input {
-    width: 58px; background: var(--background); color: var(--foreground); font: inherit; font-size: 12px;
-    border: 1px solid var(--input); border-radius: var(--radius-xs); padding: 3px 6px; text-align: right;
+  .lunch-input, .clock-input {
+    background: var(--background); color: var(--foreground); font: inherit; font-size: 13px;
+    border: 1px solid var(--input); border-radius: var(--radius-xs); padding: 3px 6px;
     font-variant-numeric: tabular-nums;
   }
+  .lunch-input { width: 64px; text-align: right; }
   .phone { display: flex; gap: 20px; align-items: center; margin-top: 20px; }
   .phone .qr svg { width: 116px; height: 116px; border-radius: var(--radius-xs); display: block; }
   .phone .links { min-width: 0; display: grid; gap: 4px; justify-items: start; }
