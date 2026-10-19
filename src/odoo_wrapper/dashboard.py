@@ -57,7 +57,9 @@ Si tu usuario de Odoo puede ver fichajes de otras personas, el panel enlaza «Ge
 (http://localhost:{server.PORT}/gestion): semana, mes o año de cada persona que Odoo te deja ver,
 con sus incidencias, y desde cada nombre su propio panel, solo de lectura. El diálogo de cada día
 corrige, añade o elimina sus fichajes (eliminar no se puede deshacer) y aprueba sus solicitudes de
-cambio en Odoo; nada más escribe en Odoo salvo fichar.
+cambio en Odoo; nada más escribe en Odoo salvo fichar. En un día con un fichaje incorrecto prepara
+además el aviso para quien lo hizo: copiarlo, o enviárselo por privado con el bot de Discord si este equipo
+tiene su token (botón «Discord» de Gestión, u odoo discord) y su ficha de Odoo su ID de Discord.
 
 Al guardar cambios en el código se reinicia solo; no hace falta pararlo. Si el puerto {server.PORT}
 está ocupado es que ya hay otro dashboard: recarga esa página en vez de arrancar otro.
@@ -66,7 +68,8 @@ Ficheros, en {STATE_DIR}:
   config.json    URL, base de datos y usuario
   state.json     comida, descansos y silencio del día de cada usuario, compartidos entre sus dispositivos
   cert-<red>.pem, key-<red>.pem   un certificado por red (nombre e IP); al volver a una red conocida se reutiliza
-  dashboard.log  salida del servidor cuando no hay terminal; al pasar de 1 MB se aparta como .1"""
+  dashboard.log  salida del servidor cuando no hay terminal; al pasar de 1 MB se aparta como .1
+  discord_token  token del bot de Discord que envía los avisos; bórralo para dejar de enviarlos"""
 
 AUTOSTART_DONE = {
     "on": "El dashboard arrancará solo cada vez que inicies sesión, y ya se ha lanzado: "

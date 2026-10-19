@@ -123,6 +123,39 @@ class BuildTeamTest(unittest.TestCase):
                     if model == "hr.attendance" and len(args) == 1 and ("check_out", "=", False) not in args[0])
         self.assertIn(("employee_id", "in", [1, 2, 3, 5]), week[0])
 
+    def test_each_employee_carries_the_discord_field_odoo_has(self):
+        self.assertEqual({e["discord"] for e in self.payload["employees"]}, {None})
+        self.client.labelled[("hr.employee", "discord")] = "x_studio_discord"
+        self.client.rows["hr.employee"] = [dict(e, x_studio_discord=v) for e, v in
+                                           zip(EMPLOYEES, [" 123456789012345678 ", False, "carl.dc", 42])]
+        payload = tm.build_team(self.client, MONDAY)
+        self.assertEqual([e["discord"] for e in payload["employees"]], ["123456789012345678", None, "carl.dc", "42"])
+        read = [args for model, args, _ in self.client.calls if model == "hr.employee"][-1]
+        self.assertEqual(read[1], ["name", "resource_calendar_id", "user_id", "x_studio_discord"])
+        self.assertEqual(tm.discord_of(self.client, 1), "123456789012345678")
+        self.assertEqual(self.client.calls[-1], ("hr.employee", [[1], ["name", "x_studio_discord"]], None))
+        self.client.labelled.clear()
+        self.assertIsNone(tm.discord_of(self.client, 1))
+
+    def test_a_session_outside_hr_reads_everyone_without_their_discord(self):
+        def public_only(args, kwargs):
+            if "x_studio_discord" in args[1]:
+                raise OdooError("no disponibles para los perfiles públicos")
+            return EMPLOYEES
+        self.client.labelled[("hr.employee", "discord")] = "x_studio_discord"
+        self.client.rows["hr.employee"] = public_only
+        payload = tm.build_team(self.client, MONDAY)
+        self.assertEqual([(e["name"], e["discord"]) for e in payload["employees"]],
+                         [("Ana", None), ("Bea", None), ("Carl", None), ("Dani", None)])
+        self.client.labelled.clear()
+        self.client.rows["hr.employee"] = lambda args, kwargs: (_ for _ in ()).throw(OdooError("caído"))
+        with self.assertRaises(OdooError):
+            tm.build_team(self.client, MONDAY)
+        self.client.rows["hr.employee"] = lambda args, kwargs: (_ for _ in ()).throw(SessionExpired("caducada"))
+        self.client.labelled[("hr.employee", "discord")] = "x_studio_discord"
+        with self.assertRaises(SessionExpired):
+            tm.build_team(self.client, MONDAY)
+
     def test_every_day_flag(self):
         flags = [d["flags"] for d in self.people["Ana"]["days"]]
         self.assertEqual(flags, [[], ["empty"], ["open"], [], ["long"], [], []])

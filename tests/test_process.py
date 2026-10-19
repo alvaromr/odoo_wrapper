@@ -160,6 +160,11 @@ class WatchTest(unittest.TestCase):
         self.assertIn("Cambio en a.py", out)
         execv.assert_called_once_with(sys.executable, pr.launch_command(["--host", "0.0.0.0"]))
 
+    def test_a_vanished_source_restarts(self):
+        execv, out = self.watch([{"a.py": 1, "b.py": 1}, {"b.py": 1}], ["", ""], 30)
+        self.assertIn("Cambio en a.py", out)
+        execv.assert_called_once()
+
     def test_a_network_change_restarts(self):
         execv, out = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1", "mac|2"], -1)
         self.assertIn("Cambio de red", out)

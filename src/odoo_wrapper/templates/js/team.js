@@ -61,7 +61,7 @@
  *   naming its people on hover. The charts are drawn at their card's width, and again on resize, so their text
  *   keeps its size.
  * - «Fichajes por corregir», under the table or charts, is teamfixes.js; the page's shared state and the
- *   filter on people (name search) are teamstate.js.
+ *   filter on people (name search) are teamstate.js; the header's «Discord», the bot's token, is teamdiscord.js.
  * - The criteria note under the table is written from the payload's limits (criteria), so it can never
  *   drift from what team.py applies.
  * - The page keeps its view, period, filter, table or charts, the search and the kinds of fixes in the URL hash
@@ -79,6 +79,7 @@ import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireD
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
 import { team, FixKinds, FlagText, thisDay, named } from "./teamstate.js";
 import { renderFixes, loadFixes, wireFixes } from "./teamfixes.js";
+import { wireDiscord } from "./teamdiscord.js";
 
 export const Filters = {
   issues: { label: "Con incidencias", keep: e => hasFlags(e), none: "Nadie tiene incidencias esta semana" },
@@ -581,6 +582,7 @@ const gridPan = panScroll(document.getElementById("gridScroll"));
 wireDayDialog();
 wireFixes(saveState);
 onDaySaved(() => load(view().key(), true));
+wireDiscord(document.getElementById("discordBtn"));
 
 wireLogout(document.getElementById("logoutBtn"));
 wireMouseHistory();

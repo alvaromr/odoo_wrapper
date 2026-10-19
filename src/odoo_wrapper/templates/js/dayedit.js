@@ -30,6 +30,15 @@
  *   and reopen the day as it now is (refreshDay), read from that day's week. When shortening a punch loses the
  *   next day's check-in (team.py, lost_entry) the note under the day says which one to add there; nothing is
  *   created on its own.
+ * - A day with a punch error ends with the message that tells its owner what is wrong and asks for an attendance
+ *   change request (noticeBox), folded behind one button, «Avisar por Discord…» or «Preparar aviso…»: most visits
+ *   come to correct, not to warn, and the dialog was crowded. Unfolded, it is a field, so it can be retouched
+ *   before sending. «Enviar» sends it as it stands, by private message from the bot (discord.py), when this
+ *   machine has one (the payload's can_message) and the person's Odoo record names their Discord user (team.py's
+ *   discord); it asks for a second click like every other button that acts for real, and its tooltip says that
+ *   the server adds that the message is automatic and whom to write to, which the field does not show.
+ *   «Copiar» is always there, for the rest; a clipboard that refuses (a page out of a secure context) leaves
+ *   the text selected for a manual copy. «Cancelar» folds it again, keeping what was typed.
  * - The dialog stays open, for reading a long reason or copying times: a click outside does not close it,
  *   only «Cerrar» or Escape, and neither while a write is on its way (holdDialog): its answer reopens the day,
  *   which reopened a dialog already closed.
@@ -103,7 +112,7 @@ export function requestLine(r) {
   return `Solicitud ${RequestText[r.status].toLowerCase()} ${span}`;
 }
 
-export function openDay(employee, day, { limits, can_edit: canEdit, reasons }) {
+export function openDay(employee, day, { limits, can_edit: canEdit, reasons, can_message: canMessage }) {
   hideTip();
   document.getElementById("dayDialogTitle").textContent = employee.name;
   document.getElementById("dayDialogNote").textContent = "";
@@ -111,8 +120,53 @@ export function openDay(employee, day, { limits, can_edit: canEdit, reasons }) {
   body.replaceChildren(el("div", "t-title", dayLabel(day.date)));
   if (canEdit) body.appendChild(punchEditor(employee, day, limits, reasons));
   dayDetails(day, limits, { employee: employee.id, title: false, sessions: !canEdit })(body);
+  if (day.flags.length) body.append(el("div", "t-sep"), noticeBox(employee, day, limits, canMessage));
   const dialog = document.getElementById("dayDialog");
   if (!dialog.open) dialog.showModal();
+}
+
+export function noticeText(day, limits) {
+  const date = parseDay(day.date).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
+  const why = day.flags.flatMap(kind => whyDay(kind, day, limits)).map(t => t[0].toLowerCase() + t.slice(1));
+  return `Tienes un error en el fichaje del ${date.replace(",", "")}: ${why.join("; ")}.\n`
+    + "Por favor, haz una solicitud de cambio de fichaje en Odoo.";
+}
+
+export function noticeBox(employee, day, limits, canMessage) {
+  const box = el("div", "notice");
+  const text = el("textarea");
+  text.value = noticeText(day, limits);
+  text.rows = 4;
+  text.setAttribute("aria-label", "Mensaje para avisar del error");
+  const actions = el("div", "edit-actions");
+  const sends = Boolean(canMessage && employee.discord);
+  if (sends) {
+    const send = confirmButton("Enviar", "No se pudo enviar", async () => {
+      await api("/api/team/discord", { employee: employee.id, text: text.value });
+      say(`Mensaje enviado a ${employee.name} por Discord.`);
+    });
+    send.title = "Al final se añade que es automático y que te escriba a ti";
+    actions.appendChild(send);
+  }
+  const copy = el("button", sends ? "btn ghost small" : "btn small", "Copiar");
+  copy.type = "button";
+  copy.addEventListener("click", () => Promise.resolve().then(() => navigator.clipboard.writeText(text.value)).then(
+    () => say("Mensaje copiado."),
+    () => { text.select(); say("No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C."); }));
+  actions.appendChild(copy);
+  const fold = el("button", "btn ghost small", "Cancelar");
+  fold.type = "button";
+  actions.appendChild(fold);
+  if (canMessage && !sends) actions.appendChild(el("span", "meta", "Sin Discord en su ficha de Odoo"));
+  const open = el("button", "btn ghost small", sends ? "Avisar por Discord…" : "Preparar aviso…");
+  open.type = "button";
+  open.addEventListener("click", () => {
+    box.replaceChildren(text, actions);
+    text.focus();
+  });
+  fold.addEventListener("click", () => box.replaceChildren(open));
+  box.appendChild(open);
+  return box;
 }
 
 export function say(text) {

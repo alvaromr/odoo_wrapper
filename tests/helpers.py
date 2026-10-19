@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from odoo_wrapper import cli, client as c, lan, process as pr, state as st  # noqa: E402
+from odoo_wrapper import cli, client as c, discord as dc, lan, process as pr, state as st  # noqa: E402
 
 CONFIG = {"url": "https://odoo.example", "db": "db", "user": "u"}
 NORMAL = {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True}
@@ -77,7 +77,7 @@ class ScriptedClient:
         self.open_att = open_att
         self.reasons = reasons
         self.employee_id, self.employee_name, self.calendar_id = 7, "Ana", 4
-        self.punches, self.calls = [], []
+        self.punches, self.calls, self.labelled = [], [], {}
         self.session_id, self.uid = "sid", 3
 
     def session_info(self):
@@ -103,6 +103,9 @@ class ScriptedClient:
     def attendance_reasons(self):
         return self.call_kw("hr.attendance.reason", "search_read", [[]], {})
 
+    def field_named(self, model, label):
+        return self.labelled.get((model, label))
+
     def offered_reasons(self):
         return [r for r in self.reasons if r]
 
@@ -127,6 +130,7 @@ def temp_state(test):
         (cli, "WRITTEN_FILE", os.path.join(home.name, "notices_written")),
         (lan, "STATE_DIR", home.name), (pr, "STATE_DIR", home.name),
         (st, "STATE_FILE", os.path.join(home.name, "state.json")),
+        (dc, "TOKEN_FILE", os.path.join(home.name, "discord_token")),
         (pr, "LOG_FILE", os.path.join(home.name, "dashboard.log")),
     ):
         patcher = patch.object(module, name, value)

@@ -251,6 +251,13 @@ class EmployeeTest(unittest.TestCase):
         self.assertEqual(len(odoo.opener.calls), 1)
         self.assertEqual(client(kw([])).sign_in_reasons(), (None, None))
 
+    def test_a_field_added_by_hand_is_found_by_its_label(self):
+        odoo = client(kw({"name": {"string": "Name"}, "x_studio_discord": {"string": " Discord "}}))
+        self.assertEqual(odoo.field_named("hr.employee", "discord"), "x_studio_discord")
+        _, params, _ = odoo.opener.calls[0]
+        self.assertEqual((params["model"], params["method"]), ("hr.employee", "fields_get"))
+        self.assertIsNone(client(kw({"name": {"string": "Name"}})).field_named("hr.employee", "discord"))
+
     def test_reasons_are_optional(self):
         missing = {"error": {"code": 200, "data": {"name": "builtins.KeyError", "message": "hr.attendance.reason"}}}
         odoo = client(missing)

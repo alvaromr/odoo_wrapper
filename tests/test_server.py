@@ -258,6 +258,30 @@ class HandlerTest(unittest.TestCase):
             self.assertEqual(self.post("/api/team/approve", {"id": 552})[:3:2], (409, {"error": "no"}))
             approve.assert_called_once_with(client.return_value, 552)
 
+    def test_a_discord_message_needs_a_session_that_reads_others_and_nothing_else(self):
+        body = {"employee": 7, "text": "hola"}
+        with patch.object(sv, "new_client") as client, \
+                patch.object(sv.discord, "message_employee", return_value=(200, {"ok": True})) as message:
+            client.return_value.sees_others.return_value = False
+            self.assertEqual(self.post("/api/team/discord", body)[0], 403)
+            message.assert_not_called()
+            client.return_value.sees_others.return_value = True
+            client.return_value.edits_punches.return_value = False
+            sv._rights.clear()
+            self.assertEqual(self.post("/api/team/discord", body)[:3:2], (200, {"ok": True}))
+            message.assert_called_once_with(client.return_value, body)
+
+    def test_the_bot_token_is_kept_for_a_session_that_reads_others_and_never_sent_back(self):
+        with patch.object(sv, "new_client") as client, \
+                patch.object(sv.discord, "set_token", return_value=(200, {"bot": "Odoo"})) as set_token:
+            client.return_value.sees_others.return_value = False
+            self.assertEqual(self.post("/api/team/discord/token", {"token": "tok"})[0], 403)
+            set_token.assert_not_called()
+            client.return_value.sees_others.return_value = True
+            sv._rights.clear()
+            self.assertEqual(self.post("/api/team/discord/token", {"token": "tok"})[:3:2], (200, {"bot": "Odoo"}))
+            set_token.assert_called_once_with("tok")
+
     def test_team_api(self):
         self.assertEqual(self.get("/api/team", cookie=None)[0], 401)
         self.assertEqual(self.get("/api/team?week=nope")[0], 400)
@@ -269,8 +293,10 @@ class HandlerTest(unittest.TestCase):
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = True
             sv._rights.clear()
-            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1, "can_edit": True})
+            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1, "can_edit": True, "can_message": False})
             fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
+            c.write_private(sv.discord.TOKEN_FILE, "tok")
+            self.assertIs(self.get("/api/team?week=2026-09-24")[2]["can_message"], True)
             self.get("/api/team")
             fetch.assert_called_with(client.return_value, sv.team.monday_of(sv.date.today()), False)
             self.get("/api/team?month=2026-09")
@@ -279,7 +305,7 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.get("/api/team?year=dos")[0], 400)
         with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_year", return_value={"year": 2025}) as fetch:
             client.return_value.sees_others.return_value = True
-            self.assertEqual(self.get("/api/team?year=2025&fresh")[2], {"year": 2025})
+            self.assertEqual(self.get("/api/team?year=2025&fresh")[2], {"year": 2025, "can_message": True})
             fetch.assert_called_with(client.return_value, 2025, True)
         with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_fixes", return_value={"employees": []}) as fixes:
             client.return_value.sees_others.return_value = True

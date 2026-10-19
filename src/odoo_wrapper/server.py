@@ -69,12 +69,16 @@ API
 - GET /api/team?week=<any day>[&fresh] is team.py's payload for that day's week (this week by default), and
   ?month=YYYY-MM the one for every week of that month, ?year=YYYY that year summarised by month, ?fixes
   the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
-  attendances. The page for it is /gestion.
+  attendances. The page for it is /gestion. The week, month and year payloads carry can_message: whether this
+  machine has a Discord bot to send the day dialog's notice with (discord.py).
 - Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
 - POST /api/team/attendance {id | employee, check_in, check_out[, reason]} (ISO times with their offset, the
   id of an attendance reason) edits or creates someone's punch, POST /api/team/delete {id} removes one, and
   POST /api/team/approve {id} approves a change request (see corrections.py); all answer 403 like /api/team,
-  and they are the only writes besides punching.
+  and they are the only writes besides punching. POST /api/team/discord {employee, text} sends that employee
+  a direct message from the bot (discord.py), with the same 403; it writes nothing to Odoo. POST
+  /api/team/discord/token {token} keeps the bot's token once Discord accepts it, the same as `odoo discord`, and
+  answers the bot's name, never the token: no request reads it back.
 """
 
 import json
@@ -90,7 +94,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
 
-from . import corrections, data, lan, process, state, team
+from . import corrections, data, discord, lan, process, state, team
 from .client import (
     CONFIG_KEYS, AccessDenied, OdooClient, OdooDown, OdooError, SessionExpired, TotpRequired,
     load_config, read_config, save_config,
@@ -344,13 +348,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(403, {"error": NOT_TEAM})
                 return
             if year:
-                self._send(200, team.fetch_year(client, year, "fresh" in params))
+                self._send(200, dict(team.fetch_year(client, year, "fresh" in params), can_message=discord.configured()))
                 return
             if "fixes" in params:
                 self._send(200, team.fetch_fixes(client, "fresh" in params))
                 return
             payload = team.fetch_team(client, span[0], "fresh" in params, *span[1:])
-            self._send(200, dict(payload, can_edit=edits_punches(client)))
+            self._send(200, dict(payload, can_edit=edits_punches(client), can_message=discord.configured()))
         else:
             self._send(404, {"error": "not found"})
 
@@ -447,10 +451,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
         elif self.path == "/api/attendance":
             self._send(*data.punch(new_client(self.session), body.get("action")))
-        elif self.path in ("/api/team/attendance", "/api/team/delete", "/api/team/approve"):
+        elif self.path in ("/api/team/attendance", "/api/team/delete", "/api/team/approve", "/api/team/discord",
+                           "/api/team/discord/token"):
             client = new_client(self.session)
             if not sees_others(client):
                 self._send(403, {"error": NOT_TEAM})
+            elif self.path == "/api/team/discord":
+                self._send(*discord.message_employee(client, body))
+            elif self.path == "/api/team/discord/token":
+                self._send(*discord.set_token(body.get("token")))
             elif self.path == "/api/team/approve":
                 self._send(*corrections.approve_request(client, body.get("id")))
             elif not edits_punches(client):

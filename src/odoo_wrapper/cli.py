@@ -8,7 +8,8 @@ live in the browsers instead, so the two tools never share or invalidate each ot
 for a two-factor code, `odoo login` asks for it too and keeps the trusted-device key Odoo answers with in
 cli_device, so the next login within 90 days skips the code (client.py says how). Every command
 builds one OdooClient (client.py), runs one action and exits; sheet never reaches Odoo and builds none, so it
-works without a session.
+works without a session, and neither does discord, which keeps the token of the bot the dashboard sends its
+notices with (discord.py).
 
 Odoo ends a session idle for about a week, and this one is idle most of the time (the dashboard's are renewed
 by the polling of their open pages), so it used to be dead by the time an agent needed it. Two answers:
@@ -55,11 +56,12 @@ import time
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
-from . import team
+from . import discord, team
 from .client import (
     STATE_DIR, OdooClient, OdooError, SessionExpired, TotpRequired, load_config, read_config, read_private,
     save_config, write_private,
 )
+from .discord import DiscordError
 from .sheets import Sheets, SheetsError
 
 CLI_SESSION_FILE = os.path.join(STATE_DIR, "cli_session")
@@ -96,6 +98,8 @@ Comandos:
                   nunca repite una que ya escribió, aunque después se borre o cambie a mano
   sheet [URL]     Identificador de la hoja de avisos guardada; con la dirección de una hoja de
                   cálculo de Google, la guarda antes como hoja de avisos
+  discord         Guardar el token del bot de Discord con el que el dashboard avisa por privado a
+                  quien ha fichado mal: lo pide sin mostrarlo y lo comprueba con Discord
 
 checkin, checkout, toggle, break y resume registran fichajes reales en Odoo; status, history y notices
 solo leen de Odoo, y sheet ni siquiera contacta con él.
@@ -112,7 +116,8 @@ Ficheros, en {STATE_DIR}:
   cli_session      sesión de Odoo de este CLI; bórralo para cerrar sesión
   cli_device       dispositivo de confianza para el 2FA; bórralo para que vuelva a pedir el código
   notices_sheet    hoja de avisos guardada con sheet; bórralo para olvidarla
-  notices_written  avisos ya escritos en cada hoja, para no repetir los que se borren o cambien a mano"""
+  notices_written  avisos ya escritos en cada hoja, para no repetir los que se borren o cambien a mano
+  discord_token    token del bot de Discord; bórralo para que el dashboard deje de enviar avisos"""
 
 
 def local_time(ts):
@@ -400,9 +405,17 @@ COMMANDS = {"status": status, "checkin": check_in, "checkout": check_out, "toggl
             "break": take_break, "resume": resume}
 
 
+def discord_bot():
+    name = discord.save_token(getpass.getpass("Token del bot de Discord: ").strip())
+    print(f"Bot «{name}» guardado en {discord.TOKEN_FILE}")
+
+
 def run(cmd):
     if cmd == "sheet":
         sheet(*sys.argv[2:3])
+        return
+    if cmd == "discord":
+        discord_bot()
         return
     client = cli_client()
     if cmd == "history":
@@ -422,7 +435,7 @@ def main():
         sys.exit(0)
 
     cmd = sys.argv[1].lower()
-    if cmd not in ("login", "history", "notices", "sheet", *COMMANDS):
+    if cmd not in ("login", "history", "notices", "sheet", "discord", *COMMANDS):
         print(f"Comando desconocido: {cmd}")
         print(USAGE)
         sys.exit(1)
@@ -442,7 +455,7 @@ def main():
     except SessionExpired as error:
         print(f"ERROR: {error}. Ejecuta: odoo login", file=sys.stderr)
         sys.exit(1)
-    except (OdooError, SheetsError) as error:
+    except (OdooError, SheetsError, DiscordError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         sys.exit(1)
 

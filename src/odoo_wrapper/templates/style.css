@@ -228,6 +228,14 @@ dialog.dialog::backdrop { background: color-mix(in srgb, var(--background) 65%, 
 .edit-row.warn input { border-color: var(--chart-error); color: var(--status-warning); }
 .edit-row .meta { color: var(--muted-foreground); font-size: 12px; }
 .edit-actions { display: flex; gap: 8px; }
+.notice { display: grid; justify-items: start; gap: 8px; margin-top: 10px; }
+.notice .edit-actions { flex-wrap: wrap; }
+.notice .btn { white-space: nowrap; }
+.notice textarea { justify-self: stretch; border: 1px solid var(--input); background: transparent; color: var(--foreground); font: inherit;
+  font-size: 13px; border-radius: var(--radius-sm); padding: 6px 8px; resize: vertical; }
+.notice .meta { align-self: center; color: var(--muted-foreground); font-size: 12px; }
+#discordDialog .edit-row { margin-top: 10px; }
+#discordDialog input { flex: 1 1 200px; }
 .dialog .btn.small { padding: 4px 10px; font-size: 12.5px; }
 .dialog-note { font-size: 13px; color: var(--status-warning); margin-top: 8px; }
 .dialog-note:empty { display: none; }

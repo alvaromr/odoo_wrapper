@@ -22,6 +22,8 @@
   degrades to plain punches without a reason. Only a dead session still propagates. The rows are read once
   per client; a client lives one CLI command or one dashboard request. offered_reasons() are the ones Odoo's
   own attendance screen offers on check-in, working ones first: what a punch may be given, here too.
+- A field someone added to a model by hand (Studio names it x_studio_<label>, the technical settings x_<label>)
+  is found by its label, field_named(), never by its technical name: None when the model has no such field.
 - A network failure on the way to Odoo (refused, DNS, timeout, a gateway error) is raised as OdooDown with a
   message the user can read, so neither the CLI nor the dashboard shows a traceback or a generic 500 when
   Odoo is simply down. A response that is not JSON (a maintenance page, a proxy error page) is OdooDown too.
@@ -301,6 +303,10 @@ class OdooClient:
             except OdooError:
                 self._reasons = []
         return self._reasons
+
+    def field_named(self, model, label):
+        fields = self.call_kw(model, "fields_get", [], {"attributes": ["string"]})
+        return next((name for name, f in fields.items() if f["string"].strip().lower() == label), None)
 
     def offered_reasons(self):
         rows = [r for r in self.attendance_reasons() if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]]

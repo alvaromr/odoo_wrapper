@@ -68,6 +68,13 @@ read, with the problems a reviewer looks for already flagged.
   requests simply gets none, like the attendance reasons in client.py.
 - The payload's reasons are the ones a punch may be given (client.offered_reasons), for the day dialog's
   selector; each session carries its own as reason_id. Without the module the list is empty.
+- Each employee carries its Discord user id (discord), for the day dialog's message about a punch to fix: the
+  hr.employee field labelled DISCORD_LABEL that someone added to this Odoo by hand (client.field_named), read as
+  text whatever its type, None when it is empty or the field does not exist. A session outside HR reads
+  employees only through their public profile, which has no field added by hand, and Odoo refuses the whole
+  read (seen in real data, a team lead): read_employees then reads them again without it, so for that session
+  nobody has one. discord_of reads it for one employee, for discord.py: the recipient of that message and
+  its sender.
 - Read only: the day dialog's writes are corrections.py. The payload is cached per session and period for data.VIEW_TTL,
   longer than the personal one: what someone else punched moves slowly and «Actualizar» forces a reload.
 """
@@ -85,6 +92,7 @@ UNDER_MARGIN = 1 / 60
 OVER_MARGIN = 5
 REQUEST_CATEGORY = "fichaje"
 REQUEST_STATES = ("new", "pending", "approved", "refused")
+DISCORD_LABEL = "discord"
 
 
 def odoo_time(day):
@@ -254,7 +262,7 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
     week_rows = [week_row(monday + timedelta(weeks=w), days[7 * w:7 * w + 7], schedule, today) for w in range(weeks)]
     start, stop = (start or monday).isoformat(), (stop or monday + timedelta(weeks=weeks)).isoformat()
     inside = [d for d in days if start <= d["date"] < stop]
-    return {"id": employee["id"], "name": employee["name"],
+    return {"id": employee["id"], "name": employee["name"], "discord": employee.get("discord"),
             "hours": round(sum(d["hours"] for d in inside), 2),
             "target": round(sum(d["target"] for d in inside), 2) if schedule else None,
             "balance": round(sum(d["hours"] - d["target"] for d in inside if d["date"] < today.isoformat()), 2)
@@ -265,6 +273,23 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
             "flagged_days": sum(bool(d["flags"]) for d in inside),
             "pending": sum(r["status"] == "pending" for d in inside for r in d["requests"]),
             "weeks": week_rows, "days": days}
+
+
+def read_employees(client, ids, fields):
+    discord = client.field_named("hr.employee", DISCORD_LABEL)
+    try:
+        rows = client.call_kw("hr.employee", "read", [ids, fields + ([discord] if discord else [])])
+    except SessionExpired:
+        raise
+    except OdooError:
+        if not discord:
+            raise
+        rows = client.call_kw("hr.employee", "read", [ids, fields])
+    return [dict(r, discord=str(r.get(discord) or "").strip() or None) for r in rows]
+
+
+def discord_of(client, employee_id):
+    return read_employees(client, [employee_id], ["name"])[0]["discord"]
 
 
 def first_punches(client, ids):
@@ -288,7 +313,7 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
         {"lazy": True},
     )
     seen = [row["employee_id"][0] for row in roster if row["employee_id"]]
-    employees = client.call_kw("hr.employee", "read", [seen, ["name", "resource_calendar_id", "user_id"]])
+    employees = read_employees(client, seen, ["name", "resource_calendar_id", "user_id"])
     ids = [e["id"] for e in employees]
     since = first_punches(client, ids)
     for e in employees:

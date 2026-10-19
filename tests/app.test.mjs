@@ -118,6 +118,7 @@ function element(tag = "div") {
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
     focus() {},
     blur() {},
+    select() { e.selected = true; },
     scrollIntoView() {},
     showModal() { e.open = true; },
     close() { e.open = false; },
@@ -1047,7 +1048,7 @@ test("a click on a day opens its details in a dialog that closes", async () => {
   const dialog = page.document.getElementById("dayDialog");
   assert.equal(dialog.open, true);
   assert.equal(page.document.getElementById("dayDialogTitle").textContent, "Álvaro");
-  assert.deepEqual(texts(page.document.getElementById("dayDialogBody")), [`Mar 4 mar${Y25}`, "Sin fichajes",
+  assert.deepEqual(texts(page.document.getElementById("dayDialogBody")).slice(0, 6), [`Mar 4 mar${Y25}`, "Sin fichajes",
     "Jornada prevista de 8h sin fichajes ni ausencia", "Solicitud pendiente 09:00–17:40", "Olvidé fichar", "Solicitud rechazada 09:00"]);
   page.document.getElementById("dayDialogClose").listeners.click[0]();
   assert.equal(dialog.open, false);
@@ -1056,6 +1057,110 @@ test("a click on a day opens its details in a dialog that closes", async () => {
   assert.deepEqual(texts(page.document.getElementById("dayDialogBody")).slice(0, 1), [`Mié 5 mar${Y25}`]);
   alvaro[3].listeners.keydown[0]({ key: "Tab" });
   assert.equal(dialog.listeners.click, undefined);
+});
+
+test("a day with a punch error offers its owner's message, to send by Discord or to copy", async () => {
+  let clipboard = { writeText: async text => { copied.push(text); } };
+  const copied = [], posts = [];
+  const data = teamPayload();
+  let answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
+  const page = load({ entry: "team.js", globals: { navigator: { get clipboard() { return clipboard; } } },
+    fetchImpl: async (url, opts) => {
+      if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return answer; }
+      return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : data };
+    } });
+  await settle();
+  const doc = page.document;
+  const cell = i => doc.getElementById("grid").children[1].children[0].children[i];
+  const notice = () => doc.getElementById("dayDialogBody").children.find(c => c.className === "notice");
+  const actions = () => notice().children[1].children;
+  const button = label => actions().find(b => b.textContent === label);
+  const note = () => doc.getElementById("dayDialogNote").textContent;
+  const unfold = label => {
+    assert.deepEqual(notice().children.map(c => c.textContent), [label]);
+    notice().children[0].listeners.click[0]();
+  };
+  cell(3).listeners.click[0]();
+  assert.equal(notice(), undefined);
+  cell(2).listeners.click[0]();
+  unfold("Preparar aviso…");
+  const text = notice().children[0];
+  assert.equal(text.value, "Tienes un error en el fichaje del martes 4 de marzo: jornada prevista de 8h sin "
+    + "fichajes ni ausencia.\nPor favor, haz una solicitud de cambio de fichaje en Odoo.");
+  assert.deepEqual(actions().map(b => [b.textContent, b.className]), [["Copiar", "btn small"], ["Cancelar", "btn ghost small"]]);
+  text.value = "Hola, revisa el martes";
+  button("Cancelar").listeners.click[0]();
+  unfold("Preparar aviso…");
+  assert.equal(notice().children[0].value, "Hola, revisa el martes");
+  await button("Copiar").listeners.click[0]();
+  assert.deepEqual([copied, note()], [["Hola, revisa el martes"], "Mensaje copiado."]);
+  clipboard = { writeText: async () => { throw new Error("denegado"); } };
+  await button("Copiar").listeners.click[0]();
+  assert.equal(note(), "No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C.");
+  assert.equal(text.selected, true);
+  clipboard = undefined;
+  await button("Copiar").listeners.click[0]();
+  assert.equal(note(), "No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C.");
+
+  page.run("team.data.can_message = true");
+  cell(2).listeners.click[0]();
+  unfold("Preparar aviso…");
+  assert.deepEqual(actions().map(b => b.textContent), ["Copiar", "Cancelar", "Sin Discord en su ficha de Odoo"]);
+  page.run("team.data.employees.find(e => e.name === 'Álvaro').discord = '123456789012345678'");
+  cell(2).listeners.click[0]();
+  unfold("Avisar por Discord…");
+  assert.deepEqual(actions().map(b => [b.textContent, b.className]), [["Enviar", "btn small"], ["Copiar", "btn ghost small"],
+    ["Cancelar", "btn ghost small"]]);
+  assert.equal(button("Enviar").title, "Al final se añade que es automático y que te escriba a ti");
+  notice().children[0].value = "Revisa el martes";
+  const send = button("Enviar");
+  await send.listeners.click[0]();
+  await send.listeners.click[0]();
+  await settle();
+  assert.deepEqual(posts, [["/api/team/discord", { employee: 1, text: "Revisa el martes" }]]);
+  assert.equal(note(), "Mensaje enviado a Álvaro por Discord.");
+  answer = { ok: false, status: 502, json: async () => ({ error: "Discord no responde" }) };
+  await send.listeners.click[0]();
+  await send.listeners.click[0]();
+  await settle();
+  assert.equal(note(), "No se pudo enviar: Discord no responde");
+});
+
+test("«Discord» says whether the bot has a token and keeps a new one without ever showing it", async () => {
+  const posts = [];
+  let answer = { ok: true, status: 200, json: async () => ({ bot: "Odoo" }) };
+  const page = load({ entry: "team.js", fetchImpl: async (url, opts) => {
+    if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return answer; }
+    return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : teamPayload() };
+  } });
+  await settle();
+  const doc = page.document;
+  const dialog = doc.getElementById("discordDialog");
+  const [, status, help, row, note] = dialog.children;
+  const [input, save] = row.children;
+  doc.getElementById("discordBtn").listeners.click[0]();
+  assert.equal(dialog.open, true);
+  assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
+  assert.match(help.textContent, /Restablecer token/);
+  assert.equal(input.type, "password");
+  input.value = "tok";
+  await save.listeners.click[0]();
+  assert.deepEqual(posts, [["/api/team/discord/token", { token: "tok" }]]);
+  assert.deepEqual([input.value, note.textContent], ["", "Guardado: el bot «Odoo» enviará los avisos."]);
+  assert.equal(status.textContent, "Hay un token guardado: los avisos de fichajes se envían por privado.");
+  assert.equal(page.run("team.data.can_message"), true);
+  answer = { ok: false, status: 400, json: async () => ({ error: "Discord no acepta el token del bot" }) };
+  await save.listeners.click[0]();
+  assert.deepEqual([note.textContent, save.disabled], ["No se guardó: Discord no acepta el token del bot", false]);
+  input.value = "a medias";
+  dialog.children.at(-1).children[0].listeners.click[0]();
+  assert.equal(dialog.open, false);
+  page.run("team.data = null");
+  doc.getElementById("discordBtn").listeners.click[0]();
+  assert.deepEqual([input.value, note.textContent], ["", ""]);
+  answer = { ok: true, status: 200, json: async () => ({ bot: "Odoo" }) };
+  await save.listeners.click[0]();
+  assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
 });
 
 test("today's open session reads as in progress, not as zero", async () => {

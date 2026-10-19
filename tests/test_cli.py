@@ -366,6 +366,21 @@ class MainTest(unittest.TestCase):
             self.assertEqual(out.getvalue(), "1mF_a-b9\n")
         self.assertEqual(os.stat(os.path.join(home, "notices_sheet")).st_mode & 0o777, 0o600)
 
+    def test_discord_keeps_the_bot_token_without_a_session(self):
+        temp_state(self)
+        with patch.object(cli, "cli_client") as odoo, patch.object(cli.getpass, "getpass", return_value=" tok "), \
+                patch.object(cli.discord, "save_token", return_value="Odoo") as save:
+            out = io.StringIO()
+            with patch.object(sys, "argv", ["odoo", "discord"]), redirect_stdout(out):
+                cli.main()
+            save.assert_called_once_with("tok")
+            self.assertEqual(out.getvalue(), f"Bot «Odoo» guardado en {cli.discord.TOKEN_FILE}\n")
+            save.side_effect = cli.DiscordError("Discord no responde")
+            code, _, err = self.run_main("discord")
+        odoo.assert_not_called()
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR: Discord no responde", err)
+
     def test_odoo_errors_go_to_stderr(self):
         with patch.object(cli, "cli_client", side_effect=c.OdooError("sin configurar")):
             code, _, err = self.run_main("status")

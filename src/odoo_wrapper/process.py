@@ -2,7 +2,9 @@
 
 - Editing any .py of the package restarts the server by itself: a watcher compares mtimes every
   WATCH_INTERVAL seconds and re-execs launch_command() with the same arguments (minus --open), same PID and
-  ports. Never kill and relaunch it by hand; that is how duplicate stale instances appear. On Windows execv
+  ports. Never kill and relaunch it by hand; that is how duplicate stale instances appear. A file that
+  vanishes counts as changed: switching an install to an editable one deletes the files it runs from, and
+  the server kept running, answering every page with an error. On Windows execv
   cannot replace the process, so restart() spawns the child with ODOO_DASHBOARD_RESTART=1 and exits, and the
   child waits up to RESTART_GRACE seconds for the ports to free instead of refusing them as "another
   instance". Untested on a real Windows machine.
@@ -102,7 +104,8 @@ def watch_sources(net_identity=lambda: ""):
     initial, net, checked_net = stamps(), net_identity(), time.monotonic()
     while True:
         time.sleep(WATCH_INTERVAL)
-        changed = [p for p, t in stamps().items() if initial.get(p, t) != t]
+        current = stamps()
+        changed = [p for p, t in initial.items() if current.get(p) != t]
         if changed:
             reason = f"Cambio en {', '.join(os.path.basename(p) for p in changed)}"
         else:

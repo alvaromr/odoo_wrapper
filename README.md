@@ -16,19 +16,20 @@ bin/odoo-dashboard   web dashboard at http://localhost:8931/
 src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.py (entry point) and the
                      server modules it wires: server.py, data.py, team.py, state.py, lan.py, process.py,
                      autostart.py; qr.py;
-                     sheets.py (Google Sheets for `odoo notices`);
+                     sheets.py (Google Sheets for `odoo notices`); discord.py (the Discord bot's notices);
                      templates/ (pages, style.css and the page's scripts in js/)
 .ai/skills/          the agent skills odoo-attendance and odoo-notices, as the Claude Code plugin `odoo`
 ```
 
 ## Features
 
-- **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history`, `notices`, `sheet`
-  — see `odoo` with no arguments.
+- **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history`, `notices`, `sheet`,
+  `discord` — see `odoo` with no arguments.
 - **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes.
 - **Management view**: for a user who can read other people's attendances, `/gestion` shows everyone's week,
   month or year with punch errors (orange), targets missed, short or over (red) and change requests (blue); a day's dialog
-  corrects its punches and approves its change requests.
+  corrects its punches and approves its change requests, and warns whoever punched wrong by a private
+  Discord message from a bot, or a message to copy.
 - **Warnings sheet**: `odoo notices` appends everyone's punch errors and change requests to a Google Sheets
   file, and each month's count per employee, leaving alone whatever was changed there by hand;
   `.ai/skills/odoo-notices/SETUP.md` says what a machine needs first, on macOS, Linux or Windows.

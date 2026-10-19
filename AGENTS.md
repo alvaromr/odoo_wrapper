@@ -21,6 +21,7 @@ src/odoo_wrapper/
   data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
   team.py            the management view's payload: one week of everyone the session can read, flagged
   corrections.py     the day dialog's writes: correcting and adding punches, approving change requests
+  discord.py         the day dialog's notice of a punch to fix, sent by private message from a Discord bot
   state.py           the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
@@ -30,7 +31,7 @@ src/odoo_wrapper/
                      (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
                      as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
                      week, ui, api, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
-                     team) and what both use (shared, dayedit: the day dialog); store.js and teamstate.js hold each
+                     teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and teamstate.js hold each
                      page's state. Served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
@@ -47,7 +48,8 @@ Don't duplicate — each fact has one home:
   commands, flags, files, what clocks for real.
 - **The header of each module** — why it behaves as it does: `server.py` (sessions, same-site guard, API),
   `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and what each
-  flag means), `corrections.py` (what the day dialog writes and when it warns), `state.py` (the shared state),
+  flag means), `corrections.py` (what the day dialog writes and when it warns), `discord.py` (why a bot, and
+  how the recipient is found), `state.py` (the shared state),
   `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports, how it is launched),
   `autostart.py` (the login entry on each system), `cli.py` (the commands),
   `sheets.py` (why gws, and how little is asked of it),
@@ -72,8 +74,8 @@ Read the header of a module before touching it.
    (below), and only if nothing listens on port 8931 yet.**
    Never kill and relaunch it (saving a `.py` restarts it by itself) and never patch `PORT`/`TLS_PORT` to dodge
    a busy port; the header of `process.py` says why and how to find the instance holding it.
-3. **Secrets stay in `$HOME`.** Odoo config, the CLI session, TLS cert and key, and the warnings spreadsheet's
-   id with the rows written to it, all live in `~/.odoo_dashboard/`; the dashboard's own Odoo sessions live in
+3. **Secrets stay in `$HOME`.** Odoo config, the CLI session, TLS cert and key, the warnings spreadsheet's
+   id with the rows written to it, and the Discord bot's token, all live in `~/.odoo_dashboard/`; the dashboard's own Odoo sessions live in
    the browsers, and the Google sign-in in gws's own config and the OS keyring. Neither the Odoo password nor
    the Google credentials are ever stored by anything here.
    Nothing of this ever enters the repo, not even gitignored: this repo can be pushed anywhere.
@@ -190,7 +192,8 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
 - Status and history are `search_read` on `hr.attendance`, read-only. Odoo stores times in UTC; the tools print
   them in the local timezone.
 - The management view, the CLI's `notices` (the same payload) and the per-day targets also read, never write:
-  `hr.contract` (the calendar in force each day), `hr.employee` (name, calendar, user; archived employees are
+  `hr.contract` (the calendar in force each day), `hr.employee` (name, calendar, user, and the Discord user id
+  in a field added with Studio, found by its label «Discord»; archived employees are
   left out, their `departure_date` is only readable by HR officers) and `approval.request` (attendance change
   requests, found by category name).
   Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
@@ -221,6 +224,8 @@ Don't re-investigate these from scratch:
 - **A Wi-Fi with client isolation blocks phone→laptop regardless of the URL.** On an ordinary home or office
   network the whole path works: pairing QR, a certificate per network, and data.
 - **Tailscale and any external service are out of scope.** The dashboard stays LAN-only; don't propose them.
+  Reaching the dashboard is meant: the one service it calls out to besides Odoo is Discord's API, to send the day
+  dialog's notices from a bot (`discord.py`), which the user asked for.
 - **An Odoo API key cannot replace the password.** Verified against Odoo 18: the external RPC API (`/jsonrpc`,
   the only place Odoo accepts API keys) authenticates and reads fine, but it cannot punch — a regular employee has
   no `create`/`write` on `hr.attendance`, and `hr.employee` exposes no public clock method in 18

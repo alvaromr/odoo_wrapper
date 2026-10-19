@@ -1,0 +1,137 @@
+"""Direct messages from a Discord bot: the day dialog's notice of a punch to fix, sent to whoever made it.
+
+- A link cannot do it: Discord opens a profile from a user id, but takes no message from a link, and it opens a
+  conversation only by that conversation's own id, one per pair of people. So the dashboard sends the message
+  itself, as a bot added to the company's server: Discord lets a bot open a direct message with anyone who shares
+  a server with it and accepts direct messages from that server's members, the default. Two REST calls and no
+  gateway connection, so nothing runs in between: POST /users/@me/channels with the recipient opens (or finds)
+  the conversation, POST /channels/<id>/messages sends the text. The person sees it from the bot, not from whoever
+  pressed the button: writing as a person would take that person's own token, which Discord forbids automating.
+- The recipient is the employee's Discord user id, read from Odoo on every send (team.discord_of), never taken
+  from the page, so a session can only write to people whose attendances it reads (server.py checks that first).
+- Nobody reads the replies: the bot never connects, so an answer stays in that conversation unseen. Every
+  message therefore ends with FOOTER, saying so and naming whom to write to instead: whoever sent it, as a
+  Discord mention of the id on their own employee record (sender_id). Discord shows it with the name they go
+  by there, not Odoo's legal one («Constanza Elena…» for someone everyone knows as Elena), and a click on it
+  opens their profile, so they can always be reached; a sender without an id sends nothing. It is added here,
+  so the page can neither leave it out nor change it, and as Discord's subtext («-# »), small and grey, so it
+  does not compete with the notice itself.
+- The bot's token is a password: `odoo discord` asks for it without echo, and the management view's «Discord»
+  dialog sends it once (set_token); either checks it with Discord (GET /users/@me, which also names the bot)
+  and keeps it in TOKEN_FILE, mode 600, like the Odoo session. Nothing ever sends it back: the page only learns
+  whether there is one (configured(), the team payload's can_message), and without it the day dialog offers
+  only copying the message.
+- Discord refuses a request without a User-Agent of its own form, DiscordBot (url, version). Its refusals come
+  back as DiscordError in words the dialog shows: a token it no longer accepts, a person the bot may not write to,
+  an id it does not know, anything else with Discord's own message; a network failure as Discord out of reach.
+"""
+
+import json
+import os
+import urllib.error
+import urllib.request
+
+from . import team
+from .client import STATE_DIR, read_private, write_private
+
+API = "https://discord.com/api/v10"
+TOKEN_FILE = os.path.join(STATE_DIR, "discord_token")
+USER_AGENT = "DiscordBot (https://github.com/alvaromr/odoo_wrapper, 1.0)"
+TIMEOUT = 15
+MESSAGE_MAX = 2000
+FOOTER = "-# Este mensaje es automático: si tienes dudas, escribe a {}."
+UNAUTHORIZED = 401
+CANNOT_MESSAGE = 50007
+UNKNOWN_USER = 10013
+
+
+class DiscordError(Exception):
+    pass
+
+
+def refusal(error):
+    try:
+        answer = json.loads(error.read())
+    except ValueError:
+        answer = {}
+    if error.code == UNAUTHORIZED:
+        return "Discord no acepta el token del bot: guárdalo de nuevo con odoo discord"
+    if answer.get("code") == CANNOT_MESSAGE:
+        return "Discord no deja al bot escribirle: no está en su servidor o no acepta mensajes privados de él"
+    if answer.get("code") == UNKNOWN_USER:
+        return "Discord no conoce ese ID de usuario"
+    return f"Discord respondió {error.code}: {answer.get('message', error.reason)}"
+
+
+def call(token, path, body=None):
+    request = urllib.request.Request(
+        API + path, data=None if body is None else json.dumps(body).encode(),
+        headers={"Authorization": f"Bot {token}", "Content-Type": "application/json", "User-Agent": USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        raise DiscordError(refusal(error)) from None
+    except OSError:
+        raise DiscordError("Discord no responde") from None
+
+
+def configured():
+    return bool(read_private(TOKEN_FILE))
+
+
+def save_token(token):
+    bot = call(token, "/users/@me")
+    write_private(TOKEN_FILE, token)
+    return bot["username"]
+
+
+def set_token(token):
+    if not isinstance(token, str) or not token.strip():
+        return 400, {"error": "Falta el token del bot"}
+    try:
+        return 200, {"bot": save_token(token.strip())}
+    except DiscordError as error:
+        return 400, {"error": str(error)}
+
+
+def discord_id(client, employee_id):
+    user = team.discord_of(client, employee_id)
+    return user if user and user.isdigit() else None
+
+
+def sender_id(client):
+    mine = client.call_kw("hr.employee", "search_read", [[("user_id", "=", client.session_info()["uid"])]],
+                          {"fields": ["id"], "limit": 1})
+    return discord_id(client, mine[0]["id"]) if mine else None
+
+
+def send(user_id, text):
+    token = read_private(TOKEN_FILE)
+    if not token:
+        raise DiscordError("No hay bot de Discord en este equipo: guárdalo con odoo discord")
+    channel = call(token, "/users/@me/channels", {"recipient_id": user_id})
+    call(token, f"/channels/{channel['id']}/messages", {"content": text})
+
+
+def message_employee(client, body):
+    employee, text = body.get("employee"), body.get("text")
+    if type(employee) is not int:
+        return 400, {"error": f"Empleado no válido: {employee}"}
+    if not isinstance(text, str) or not text.strip():
+        return 400, {"error": "El mensaje no tiene texto"}
+    user = discord_id(client, employee)
+    if not user:
+        return 409, {"error": "Su ficha de Odoo no tiene un ID de Discord numérico"}
+    sender = sender_id(client)
+    if not sender:
+        return 409, {"error": "Tu ficha de Odoo no tiene tu ID de Discord: el aviso no diría a quién escribir"}
+    message = f"{text.strip()}\n\n{FOOTER.format(f'<@{sender}>')}"
+    if len(message) > MESSAGE_MAX:
+        return 400, {"error": f"El mensaje no cabe: Discord admite hasta {MESSAGE_MAX} caracteres"}
+    try:
+        send(user, message)
+    except DiscordError as error:
+        return 502, {"error": str(error)}
+    return 200, {"ok": True}
