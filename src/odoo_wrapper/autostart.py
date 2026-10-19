@@ -11,11 +11,13 @@
   detached process on Windows). With another dashboard already listening the new one refuses the port and
   exits, as any second instance does; that is why nothing asks the system to keep it alive, which would
   relaunch it in a loop.
-- A dashboard the entry already started is replaced, not left running: macOS boots the job out first
-  (launchctl waits for it to exit) and Linux restarts the unit. Switching installs deletes the old copy's
-  files under the running process, which the source watcher does not take for a change, so `on` is the step
-  that moves it to the new one. Windows keeps no handle on the process it started, so there it only takes
-  over at the next login.
+- A dashboard the entry already started is replaced, not left running: macOS boots the job out first and
+  Linux restarts the unit. launchd may still be letting go of the job when bootout returns, and a bootstrap
+  right then failed (seen switching installs: the old dashboard stopped, no new one, and `on` said it had
+  started), so it is tried for up to BOOTSTRAP_TRIES × BOOTSTRAP_PAUSE seconds and a last failure is an error.
+  `on` is also what moves the entry to a new install: it names the interpreter, and the source watcher only
+  restarts the running process, with its old command line. Windows keeps no handle on the process it
+  started, so there it only takes over at the next login.
 - `off` only removes the entry: the dashboard running keeps going until it is stopped or the session ends.
 - ExecStart in a systemd unit is not a shell line: quotes, backslashes, `%` and `$` mean something to systemd
   itself, hence SYSTEMD_ESCAPES on each argument.
@@ -25,6 +27,7 @@ import os
 import plistlib
 import subprocess
 import sys
+import time
 from contextlib import suppress
 
 from .process import launch_command
@@ -34,6 +37,8 @@ UNIT = "odoo-dashboard.service"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "odoo-dashboard"
 SYSTEMD_ESCAPES = str.maketrans({"\\": "\\\\", '"': '\\"', "%": "%%", "$": "$$"})
+BOOTSTRAP_TRIES = 20
+BOOTSTRAP_PAUSE = 0.25
 
 
 def command():
@@ -69,7 +74,12 @@ def mac_on():
     write(launch_agent(), plistlib.dumps({"Label": LABEL, "ProgramArguments": command(), "RunAtLoad": True}))
     session = f"gui/{os.getuid()}"
     subprocess.run(["launchctl", "bootout", f"{session}/{LABEL}"], capture_output=True)
-    subprocess.run(["launchctl", "bootstrap", session, launch_agent()], capture_output=True)
+    bootstrap = ["launchctl", "bootstrap", session, launch_agent()]
+    for _ in range(BOOTSTRAP_TRIES - 1):
+        if subprocess.run(bootstrap, capture_output=True).returncode == 0:
+            return
+        time.sleep(BOOTSTRAP_PAUSE)
+    subprocess.run(bootstrap, capture_output=True, check=True)
 
 
 def mac_off():

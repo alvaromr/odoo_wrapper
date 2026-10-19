@@ -21,6 +21,7 @@ class AutostartCase(unittest.TestCase):
             patch.object(subprocess, "Popen"),
         ]
         self.run_, self.popen = [p.start() for p in patches][1:]
+        self.run_.return_value.returncode = 0
         for p in patches:
             self.addCleanup(p.stop)
         os.environ.pop("XDG_CONFIG_HOME", None)
@@ -57,6 +58,18 @@ class MacTest(AutostartCase):
         session = f"gui/{os.getuid()}"
         self.assertEqual([c.args[0] for c in self.run_.call_args_list],
                          [["launchctl", "bootout", f"{session}/{au.LABEL}"], ["launchctl", "bootstrap", session, path]])
+
+    def test_a_job_still_being_booted_out_is_waited_for_and_a_lasting_refusal_is_an_error(self):
+        refused, loaded = SimpleNamespace(returncode=5), SimpleNamespace(returncode=0)
+        self.run_.side_effect = [loaded, refused, refused, loaded]
+        with patch.object(au.time, "sleep") as sleep:
+            self.on("darwin")
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(self.run_.call_count, 4)
+        self.run_.side_effect = [loaded] + [refused] * (au.BOOTSTRAP_TRIES - 1) + [subprocess.CalledProcessError(5, "launchctl")]
+        with patch.object(au.time, "sleep"), self.assertRaises(subprocess.CalledProcessError):
+            self.on("darwin")
+        self.assertEqual(self.run_.call_args.kwargs, {"capture_output": True, "check": True})
 
     def test_off_removes_it_and_tolerates_its_absence(self):
         self.on("darwin")
