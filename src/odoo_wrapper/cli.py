@@ -26,9 +26,11 @@ notices brings the warnings spreadsheet up to date, a Google Sheets file reached
 month. It is one command with nothing to decide, so that someone who is not technical can run it, by hand or
 from a scheduled task, without an agent in between.
 - A notice is a day already over, of anyone the session can read (team.py says who), with a punch error still
-  unfixed (team.py's day flags, «Incidencia») or an attendance change request («Solicitud»): one row per
-  employee, day and kind. Only the rows the sheet lacks are appended, so a second run adds nothing, and none is
-  ever rewritten: people fill the sheet's other columns by hand, which is also why those are left empty.
+  unfixed (team.py's day flags, «Incidencia») or an attendance change request («Solicitud», or «Solicitud
+  (borrador)» while it is a draft nobody has submitted yet). One row per employee and day, the first kind of
+  NOTICE_KINDS the day holds: a request is the error being dealt with, and two rows counted it twice in the
+  totals. Only the rows the sheet lacks are appended, so a second run adds nothing, and none is ever
+  rewritten: people fill the sheet's other columns by hand, which is also why those are left empty.
 - Each run covers the month in progress up to yesterday and, before it, the previous month if it is not closed
   yet: its notices, then its totals. A month is closed when «Avisos Totales» has a row with its name, so the
   totals are written once, when the month is over. That tab has no year: a file is expected to hold one.
@@ -72,7 +74,11 @@ SHEET_URL = re.compile(r"/spreadsheets/d/([\w-]+)")
 KEEPALIVE_INTERVAL = 3600
 MONTHS = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre",
           "Noviembre", "Diciembre")
-NOTICE_KINDS = (("Incidencia", "flags"), ("Solicitud", "requests"))
+NOTICE_KINDS = (
+    ("Solicitud", lambda d: any(r["status"] != "new" for r in d["requests"])),
+    ("Solicitud (borrador)", lambda d: bool(d["requests"])),
+    ("Incidencia", lambda d: bool(d["flags"])),
+)
 TOTALS_TAB = "Avisos Totales"
 SHEET_COLUMNS = 4
 SHEET_EPOCH = date(1899, 12, 30)
@@ -92,9 +98,11 @@ Comandos:
   history [días]  Historial de los últimos días (7 por defecto)
   notices         Poner al día la hoja de avisos (Google Sheets): añade a «Avisos <año>» cada día
                   ya pasado con un error de fichaje sin corregir (Incidencia) o con una solicitud
-                  de modificación de fichaje (Solicitud), de todos los empleados que ve la sesión,
-                  del mes en curso; y, si el mes anterior aún no tiene totales, también los suyos
-                  y el número de avisos de cada empleado en «Avisos Totales». Solo añade filas:
+                  de modificación de fichaje (Solicitud, o «Solicitud (borrador)» si nadie la ha
+                  enviado aún; solo la solicitud si el día tiene las dos), de todos los empleados
+                  que ve la sesión, del mes en curso; y, si el mes anterior aún no tiene totales,
+                  también los suyos y el número de avisos de cada empleado en «Avisos Totales».
+                  Solo añade filas:
                   nunca repite una que ya escribió, aunque después se borre o cambie a mano
   sheet [URL]     Identificador de la hoja de avisos guardada; con la dirección de una hoja de
                   cálculo de Google, la guarda antes como hoja de avisos
@@ -330,9 +338,9 @@ def add_notices(client, sheets, month):
     written = book.setdefault(sheets.id, [])
     payload = team.build_team(client, *team.month_span(month))
     stop = min(payload["stop"], payload["generated_at"][:10])
-    found = sorted((date.fromisoformat(d["date"]), e["name"], kind)
+    found = sorted((date.fromisoformat(d["date"]), e["name"], kinds[0])
                    for e in payload["employees"] for d in e["days"] if payload["start"] <= d["date"] < stop
-                   for kind, field in NOTICE_KINDS if d[field])
+                   for kinds in [[kind for kind, holds in NOTICE_KINDS if holds(d)]] if kinds)
     rows = [[employee, MONTHS[day.month - 1], day.strftime("%d/%m/%Y"), kind] for day, employee, kind in found
             if (employee, (day - SHEET_EPOCH).days, kind) not in known]
     rows = [row for row in rows if row not in written]

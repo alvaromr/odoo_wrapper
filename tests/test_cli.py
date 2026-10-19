@@ -174,16 +174,19 @@ class NoticesTest(unittest.TestCase):
     TODAY = date(2026, 10, 8)
     NOW = "2026-10-08T10:00:00+02:00"
     SEPTEMBER = {"start": "2026-09-01", "stop": "2026-10-01", "generated_at": NOW, "employees": [
-        {"name": "Bea", "days": [day("2026-08-31", ["open"]), day("2026-09-02", ["open", "long"], [{}]),
+        {"name": "Bea", "days": [day("2026-08-31", ["open"]),
+                                 day("2026-09-02", ["open", "long"], [{"status": "pending"}]),
                                  day("2026-09-03"), day("2026-09-04", ["empty"])]},
-        {"name": "Íñigo", "days": [day("2026-09-02", requests=[{}, {}]), day("2026-10-01", ["empty"])]},
+        {"name": "Íñigo", "days": [day("2026-09-02", requests=[{"status": "new"}, {"status": "approved"}]),
+                                   day("2026-10-01", ["empty"])]},
     ]}
     OCTOBER = {"start": "2026-10-01", "stop": "2026-11-01", "generated_at": NOW, "employees": [
-        {"name": "Íñigo", "days": [day("2026-10-02", ["empty"]), day("2026-10-08", ["long"])]},
+        {"name": "Íñigo", "days": [day("2026-10-02", ["empty"]), day("2026-10-06", ["open"], [{"status": "new"}]),
+                                   day("2026-10-08", ["long"])]},
     ]}
-    SEPTEMBER_ROWS = [["Bea", "Septiembre", "02/09/2026", "Incidencia"], ["Bea", "Septiembre", "02/09/2026", "Solicitud"],
-                      ["Íñigo", "Septiembre", "02/09/2026", "Solicitud"], ["Bea", "Septiembre", "04/09/2026", "Incidencia"]]
-    OCTOBER_ROWS = [["Íñigo", "Octubre", "02/10/2026", "Incidencia"]]
+    SEPTEMBER_ROWS = [["Bea", "Septiembre", "02/09/2026", "Solicitud"], ["Íñigo", "Septiembre", "02/09/2026", "Solicitud"],
+                      ["Bea", "Septiembre", "04/09/2026", "Incidencia"]]
+    OCTOBER_ROWS = [["Íñigo", "Octubre", "02/10/2026", "Incidencia"], ["Íñigo", "Octubre", "06/10/2026", "Solicitud (borrador)"]]
 
     def setUp(self):
         temp_state(self)
@@ -202,13 +205,13 @@ class NoticesTest(unittest.TestCase):
     def test_the_previous_month_is_closed_and_the_current_one_brought_up_to_yesterday(self):
         sheets = FakeSheets()
         self.assertEqual(self.run_notices(sheets), (
-            "Avisos de septiembre añadidos a «Avisos 2026»: 4\n"
+            "Avisos de septiembre añadidos a «Avisos 2026»: 3\n"
             "Empleados con avisos en septiembre, anotados en «Avisos Totales»: 2\n"
-            "Avisos de octubre añadidos a «Avisos 2026»: 1\n"))
+            "Avisos de octubre añadidos a «Avisos 2026»: 2\n"))
         self.opened.assert_called_once_with("hoja")
         self.assertEqual(sheets.appended, [
             ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS),
-            ("Avisos Totales!B4:D", [["Bea", 3, "Septiembre"], ["Íñigo", 1, "Septiembre"]]),
+            ("Avisos Totales!B4:D", [["Bea", 2, "Septiembre"], ["Íñigo", 1, "Septiembre"]]),
             ("Avisos 2026!B4:E", self.OCTOBER_ROWS),
         ])
         self.assertEqual([call.args for call in self.build.call_args_list], [
@@ -226,13 +229,13 @@ class NoticesTest(unittest.TestCase):
 
     def test_rows_the_sheet_already_has_are_left_out_whatever_else_they_carry(self):
         sheets = FakeSheets(**{
-            "Avisos 2026": [["Bea", "Septiembre", 46267, "Incidencia", "Informal", "Discord"], ["Íñigo"], [],
+            "Avisos 2026": [["Bea", "Septiembre", 46267, "Solicitud", "Informal", "Discord"], ["Íñigo"], [],
                             ["Bea", "Septiembre", "04/09/2026", "Incidencia"]],
             "Avisos Totales": [["Zoe", 2, "Agosto"], []],
         })
         self.run_notices(sheets)
         self.assertEqual(sheets.appended[0], ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS[1:]))
-        self.assertEqual(sheets.appended[1], ("Avisos Totales!B4:D", [["Bea", 4, "Septiembre"], ["Íñigo", 1, "Septiembre"]]))
+        self.assertEqual(sheets.appended[1], ("Avisos Totales!B4:D", [["Bea", 3, "Septiembre"], ["Íñigo", 1, "Septiembre"]]))
 
     def test_a_row_written_once_never_comes_back_however_the_sheet_was_changed_by_hand(self):
         self.run_notices(FakeSheets())
@@ -272,7 +275,7 @@ class NoticesTest(unittest.TestCase):
         december = {"start": "2026-12-01", "stop": "2027-01-01", "generated_at": "2027-01-05T10:00:00+01:00",
                     "employees": [{"name": "Bea", "days": [day("2026-12-31", ["open"])]}]}
         january = {"start": "2027-01-01", "stop": "2027-02-01", "generated_at": "2027-01-05T10:00:00+01:00",
-                   "employees": [{"name": "Bea", "days": [day("2027-01-04", requests=[{}])]}]}
+                   "employees": [{"name": "Bea", "days": [day("2027-01-04", requests=[{"status": "pending"}])]}]}
         sheets = FakeSheets(**{"Avisos 2027": []})
         self.run_notices(sheets, date(2027, 1, 5), **{"2026-12-01": december, "2027-01-01": january})
         self.assertEqual(sheets.appended, [
