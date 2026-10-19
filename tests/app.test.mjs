@@ -1111,7 +1111,7 @@ test("a day with a punch error offers its owner's message, to send by Discord or
   unfold("Avisar por Discord…");
   assert.deepEqual(actions().map(b => [b.textContent, b.className]), [["Enviar", "btn small"], ["Copiar", "btn ghost small"],
     ["Cancelar", "btn ghost small"]]);
-  assert.equal(button("Enviar").title, "Al final se añade que es automático y que te escriba a ti");
+  assert.equal(button("Enviar").title, "Al final se añade que es automático, que te escriba a ti y un botón para hacer la solicitud en Odoo");
   notice().children[0].value = "Revisa el martes";
   const send = button("Enviar");
   await send.listeners.click[0]();

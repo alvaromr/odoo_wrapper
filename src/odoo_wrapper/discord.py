@@ -16,6 +16,12 @@
   opens their profile, so they can always be reached; a sender without an id sends nothing. It is added here,
   so the page can neither leave it out nor change it, and as Discord's subtext («-# »), small and grey, so it
   does not compete with the notice itself.
+- Under the text, a link button opens Odoo's form for a new attendance change request (request_link): the
+  Approvals category found by name like team.py's requests, never by id. A link button is the one kind Discord
+  lets a bot send without being told of the click, which would need the dashboard reachable from the
+  internet. The form opens empty: Odoo 18's URL carries no default values (its action service passes only
+  active_id and active_ids on to the context, read in its source), and filling a draft in advance would leave
+  requests nobody asked for. Without the category, or the right to read it, the message goes without it.
 - The bot's token is a password: `odoo discord` asks for it without echo, and the management view's «Discord»
   dialog sends it once (set_token); either checks it with Discord (GET /users/@me, which also names the bot)
   and keeps it in TOKEN_FILE, mode 600, like the Odoo session. Nothing ever sends it back: the page only learns
@@ -32,7 +38,7 @@ import urllib.error
 import urllib.request
 
 from . import team
-from .client import STATE_DIR, read_private, write_private
+from .client import STATE_DIR, OdooError, SessionExpired, read_private, write_private
 
 API = "https://discord.com/api/v10"
 TOKEN_FILE = os.path.join(STATE_DIR, "discord_token")
@@ -43,6 +49,10 @@ FOOTER = "-# Este mensaje es automático: si tienes dudas, escribe a {}."
 UNAUTHORIZED = 401
 CANNOT_MESSAGE = 50007
 UNKNOWN_USER = 10013
+ACTION_ROW = 1
+BUTTON = 2
+LINK_STYLE = 5
+LINK_LABEL = "Hacer la solicitud en Odoo"
 
 
 class DiscordError(Exception):
@@ -107,12 +117,25 @@ def sender_id(client):
     return discord_id(client, mine[0]["id"]) if mine else None
 
 
-def send(user_id, text):
+def request_link(client):
+    try:
+        found = client.call_kw("approval.category", "search_read", [[("name", "ilike", team.REQUEST_CATEGORY)]],
+                               {"fields": ["id"], "limit": 1})
+    except SessionExpired:
+        raise
+    except OdooError:
+        return None
+    return f"{client.url}/odoo/approvals/{found[0]['id']}/approval.request/new" if found else None
+
+
+def send(user_id, text, link=None):
     token = read_private(TOKEN_FILE)
     if not token:
         raise DiscordError("No hay bot de Discord en este equipo: guárdalo con odoo discord")
     channel = call(token, "/users/@me/channels", {"recipient_id": user_id})
-    call(token, f"/channels/{channel['id']}/messages", {"content": text})
+    button = {"type": BUTTON, "style": LINK_STYLE, "label": LINK_LABEL, "url": link}
+    call(token, f"/channels/{channel['id']}/messages",
+         {"content": text, **({"components": [{"type": ACTION_ROW, "components": [button]}]} if link else {})})
 
 
 def message_employee(client, body):
@@ -131,7 +154,7 @@ def message_employee(client, body):
     if len(message) > MESSAGE_MAX:
         return 400, {"error": f"El mensaje no cabe: Discord admite hasta {MESSAGE_MAX} caracteres"}
     try:
-        send(user, message)
+        send(user, message, request_link(client))
     except DiscordError as error:
         return 502, {"error": str(error)}
     return 200, {"ok": True}

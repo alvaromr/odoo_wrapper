@@ -82,6 +82,25 @@ class DiscordTest(unittest.TestCase):
             ("POST", f"{dc.API}/channels/999/messages", {"content": "hola"}),
         ])
         self.assertEqual(self.requests[0][4], dc.TIMEOUT)
+        with self.opener({"id": "999"}, {"id": "2"}):
+            dc.send("123", "hola", "https://odoo.example/odoo/approvals/23/approval.request/new")
+        self.assertEqual(self.requests[-1][2], {"content": "hola", "components": [{"type": 1, "components": [
+            {"type": 2, "style": 5, "label": "Hacer la solicitud en Odoo",
+             "url": "https://odoo.example/odoo/approvals/23/approval.request/new"}]}]})
+
+    def test_the_link_opens_a_new_request_of_the_category_found_by_name(self):
+        odoo = ScriptedClient({"approval.category": [{"id": 23}]})
+        odoo.url = "https://odoo.example"
+        self.assertEqual(dc.request_link(odoo), "https://odoo.example/odoo/approvals/23/approval.request/new")
+        self.assertEqual(odoo.calls[-1], ("approval.category", [[("name", "ilike", "fichaje")]],
+                                          {"fields": ["id"], "limit": 1}))
+        odoo.rows["approval.category"] = []
+        self.assertIsNone(dc.request_link(odoo))
+        odoo.rows["approval.category"] = lambda args, kwargs: (_ for _ in ()).throw(dc.OdooError("sin acceso"))
+        self.assertIsNone(dc.request_link(odoo))
+        odoo.rows["approval.category"] = lambda args, kwargs: (_ for _ in ()).throw(dc.SessionExpired("caducada"))
+        with self.assertRaises(dc.SessionExpired):
+            dc.request_link(odoo)
 
     def test_every_refusal_reads_in_words(self):
         dc.write_private(dc.TOKEN_FILE, "tok")
@@ -123,7 +142,7 @@ class DiscordTest(unittest.TestCase):
             status, body = dc.message_employee(odoo, {"employee": 7, "text": "x" * (dc.MESSAGE_MAX - len(footer) + 1)})
             self.assertEqual((status, body["error"]), (400, "El mensaje no cabe: Discord admite hasta 2000 caracteres"))
             self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": " hola "}), (200, {"ok": True}))
-            send.assert_called_once_with("123", "hola" + footer)
+            send.assert_called_once_with("123", "hola" + footer, None)
             sender.assert_called_with(odoo)
             send.side_effect = dc.DiscordError("Discord no responde")
             self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": "hola"}),

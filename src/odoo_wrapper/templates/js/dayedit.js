@@ -35,8 +35,9 @@
  *   come to correct, not to warn, and the dialog was crowded. Unfolded, it is a field, so it can be retouched
  *   before sending. «Enviar» sends it as it stands, by private message from the bot (discord.py), when this
  *   machine has one (the payload's can_message) and the person's Odoo record names their Discord user (team.py's
- *   discord); it asks for a second click like every other button that acts for real, and its tooltip says that
- *   the server adds that the message is automatic and whom to write to, which the field does not show.
+ *   discord); it asks for a second click like every other button that acts for real, and its tooltip says what
+ *   the server adds and the field does not show: that the message is automatic, whom to write to, and a button
+ *   to Odoo's form for the request.
  *   «Copiar» is always there, for the rest; a clipboard that refuses (a page out of a secure context) leaves
  *   the text selected for a manual copy. «Cancelar» folds it again, keeping what was typed.
  * - The dialog stays open, for reading a long reason or copying times: a click outside does not close it,
@@ -145,7 +146,7 @@ export function noticeBox(employee, day, limits, canMessage) {
       await api("/api/team/discord", { employee: employee.id, text: text.value });
       say(`Mensaje enviado a ${employee.name} por Discord.`);
     });
-    send.title = "Al final se añade que es automático y que te escriba a ti";
+    send.title = "Al final se añade que es automático, que te escriba a ti y un botón para hacer la solicitud en Odoo";
     actions.appendChild(send);
   }
   const copy = el("button", sends ? "btn ghost small" : "btn small", "Copiar");
