@@ -19,14 +19,28 @@
 - Under the text, a link button opens Odoo's form for a new attendance change request (request_link): the
   Approvals category found by name like team.py's requests, never by id. A link button is the one kind Discord
   lets a bot send without being told of the click, which would need the dashboard reachable from the
-  internet. The form opens empty: Odoo 18's URL carries no default values (its action service passes only
-  active_id and active_ids on to the context, read in its source), and filling a draft in advance would leave
-  requests nobody asked for. Without the category, or the right to read it, the message goes without it.
+  internet. The request must be the employee's own, for legal reasons, so nothing is created for them: the
+  button only fills the form they then send, or not.
+- Filled, when this Odoo has the window action REQUEST_ACTION (prefilled_link): Odoo 18's URL carries no
+  default values, but its web client evaluates an action's context with the URL's query as `params`
+  (action_service.js), so that action, created by hand like the Discord field, copies what the category's own
+  «Nueva solicitud» button sets (create_request: subject, category, the user as owner, status) and takes
+  desde, hasta and motivo from the query. It is web client internals, not an API, so an upgrade of Odoo may
+  break it; without the action, or when it does not load, the button opens the empty form above, and without
+  the category the message goes without it.
+- What it fills (proposal) is the punch to fix as it stands, in the description, and a correction to check:
+  an open punch or the longest one of a long day, from its check-in to the hours the day still lacked (never
+  past that day's LAST_MINUTE, the check-in itself without a target). A day without punches leaves the period
+  and the correction blank: nothing there says when the day was worked. Nobody but the employee knows the
+  real times, so the message then asks them to check it (REVIEW): sent as it comes, it would approve an
+  estimate.
+  The day is read again from Odoo (team.fetch_team, cached), never taken from the page.
 - The bot's token is a password: `odoo discord` asks for it without echo, and the management view's «Discord»
   dialog sends it once (set_token); either checks it with Discord (GET /users/@me, which also names the bot)
   and keeps it in TOKEN_FILE, mode 600, like the Odoo session. Nothing ever sends it back: the page only learns
   whether there is one (configured(), the team payload's can_message), and without it the day dialog offers
-  only copying the message.
+  only copying the message. The same dialog sends a test (send_test) to whoever asks, by their own Discord id,
+  never to someone else: it proves the token, the sender's id and the link button in one go.
 - Discord refuses a request without a User-Agent of its own form, DiscordBot (url, version). Its refusals come
   back as DiscordError in words the dialog shows: a token it no longer accepts, a person the bot may not write to,
   an id it does not know, anything else with Discord's own message; a network failure as Discord out of reach.
@@ -35,7 +49,9 @@
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
+from datetime import date, datetime, time, timedelta, timezone
 
 from . import team
 from .client import STATE_DIR, OdooError, SessionExpired, read_private, write_private
@@ -53,6 +69,11 @@ ACTION_ROW = 1
 BUTTON = 2
 LINK_STYLE = 5
 LINK_LABEL = "Hacer la solicitud en Odoo"
+TEST_TEXT = "Mensaje de prueba del dashboard de fichajes: el bot puede enviarte avisos."
+REVIEW = "-# El botón te deja la solicitud preparada: **revisa** bien las horas antes de enviarla."
+REQUEST_ACTION = "modificacion-fichaje"
+LAST_MINUTE = time(23, 59)
+WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 
 class DiscordError(Exception):
@@ -128,6 +149,69 @@ def request_link(client):
     return f"{client.url}/odoo/approvals/{found[0]['id']}/approval.request/new" if found else None
 
 
+def clock(moment):
+    return moment.strftime("%H:%M")
+
+
+def day_name(moment):
+    return f"{WEEKDAYS[moment.weekday()]} {moment.strftime('%d/%m/%Y')}"
+
+
+def duration(hours):
+    h, m = divmod(round(hours * 60), 60)
+    return " ".join(part for part in (f"{h}h" if h or not m else "", f"{m}m" if m else "") if part)
+
+
+def proposal(day):
+    sessions, target, today = day["sessions"], day["target"], date.fromisoformat(day["date"])
+    if {"open", "long"} & set(day["flags"]):
+        wrong = next((s for s in sessions if not s["out"]), None) or max(sessions, key=lambda s: s["hours"])
+        start = datetime.fromisoformat(wrong["in"]).replace(second=0)
+        done = sum(s["hours"] or 0 for s in sessions if s is not wrong)
+        last = datetime.combine(today, LAST_MINUTE).astimezone()
+        end = min(start + timedelta(hours=max(0, target - done)), last).replace(second=0)
+        if wrong["out"]:
+            out = datetime.fromisoformat(wrong["out"])
+            until = clock(out) if out.date() == start.date() else f"{day_name(out)} {clock(out)}"
+            what = f"de {clock(start)} a {until} ({duration(wrong['hours'])})"
+        else:
+            what = f"entrada a las {clock(start)} sin salida"
+        return start, end, f"Fichaje incorrecto: {day_name(start)}, {what}. Corrección: de {clock(start)} a {clock(end)}."
+    if "empty" in day["flags"]:
+        return None, None, (f"Fichaje incorrecto: {day_name(today)}, sin fichajes (jornada prevista de "
+                            f"{duration(target)}). Corrección: ")
+    return None
+
+
+def odoo_utc(moment):
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def notice_day(client, employee, iso):
+    try:
+        monday = team.monday_of(date.fromisoformat(iso))
+    except (TypeError, ValueError):
+        return None
+    found = next((e for e in team.fetch_team(client, monday)["employees"] if e["id"] == employee), None)
+    return next((d for d in found["days"] if d["date"] == iso), None) if found else None
+
+
+def prefilled_link(client, day):
+    filled = proposal(day) if day else None
+    if not filled:
+        return None
+    try:
+        client.jsonrpc("/web/action/load", {"action_id": REQUEST_ACTION})
+    except SessionExpired:
+        raise
+    except OdooError:
+        return None
+    start, end, reason = filled
+    period = {"desde": odoo_utc(start), "hasta": odoo_utc(end)} if start else {}
+    query = urllib.parse.urlencode({**period, "motivo": reason}, quote_via=urllib.parse.quote)
+    return f"{client.url}/odoo/{REQUEST_ACTION}/new?{query.replace('.', '%2E')}"
+
+
 def send(user_id, text, link=None):
     token = read_private(TOKEN_FILE)
     if not token:
@@ -136,6 +220,17 @@ def send(user_id, text, link=None):
     button = {"type": BUTTON, "style": LINK_STYLE, "label": LINK_LABEL, "url": link}
     call(token, f"/channels/{channel['id']}/messages",
          {"content": text, **({"components": [{"type": ACTION_ROW, "components": [button]}]} if link else {})})
+
+
+def send_test(client):
+    me = sender_id(client)
+    if not me:
+        return 409, {"error": "No se encuentra tu ID de Discord en tu ficha de Odoo, o tu usuario no puede leerlo"}
+    try:
+        send(me, TEST_TEXT, request_link(client))
+    except DiscordError as error:
+        return 502, {"error": str(error)}
+    return 200, {"ok": True}
 
 
 def message_employee(client, body):
@@ -150,11 +245,13 @@ def message_employee(client, body):
     sender = sender_id(client)
     if not sender:
         return 409, {"error": "Tu ficha de Odoo no tiene tu ID de Discord: el aviso no diría a quién escribir"}
-    message = f"{text.strip()}\n\n{FOOTER.format(f'<@{sender}>')}"
+    prefilled = prefilled_link(client, notice_day(client, employee, body.get("date")))
+    review = f"\n{REVIEW}" if prefilled else ""
+    message = f"{text.strip()}\n\n{FOOTER.format(f'<@{sender}>')}{review}"
     if len(message) > MESSAGE_MAX:
         return 400, {"error": f"El mensaje no cabe: Discord admite hasta {MESSAGE_MAX} caracteres"}
     try:
-        send(user, message, request_link(client))
+        send(user, message, prefilled or request_link(client))
     except DiscordError as error:
         return 502, {"error": str(error)}
     return 200, {"ok": True}

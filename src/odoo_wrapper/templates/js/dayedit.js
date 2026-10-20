@@ -143,7 +143,7 @@ export function noticeBox(employee, day, limits, canMessage) {
   const sends = Boolean(canMessage && employee.discord);
   if (sends) {
     const send = confirmButton("Enviar", "No se pudo enviar", async () => {
-      await api("/api/team/discord", { employee: employee.id, text: text.value });
+      await api("/api/team/discord", { employee: employee.id, date: day.date, text: text.value });
       say(`Mensaje enviado a ${employee.name} por Discord.`);
     });
     send.title = "Al final se añade que es automático, que te escriba a ti y un botón para hacer la solicitud en Odoo";

@@ -281,6 +281,9 @@ class HandlerTest(unittest.TestCase):
             sv._rights.clear()
             self.assertEqual(self.post("/api/team/discord/token", {"token": "tok"})[:3:2], (200, {"bot": "Odoo"}))
             set_token.assert_called_once_with("tok")
+            with patch.object(sv.discord, "send_test", return_value=(200, {"ok": True})) as send_test:
+                self.assertEqual(self.post("/api/team/discord/test", {})[:3:2], (200, {"ok": True}))
+            send_test.assert_called_once_with(client.return_value)
 
     def test_team_api(self):
         self.assertEqual(self.get("/api/team", cookie=None)[0], 401)

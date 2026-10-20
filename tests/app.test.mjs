@@ -1117,7 +1117,7 @@ test("a day with a punch error offers its owner's message, to send by Discord or
   await send.listeners.click[0]();
   await send.listeners.click[0]();
   await settle();
-  assert.deepEqual(posts, [["/api/team/discord", { employee: 1, text: "Revisa el martes" }]]);
+  assert.deepEqual(posts, [["/api/team/discord", { employee: 1, date: "2025-03-04", text: "Revisa el martes" }]]);
   assert.equal(note(), "Mensaje enviado a Álvaro por Discord.");
   answer = { ok: false, status: 502, json: async () => ({ error: "Discord no responde" }) };
   await send.listeners.click[0]();
@@ -1152,14 +1152,28 @@ test("«Discord» says whether the bot has a token and keeps a new one without e
   answer = { ok: false, status: 400, json: async () => ({ error: "Discord no acepta el token del bot" }) };
   await save.listeners.click[0]();
   assert.deepEqual([note.textContent, save.disabled], ["No se guardó: Discord no acepta el token del bot", false]);
+  const [test, close] = dialog.children.at(-1).children;
+  answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
+  await test.listeners.click[0]();
+  assert.deepEqual(posts.at(-1), ["/api/team/discord/test", {}]);
+  assert.deepEqual([note.textContent, test.disabled], ["Prueba enviada: mira tus mensajes directos de Discord.", false]);
+  answer = { ok: false, status: 409, json: async () => ({ error: "No se encuentra tu ID de Discord" }) };
+  await test.listeners.click[0]();
+  assert.equal(note.textContent, "No se envió la prueba: No se encuentra tu ID de Discord");
   input.value = "a medias";
-  dialog.children.at(-1).children[0].listeners.click[0]();
+  close.listeners.click[0]();
   assert.equal(dialog.open, false);
   page.run("team.data = null");
   doc.getElementById("discordBtn").listeners.click[0]();
   assert.deepEqual([input.value, note.textContent], ["", ""]);
+  assert.equal(status.textContent, "Comprobando si hay un token guardado…");
   answer = { ok: true, status: 200, json: async () => ({ bot: "Odoo" }) };
   await save.listeners.click[0]();
+  assert.equal(status.textContent, "Comprobando si hay un token guardado…");
+  await page.run("load(null, true)");
+  assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
+  dialog.close();
+  page.run("team.data.can_message = true; refreshDiscord()");
   assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
 });
 

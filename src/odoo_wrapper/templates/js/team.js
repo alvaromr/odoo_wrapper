@@ -79,7 +79,7 @@ import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireD
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
 import { team, FixKinds, FlagText, thisDay, named } from "./teamstate.js";
 import { renderFixes, loadFixes, wireFixes } from "./teamfixes.js";
-import { wireDiscord } from "./teamdiscord.js";
+import { wireDiscord, refreshDiscord } from "./teamdiscord.js";
 
 export const Filters = {
   issues: { label: "Con incidencias", keep: e => hasFlags(e), none: "Nadie tiene incidencias esta semana" },
@@ -523,6 +523,7 @@ export async function load(key, fresh, push = false) {
   try {
     const data = await api(`/api/team${params ? `?${params}` : ""}`);
     team.data = data;
+    refreshDiscord();
     Views[unit].keep(data);
     if (push) globalThis.history?.pushState(null, "", stateHash());
     render();

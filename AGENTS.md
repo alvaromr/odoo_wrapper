@@ -198,6 +198,12 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   requests, found by category name).
   Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
   details.
+- **The Discord notice's button opens a window action created by hand** (`ir.actions.act_window` with path
+  `modificacion-fichaje`, an administrator's job, like the «Discord» field): a form on `approval.request` whose
+  context copies what the category's own «Nueva solicitud» button sets and reads `desde`, `hasta` and `motivo`
+  from the URL as `params`. Odoo's URL carries no default values otherwise; `discord.py`'s header says how it
+  works, why it may break with an upgrade of Odoo, and what the button falls back to. Nothing creates the
+  request: the employee sends it, as the law requires.
 - The day dialog (`corrections.py`) is the only other writer: it `write`s, `create`s or `unlink`s `hr.attendance`
   (check_in, check_out, and attendance_reason_ids when the reason is changed) and calls
   `approval.request.action_approve` as the session's user, all only if Odoo's rights allow them. None can be

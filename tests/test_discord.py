@@ -4,8 +4,11 @@ import io
 import json
 import os
 import unittest
+import unittest.mock
 import urllib.error
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from helpers import ScriptedClient, temp_state
 from odoo_wrapper import discord as dc
@@ -128,6 +131,18 @@ class DiscordTest(unittest.TestCase):
         odoo.rows["hr.employee"] = []
         self.assertIsNone(dc.sender_id(odoo))
 
+    def test_a_test_goes_to_whoever_asks_and_nobody_else(self):
+        odoo = ScriptedClient()
+        with patch.object(dc, "sender_id", return_value=None), patch.object(dc, "send") as send:
+            self.assertEqual(dc.send_test(odoo)[0], 409)
+        send.assert_not_called()
+        with patch.object(dc, "sender_id", return_value="555"), patch.object(dc, "request_link", return_value="L"), \
+                patch.object(dc, "send") as send:
+            self.assertEqual(dc.send_test(odoo), (200, {"ok": True}))
+            send.assert_called_once_with("555", dc.TEST_TEXT, "L")
+            send.side_effect = dc.DiscordError("Discord no responde")
+            self.assertEqual(dc.send_test(odoo), (502, {"error": "Discord no responde"}))
+
     def test_message_employee_checks_the_request_and_reads_the_recipient_from_odoo(self):
         odoo = ScriptedClient({"hr.employee": [{"id": 7, "x_studio_discord": "123"}]})
         odoo.labelled[("hr.employee", "discord")] = "x_studio_discord"
@@ -152,6 +167,94 @@ class DiscordTest(unittest.TestCase):
             odoo.labelled.clear()
             self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": "hola"})[0], 409)
         self.assertEqual(send.call_count, 2)
+
+    def test_a_notice_of_a_day_odoo_has_brings_the_filled_form_and_asks_to_check_it(self):
+        odoo = ScriptedClient({"hr.employee": [{"id": 7, "x_studio_discord": "123"}]})
+        odoo.labelled[("hr.employee", "discord")] = "x_studio_discord"
+        with patch.object(dc, "send") as send, patch.object(dc, "sender_id", return_value="555"), \
+                patch.object(dc, "notice_day", return_value={"x": 1}) as day, \
+                patch.object(dc, "prefilled_link", return_value="https://odoo.example/odoo/modificacion-fichaje/new?q"):
+            dc.message_employee(odoo, {"employee": 7, "date": "2026-10-19", "text": "hola"})
+        day.assert_called_once_with(odoo, 7, "2026-10-19")
+        self.assertEqual(send.call_args.args, ("123", "hola\n\n-# Este mensaje es automático: si tienes dudas, escribe a "
+                                               "<@555>.\n-# El botón te deja la solicitud preparada: **revisa** bien las "
+                                               "horas antes de enviarla.", "https://odoo.example/odoo/modificacion-fichaje/new?q"))
+
+
+def local(day, hour, minute, second=0):
+    return datetime(2026, 10, day, hour, minute, second).astimezone().isoformat()
+
+
+def punch(day, start, end=None, hours=None):
+    return {"in": local(day, *start), "out": end and local(*end), "hours": hours}
+
+
+class ProposalTest(unittest.TestCase):
+    def test_an_open_punch_runs_from_its_check_in_to_the_hours_the_day_lacked(self):
+        day = {"date": "2026-10-19", "flags": ["open"], "target": 8.5,
+               "sessions": [punch(19, (8, 0, 30), (19, 10, 0), 2.0), punch(19, (12, 29, 14))]}
+        start, end, reason = dc.proposal(day)
+        self.assertEqual((dc.clock(start), dc.clock(end)), ("12:29", "18:59"))
+        self.assertEqual(reason, "Fichaje incorrecto: lunes 19/10/2026, entrada a las 12:29 sin salida. "
+                                 "Corrección: de 12:29 a 18:59.")
+
+    def test_a_long_day_proposes_its_longest_punch_and_never_past_the_day(self):
+        overnight = {"date": "2026-10-19", "flags": ["long"], "target": 8.5, "sessions": [
+            punch(19, (9, 7, 59), (19, 15, 31), 6.39), punch(19, (16, 10, 7), (20, 8, 59), 16.82)]}
+        start, end, reason = dc.proposal(overnight)
+        self.assertEqual((dc.clock(start), dc.clock(end)), ("16:10", "18:16"))
+        self.assertEqual(reason, "Fichaje incorrecto: lunes 19/10/2026, de 16:10 a martes 20/10/2026 08:59 (16h 49m). "
+                                 "Corrección: de 16:10 a 18:16.")
+        same_day = {"date": "2026-10-19", "flags": ["long"], "target": 30, "sessions": [
+            punch(19, (8, 0), (19, 22, 0), 14.0)]}
+        self.assertEqual(dc.proposal(same_day)[2], "Fichaje incorrecto: lunes 19/10/2026, de 08:00 a 22:00 (14h). "
+                                                   "Corrección: de 08:00 a 23:59.")
+        idle = dict(same_day, target=0)
+        self.assertEqual(dc.clock(dc.proposal(idle)[1]), "08:00")
+
+    def test_a_day_without_punches_leaves_the_period_and_the_correction_blank(self):
+        empty = {"date": "2026-10-15", "flags": ["empty"], "target": 8, "sessions": []}
+        self.assertEqual(dc.proposal(empty), (None, None, "Fichaje incorrecto: jueves 15/10/2026, sin fichajes "
+                                                          "(jornada prevista de 8h). Corrección: "))
+        self.assertIsNone(dc.proposal(dict(empty, flags=[])))
+
+    def test_durations_drop_a_zero_part(self):
+        self.assertEqual([dc.duration(h) for h in (16.82, 14, 0.5, 0)], ["16h 49m", "14h", "30m", "0h"])
+
+    def test_the_day_is_read_again_from_odoo(self):
+        week = {"employees": [{"id": 7, "days": [{"date": "2026-10-19", "flags": ["long"]}]}]}
+        with patch.object(dc.team, "fetch_team", return_value=week) as fetch:
+            self.assertEqual(dc.notice_day("odoo", 7, "2026-10-19"), {"date": "2026-10-19", "flags": ["long"]})
+            fetch.assert_called_once_with("odoo", date(2026, 10, 19))
+            self.assertIsNone(dc.notice_day("odoo", 7, "2026-10-20"))
+            self.assertIsNone(dc.notice_day("odoo", 8, "2026-10-19"))
+        for bogus in (None, "ayer", 5):
+            self.assertIsNone(dc.notice_day("odoo", 7, bogus))
+
+    def test_the_link_fills_the_form_only_when_odoo_has_the_action(self):
+        odoo = ScriptedClient()
+        odoo.url = "https://odoo.example"
+        odoo.jsonrpc = unittest.mock.Mock(return_value={"id": 1466})
+        open_day = {"date": "2026-10-19", "flags": ["open"], "target": 1, "sessions": [punch(19, (8, 0))]}
+        link = dc.prefilled_link(odoo, open_day)
+        odoo.jsonrpc.assert_called_once_with("/web/action/load", {"action_id": "modificacion-fichaje"})
+        start = datetime.fromisoformat(local(19, 8, 0)).astimezone(timezone.utc)
+        self.assertTrue(link.startswith("https://odoo.example/odoo/modificacion-fichaje/new?desde="))
+        query = parse_qs(urlsplit(link).query)
+        self.assertEqual(query["desde"], [start.strftime("%Y-%m-%d %H:%M:%S")])
+        self.assertEqual(query["hasta"], [(start + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")])
+        self.assertEqual(query["motivo"], ["Fichaje incorrecto: lunes 19/10/2026, entrada a las 08:00 sin salida. "
+                                           "Corrección: de 08:00 a 09:00."])
+        self.assertNotIn(".", urlsplit(link).query)
+        blank = dc.prefilled_link(odoo, {"date": "2026-10-15", "flags": ["empty"], "target": 8, "sessions": []})
+        self.assertEqual(sorted(parse_qs(urlsplit(blank).query)), ["motivo"])
+        self.assertIsNone(dc.prefilled_link(odoo, None))
+        self.assertIsNone(dc.prefilled_link(odoo, dict(open_day, flags=[])))
+        odoo.jsonrpc.side_effect = dc.OdooError("no existe")
+        self.assertIsNone(dc.prefilled_link(odoo, open_day))
+        odoo.jsonrpc.side_effect = dc.SessionExpired("caducada")
+        with self.assertRaises(dc.SessionExpired):
+            dc.prefilled_link(odoo, open_day)
 
 
 if __name__ == "__main__":

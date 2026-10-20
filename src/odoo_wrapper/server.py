@@ -75,10 +75,11 @@ API
 - POST /api/team/attendance {id | employee, check_in, check_out[, reason]} (ISO times with their offset, the
   id of an attendance reason) edits or creates someone's punch, POST /api/team/delete {id} removes one, and
   POST /api/team/approve {id} approves a change request (see corrections.py); all answer 403 like /api/team,
-  and they are the only writes besides punching. POST /api/team/discord {employee, text} sends that employee
+  and they are the only writes besides punching. POST /api/team/discord {employee, date, text} sends that employee
   a direct message from the bot (discord.py), with the same 403; it writes nothing to Odoo. POST
   /api/team/discord/token {token} keeps the bot's token once Discord accepts it, the same as `odoo discord`, and
-  answers the bot's name, never the token: no request reads it back.
+  answers the bot's name, never the token: no request reads it back. POST /api/team/discord/test sends the
+  session's own user a test message.
 """
 
 import json
@@ -452,7 +453,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/attendance":
             self._send(*data.punch(new_client(self.session), body.get("action")))
         elif self.path in ("/api/team/attendance", "/api/team/delete", "/api/team/approve", "/api/team/discord",
-                           "/api/team/discord/token"):
+                           "/api/team/discord/token", "/api/team/discord/test"):
             client = new_client(self.session)
             if not sees_others(client):
                 self._send(403, {"error": NOT_TEAM})
@@ -460,6 +461,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*discord.message_employee(client, body))
             elif self.path == "/api/team/discord/token":
                 self._send(*discord.set_token(body.get("token")))
+            elif self.path == "/api/team/discord/test":
+                self._send(*discord.send_test(client))
             elif self.path == "/api/team/approve":
                 self._send(*corrections.approve_request(client, body.get("id")))
             elif not edits_punches(client):
