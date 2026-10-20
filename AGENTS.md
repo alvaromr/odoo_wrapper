@@ -31,8 +31,8 @@ src/odoo_wrapper/
                      (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
                      as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
                      week, ui, api, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
-                     teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and teamstate.js hold each
-                     page's state. Served at /style.css and /js/<name>
+                     teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
+                     teamstate.js hold each page's state. Served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
@@ -75,9 +75,9 @@ Read the header of a module before touching it.
    Never kill and relaunch it (saving a `.py` restarts it by itself) and never patch `PORT`/`TLS_PORT` to dodge
    a busy port; the header of `process.py` says why and how to find the instance holding it.
 3. **Secrets stay in `$HOME`.** Odoo config, the CLI session, TLS cert and key, the warnings spreadsheet's
-   id with the rows written to it, and the Discord bot's token, all live in `~/.odoo_dashboard/`; the dashboard's own Odoo sessions live in
-   the browsers, and the Google sign-in in gws's own config and the OS keyring. Neither the Odoo password nor
-   the Google credentials are ever stored by anything here.
+   id with the rows written to it, and the Discord bot's token, all live in `~/.odoo_dashboard/`; the
+   dashboard's own Odoo sessions live in the browsers, and the Google sign-in in gws's own config and the OS
+   keyring. Neither the Odoo password nor the Google credentials are ever stored by anything here.
    Nothing of this ever enters the repo, not even gitignored: this repo can be pushed anywhere.
 4. **Editing `.ai/skills/` changes the skill immediately, wherever it is symlinked from**, and for everyone
    with the plugin once pushed and updated. Renaming or moving `.ai/` or its `skills/` breaks `.claude/skills`,

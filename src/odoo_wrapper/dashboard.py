@@ -59,7 +59,9 @@ con sus incidencias, y desde cada nombre su propio panel, solo de lectura. El di
 corrige, añade o elimina sus fichajes (eliminar no se puede deshacer) y aprueba sus solicitudes de
 cambio en Odoo; nada más escribe en Odoo salvo fichar. En un día con un fichaje incorrecto prepara
 además el aviso para quien lo hizo: copiarlo, o enviárselo por privado con el bot de Discord si este equipo
-tiene su token (botón «Discord» de Gestión, u odoo discord) y su ficha de Odoo su ID de Discord.
+tiene su token (botón «Discord» de Gestión, u odoo discord) y las fichas de Odoo de los dos, quien
+lo envía y quien lo recibe, su ID de Discord. El botón del mensaje abre la solicitud de cambio de fichaje
+ya rellena para que la revise y la envíe él.
 
 Al guardar cambios en el código se reinicia solo; no hace falta pararlo. Si el puerto {server.PORT}
 está ocupado es que ya hay otro dashboard: recarga esa página en vez de arrancar otro.

@@ -10,7 +10,7 @@
 - The recipient is the employee's Discord user id, read from Odoo on every send (team.discord_of), never taken
   from the page, so a session can only write to people whose attendances it reads (server.py checks that first).
 - Nobody reads the replies: the bot never connects, so an answer stays in that conversation unseen. Every
-  message therefore ends with FOOTER, saying so and naming whom to write to instead: whoever sent it, as a
+  message therefore closes with FOOTER, saying so and naming whom to write to instead: whoever sent it, as a
   Discord mention of the id on their own employee record (sender_id). Discord shows it with the name they go
   by there, not Odoo's legal one («Constanza Elena…» for someone everyone knows as Elena), and a click on it
   opens their profile, so they can always be reached; a sender without an id sends nothing. It is added here,
@@ -20,21 +20,21 @@
   Approvals category found by name like team.py's requests, never by id. A link button is the one kind Discord
   lets a bot send without being told of the click, which would need the dashboard reachable from the
   internet. The request must be the employee's own, for legal reasons, so nothing is created for them: the
-  button only fills the form they then send, or not.
+  button only opens the form they then send, or not, empty unless the action below fills it.
 - Filled, when this Odoo has the window action REQUEST_ACTION (prefilled_link): Odoo 18's URL carries no
   default values, but its web client evaluates an action's context with the URL's query as `params`
   (action_service.js), so that action, created by hand like the Discord field, copies what the category's own
   «Nueva solicitud» button sets (create_request: subject, category, the user as owner, status) and takes
   desde, hasta and motivo from the query. It is web client internals, not an API, so an upgrade of Odoo may
-  break it; without the action, or when it does not load, the button opens the empty form above, and without
-  the category the message goes without it.
+  break it; without the action, or when it does not load, the button opens the category's empty form, and
+  without the category the message goes without it.
 - What it fills (proposal) is the punch to fix as it stands, in the description, and a correction to check:
   an open punch or the longest one of a long day, from its check-in to the hours the day still lacked (never
   past that day's LAST_MINUTE, the check-in itself without a target). A day without punches leaves the period
   and the correction blank: nothing there says when the day was worked. Nobody but the employee knows the
-  real times, so the message then asks them to check it (REVIEW): sent as it comes, it would approve an
-  estimate.
-  The day is read again from Odoo (team.fetch_team, cached), never taken from the page.
+  real times, so a last subtext line, after FOOTER, asks them to check it (REVIEW): sent as it comes, it
+  would approve an estimate. The day is read again from Odoo (team.fetch_team, cached), never taken from the
+  page.
 - The bot's token is a password: `odoo discord` asks for it without echo, and the management view's «Discord»
   dialog sends it once (set_token); either checks it with Discord (GET /users/@me, which also names the bot)
   and keeps it in TOKEN_FILE, mode 600, like the Odoo session. Nothing ever sends it back: the page only learns
@@ -176,7 +176,8 @@ def proposal(day):
             what = f"de {clock(start)} a {until} ({duration(wrong['hours'])})"
         else:
             what = f"entrada a las {clock(start)} sin salida"
-        return start, end, f"Fichaje incorrecto: {day_name(start)}, {what}. Corrección: de {clock(start)} a {clock(end)}."
+        correction = f"de {clock(start)} a {clock(end)}."
+        return start, end, f"Fichaje incorrecto: {day_name(start)}, {what}. Corrección: {correction}"
     if "empty" in day["flags"]:
         return None, None, (f"Fichaje incorrecto: {day_name(today)}, sin fichajes (jornada prevista de "
                             f"{duration(target)}). Corrección: ")
