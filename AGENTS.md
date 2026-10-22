@@ -21,7 +21,8 @@ src/odoo_wrapper/
   data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
   team.py            the management view's payload: one week of everyone the session can read, flagged
   corrections.py     the day dialog's writes: correcting and adding punches, approving change requests
-  discord.py         the day dialog's notice of a punch to fix, sent by private message from a Discord bot
+  discord.py         the day dialog's notice of a punch to fix, sent by private message from a Discord bot, and
+                     the change request form its button opens, also from the personal page
   state.py           the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
@@ -198,8 +199,9 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   requests, found by category name).
   Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
   details.
-- **The Discord notice's button opens a window action created by hand** (`ir.actions.act_window` with path
-  `modificacion-fichaje`, an administrator's job, like the «Discord» field): a form on `approval.request` whose
+- **The Discord notice's button, and the personal page's «Solicitar cambio», open a window action created by
+  hand** (`ir.actions.act_window` with path `modificacion-fichaje`, an administrator's job, like the «Discord»
+  field): a form on `approval.request` whose
   context copies what the category's own «Nueva solicitud» button sets and reads `desde`, `hasta` and `motivo`
   from the URL as `params`. Odoo's URL carries no default values otherwise; `discord.py`'s header says how it
   works, why it may break with an upgrade of Odoo, and what the button falls back to. Nothing creates the

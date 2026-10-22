@@ -232,6 +232,13 @@ class HandlerTest(unittest.TestCase):
             requests.assert_called_with(client.return_value, 9)
             fetch.assert_called_with(client.return_value, fresh=True, employee=9)
 
+    def test_the_own_request_link_needs_a_session_and_takes_only_the_date(self):
+        self.assertEqual(self.get("/api/request?date=2026-10-19", cookie=None)[0], 401)
+        with patch.object(sv, "new_client") as client, \
+                patch.object(sv.discord, "own_request", return_value=(200, {"url": "L"})) as own:
+            self.assertEqual(self.get("/api/request?date=2026-10-19&employee=9")[:3:2], (200, {"url": "L"}))
+            own.assert_called_once_with(client.return_value, "2026-10-19")
+
     def test_team_writes(self):
         self.assertEqual(self.post("/api/team/attendance", {}, cookie=None)[0], 401)
         with patch.object(sv, "new_client") as client, patch.object(sv.corrections, "save_attendance", return_value=(200, {"ok": True})) as save, \

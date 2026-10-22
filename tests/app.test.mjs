@@ -2628,13 +2628,52 @@ test("the personal page's punches to fix open the correcting dialog when the ses
   await fix.listeners.click[0]();
   await settle();
   assert.deepEqual([fix.textContent, fix.title], ["No se pudo abrir", "sin red"]);
-  page.run("store.other = null; store.data.can_edit = false; renderErrors()");
+  page.run("store.data.can_edit = false; renderErrors()");
   assert.equal(items()[0].children.length, 1);
+  page.run("store.other = null; renderErrors()");
+  assert.equal(items()[0].children[1].textContent, "Solicitar cambio");
   page.run("store.data.can_edit = true; renderErrors()");
   down = false;
   await items()[0].children[1].listeners.click[0]();
   await settle();
   assert.ok(urls.at(-1).startsWith("/api/team?week="));
+});
+
+test("your own punches to fix open Odoo's change request form when you may not correct them", async () => {
+  const today = new Date();
+  const back = n => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+  const urls = [];
+  let down = false;
+  const page = load({ fetchImpl: async url => {
+    urls.push(url);
+    if (url.startsWith("/api/request")) {
+      if (down) return { ok: false, status: 409, json: async () => ({ error: "sin categoría" }) };
+      return { ok: true, status: 200, json: async () => ({ url: "https://odoo.example/form" }) };
+    }
+    return { ok: true, status: 200, json: async () => payload([session(at(back(10), 16), at(back(9), 8, 30))]) };
+  } });
+  page.run("window.tabs = []; window.open = (url, target) => { const tab = { url, target, opener: window, "
+    + "closed: false, close() { this.closed = true; } }; window.tabs.push(tab); return tab; }");
+  await page.run("loadAndRender()");
+  const ask = page.document.getElementById("errorsBanner").children[0].children[2].children[0].children[1];
+  assert.equal(ask.textContent, "Solicitar cambio");
+  await ask.listeners.click[0]();
+  const tabs = page.run("window.tabs");
+  assert.equal(urls.at(-1), `/api/request?date=${isoDate(back(10))}`);
+  assert.deepEqual([tabs[0].url, tabs[0].target, tabs[0].opener, tabs[0].location, tabs[0].closed],
+    ["", "_blank", null, "https://odoo.example/form", false]);
+  const shortcut = page.document.getElementById("requestBtn");
+  assert.equal(shortcut.classList.contains("hidden"), false);
+  await shortcut.listeners.click[0]();
+  assert.equal(urls.at(-1), "/api/request");
+  assert.equal(page.run("window.tabs[1].location"), "https://odoo.example/form");
+  down = true;
+  await ask.listeners.click[0]();
+  assert.equal(page.run("window.tabs[2].closed"), true);
+  assert.deepEqual([ask.textContent, ask.title], ["No se pudo abrir", "sin categoría"]);
+  page.run("store.other = '9'; loadAndRender()");
+  await settle();
+  assert.equal(shortcut.classList.contains("hidden"), true);
 });
 
 test("someone's page shows the requests the viewer may approve, one line per day with its errors", async () => {

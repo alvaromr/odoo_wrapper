@@ -80,6 +80,7 @@ export async function loadAndRender(fresh) {
   document.getElementById("subtitle").textContent =
     `Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
   document.getElementById("teamLink").classList.toggle("hidden", !store.data.team);
+  document.getElementById("requestBtn").classList.toggle("hidden", Boolean(store.other || store.data.can_edit));
   document.getElementById("loadmsg").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   renderHero();

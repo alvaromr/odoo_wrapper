@@ -16,7 +16,7 @@ import { store, LOOPBACK, TickMs } from "./store.js";
 import { busy, wireSettings } from "./ui.js";
 import { setClock, indexSessions } from "./week.js";
 import { isoDay } from "./format.js";
-import { renderHero, renderAll, setRangeMonths, punchText } from "./render.js";
+import { renderHero, renderAll, setRangeMonths, punchText, openRequest } from "./render.js";
 import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
 import { wireLogout, wireMouseHistory } from "./shared.js";
 import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
@@ -104,6 +104,9 @@ document.getElementById("refreshBtn").addEventListener("click", async e => {
   e.target.disabled = true;
   try { await loadAndRender(true); } finally { e.target.disabled = false; }
 });
+
+const requestBtn = document.getElementById("requestBtn");
+requestBtn.addEventListener("click", () => openRequest(requestBtn));
 
 wireLogout(document.getElementById("logoutBtn"));
 wireMouseHistory();

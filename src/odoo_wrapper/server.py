@@ -66,6 +66,9 @@ API
   read-only mode, linked from each row of /gestion), with the same 403 as /api/team; it carries no phone
   block and state.OTHER_STATE instead of the viewer's state, plus the employee's pending change requests the
   viewer may approve (team.requests_to_approve), read fresh each time since approving changes them.
+- GET /api/request?date=YYYY-MM-DD is the link to Odoo's attendance change request form for that day of the
+  session's own employee, filled as the Discord notice's button (discord.own_request), and without a date the
+  empty form; it only reads.
 - GET /api/team?week=<any day>[&fresh] is team.py's payload for that day's week (this week by default), and
   ?month=YYYY-MM the one for every week of that month, ?year=YYYY that year summarised by month, ?fixes
   the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
@@ -307,6 +310,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"error": "no autorizado"})
                 return
             self._send(200, state.read_state(_sessions[self.session]))
+        elif self.path == "/api/request":
+            if not self._authorized():
+                self._send(401, {"error": "no autorizado"})
+                return
+            self._send(*discord.own_request(new_client(self.session), dict(parse_qsl(query)).get("date")))
         elif self.path == "/api/data":
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})

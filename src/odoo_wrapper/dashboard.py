@@ -61,7 +61,9 @@ cambio en Odoo; nada más escribe en Odoo salvo fichar. En un día con un fichaj
 además el aviso para quien lo hizo: copiarlo, o enviárselo por privado con el bot de Discord si este equipo
 tiene su token (botón «Discord» de Gestión, u odoo discord) y las fichas de Odoo de los dos, quien
 lo envía y quien lo recibe, su ID de Discord. El botón del mensaje abre la solicitud de cambio de fichaje
-ya rellena para que la revise y la envíe él.
+ya rellena para que la revise y la envíe él. Quien no puede corregir sus fichajes abre esa misma
+solicitud desde cada fichaje por corregir de su panel, con «Solicitar cambio», y una vacía con
+«Nueva solicitud».
 
 Al guardar cambios en el código se reinicia solo; no hace falta pararlo. Si el puerto {server.PORT}
 está ocupado es que ya hay otro dashboard: recarga esa página en vez de arrancar otro.

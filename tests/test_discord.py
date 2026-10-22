@@ -105,6 +105,20 @@ class DiscordTest(unittest.TestCase):
         with self.assertRaises(dc.SessionExpired):
             dc.request_link(odoo)
 
+    def test_the_own_request_is_the_notices_link_for_the_sessions_own_employee(self):
+        odoo = unittest.mock.Mock(employee_id=20)
+        with patch.object(dc, "notice_day", return_value={"x": 1}) as day, \
+                patch.object(dc, "prefilled_link", return_value="filled") as filled, \
+                patch.object(dc, "request_link", return_value="empty"):
+            self.assertEqual(dc.own_request(odoo, "2026-10-19"), (200, {"url": "filled"}))
+            odoo.load_employee.assert_called_once_with()
+            day.assert_called_once_with(odoo, 20, "2026-10-19")
+            filled.assert_called_once_with(odoo, {"x": 1})
+            filled.return_value = None
+            self.assertEqual(dc.own_request(odoo, "2026-10-19"), (200, {"url": "empty"}))
+            with patch.object(dc, "request_link", return_value=None):
+                self.assertEqual(dc.own_request(odoo, "2026-10-19")[0], 409)
+
     def test_every_refusal_reads_in_words(self):
         dc.write_private(dc.TOKEN_FILE, "tok")
         cases = [

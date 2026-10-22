@@ -25,7 +25,8 @@ src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.p
 
 - **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history`, `notices`, `sheet`,
   `discord` — see `odoo` with no arguments.
-- **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes.
+- **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes; whoever
+  may not correct their punches opens Odoo's change request form from it, filled for each punch to fix.
 - **Management view**: for a user who can read other people's attendances, `/gestion` shows everyone's week,
   month or year with punch errors (orange), targets missed, short or over (red) and change requests (blue); a day's dialog
   corrects its punches and approves its change requests, and warns whoever punched wrong by a private
