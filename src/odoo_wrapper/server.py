@@ -153,9 +153,10 @@ def new_client(session_id):
 
 
 def session_cookie(headers, name=COOKIE_NAME):
-    morsel = SimpleCookie(headers.get("Cookie") or "").get(name)
+    sent = headers.get("Cookie")  # pragma: no mutate - header names ignore case
+    morsel = SimpleCookie(sent).get(name)
     value = morsel.value if morsel else ""
-    return value if value and set(value) <= SESSION_CHARS else ""
+    return value if set(value) <= SESSION_CHARS else ""
 
 
 def remembered(client, right):
@@ -191,13 +192,14 @@ def session_ok(session_id):
 
 def login_wait(ip):
     with _login_lock:
-        return max(0, _login_fails.get(ip, (0, 0))[1] - time.monotonic())
+        until = _login_fails[ip][1] if ip in _login_fails else 0
+        return max(0, until - time.monotonic())
 
 
 def login_failed(ip):
     with _login_lock:
         now = time.monotonic()
-        fails, until = _login_fails.get(ip, (0, 0))
+        fails, until = _login_fails.get(ip, (0, 0))  # pragma: no mutate - an unknown address counts 1 either way
         fails = 1 if now > until + LOGIN_LOCK_MAX else fails + 1
         lock = 0 if fails < LOGIN_TRIES else min(LOGIN_LOCK_MAX, LOGIN_LOCK * 2 ** (fails - LOGIN_TRIES))
         _login_fails[ip] = (fails, now + lock)
@@ -211,7 +213,7 @@ def login_succeeded(ip):
 def new_pairing(session_id, base_url):
     now = time.monotonic()
     for token in [token for token, (_, until) in list(_pairings.items()) if until < now]:
-        _pairings.pop(token, None)
+        _pairings.pop(token, None)  # pragma: no mutate - only another request spending it at once would miss it
     token = secrets.token_urlsafe(24)
     _pairings[token] = (session_id, now + PAIR_TTL)
     link = f"{base_url}pair?t={token}"
@@ -219,13 +221,13 @@ def new_pairing(session_id, base_url):
 
 
 def spend_pairing(token):
-    session_id, until = _pairings.pop(token, ("", 0))
-    return session_id if until >= time.monotonic() else ""
+    pairing = _pairings.pop(token, None)
+    return pairing[0] if pairing and pairing[1] >= time.monotonic() else ""
 
 
 def revoke_pairings(session_id):
     for token in [token for token, (owner, _) in list(_pairings.items()) if owner == session_id]:
-        _pairings.pop(token, None)
+        _pairings.pop(token, None)  # pragma: no mutate - as in new_pairing()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -233,7 +235,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _send(self, status, body, ctype="application/json; charset=utf-8", cookies=(), location=None):
-        payload = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
+        payload = body
+        if not isinstance(body, bytes):
+            payload = json.dumps(body, ensure_ascii=False).encode()  # pragma: no mutate - None is as false as False
         self.send_response(status)
         if location:
             self.send_header("Location", location)
@@ -254,9 +258,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _same_site(self):
-        if not lan.is_local_name(lan.hostname_of(self.headers.get("Host"))):
+        host = self.headers.get("Host")  # pragma: no mutate - header names ignore case
+        if not lan.is_local_name(lan.hostname_of(host)):
             return False
-        origin = self.headers.get("Origin")
+        origin = self.headers.get("Origin")  # pragma: no mutate - as above
         return not origin or lan.is_local_name(lan.hostname_of(origin))
 
     def _local(self):
@@ -270,11 +275,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self._same_site():
             self._send(403, {"error": "origen no permitido"})
             return
-        self.session = ""
+        self.session = ""  # pragma: no mutate - no session is ever stored under the value it starts with
         try:
             handler()
         except SessionExpired as error:
-            _sessions.pop(self.session, None)
+            _sessions.pop(self.session, None)  # pragma: no mutate - a request alongside may have dropped it first
             self._send(401, {"error": str(error)}, cookies=[(COOKIE_NAME, "")])
         except OdooDown as error:
             self._send(502, {"error": str(error)})
@@ -307,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
             with open(ICON, "rb") as f:
                 self._send(200, f.read(), "image/svg+xml")
         elif self.path == "/pair":
-            session_id = spend_pairing(dict(parse_qsl(query)).get("t", ""))
+            session_id = spend_pairing(dict(parse_qsl(query)).get("t"))
             cookies = [(COOKIE_NAME, session_id)] if session_id else []
             self._send(303, b"", "text/plain", cookies=cookies, location="/" if session_id else "/login")
         elif self.path.startswith("/js/") and self.path[4:] in os.listdir(SCRIPTS):
@@ -340,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"error": "no autorizado"})
                 return
             params = dict(parse_qsl(query, keep_blank_values=True))
-            employee = params.get("employee", "")
+            employee = params.get("employee")
             if not employee:
                 client = new_client(self.session)
                 payload = data.fetch_data(client, fresh="fresh" in params)
@@ -405,7 +410,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         user = str(body.get("user") or config.get("user") or "")
         client = OdooClient(config["url"], config["db"], device=session_cookie(self.headers, DEVICE_COOKIE))
-        client.user_agent = self.headers.get("User-Agent") or client.user_agent
+        agent = self.headers.get("User-Agent")  # pragma: no mutate - header names ignore case
+        client.user_agent = agent or client.user_agent
         try:
             client.login(user, str(body.get("password") or ""), str(body.get("code") or ""))
         except TotpRequired as error:
@@ -438,7 +444,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])
 
     def _post(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        declared = self.headers.get("Content-Length")  # pragma: no mutate - header names ignore case
+        length = int(declared or 0)
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
         except ValueError:

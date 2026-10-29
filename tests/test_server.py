@@ -170,7 +170,7 @@ class HandlerTest(unittest.TestCase):
         self.addCleanup(dt.drop_data_cache)
 
     def request(self, method, path, body=None, host="localhost:8931", origin=None, cookie="sid", device="",
-                ip="127.0.0.1", tls=False):
+                ip="127.0.0.1", tls=False, length=True):
         h = sv.Handler.__new__(sv.Handler)
         h.command, h.path, h.request_version = method, path, "HTTP/1.1"
         h.requestline = f"{method} {path} HTTP/1.1"
@@ -183,7 +183,8 @@ class HandlerTest(unittest.TestCase):
             if value is not None:
                 h.headers[key] = value
         raw = b"" if body is None else body if isinstance(body, bytes) else json.dumps(body).encode()
-        h.headers["Content-Length"] = str(len(raw))
+        if length is not None:
+            h.headers["Content-Length"] = str(len(raw) if length is True else length)
         h.rfile, h.wfile = io.BytesIO(raw), io.BytesIO()
         with patch.object(sv, "ssl", SimpleNamespace(SSLSocket=FakeTLS)):
             getattr(h, "do_" + method)()
@@ -214,6 +215,7 @@ class HandlerTest(unittest.TestCase):
             status, headers, payload = self.get(path)
             self.assertEqual(status, 200, path)
             self.assertIn(marker, payload)
+            self.assertNotEqual(payload[:1], b'"', path)
             self.assertTrue(headers["Content-Type"].startswith(ctype), path)
             self.assertEqual(headers["X-Frame-Options"], "DENY")
             self.assertEqual(headers["Cache-Control"], "no-store")
@@ -404,6 +406,8 @@ class HandlerTest(unittest.TestCase):
             client.return_value.sees_others.return_value = True
             self.assertEqual(self.get("/api/team?fixes")[:3:2], (200, {"employees": []}))
             fixes.assert_called_with(client.return_value, False)
+            self.get("/api/team?fixes&fresh")
+            fixes.assert_called_with(client.return_value, True)
 
     def test_foreign_host_or_origin_is_refused(self):
         self.assertEqual(self.get("/", host="evil.com")[:3:2], (403, {"error": "origen no permitido"}))
@@ -449,8 +453,10 @@ class HandlerTest(unittest.TestCase):
         with patch.object(dt, "fetch_data", side_effect=OdooDown("Odoo no responde (Connection refused)")):
             status, _, payload = self.get("/api/data")
         self.assertEqual((status, payload["error"]), (502, "Odoo no responde (Connection refused)"))
-        with patch.object(dt, "fetch_data", side_effect=RuntimeError), redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+        with patch.object(dt, "fetch_data", side_effect=RuntimeError), redirect_stderr(io.StringIO()), \
+                redirect_stdout(io.StringIO()) as out:
             self.assertEqual(self.get("/api/data")[:3:2], (500, {"error": "Error interno del dashboard"}))
+        self.assertIn(" Error interno atendiendo GET /api/data:\n", out.getvalue())
 
     def test_an_expired_session_is_forgotten_and_the_cookie_cleared(self):
         with patch.object(dt, "fetch_data", side_effect=SessionExpired("caducada")):
@@ -505,7 +511,7 @@ class HandlerTest(unittest.TestCase):
     def test_login_is_loopback_only(self):
         status, _, payload, odoo, _ = self.login({"user": "ana", "password": "pw"}, ip="10.0.0.9")
         self.assertEqual(status, 403)
-        self.assertIn("empareja desde el ordenador", payload["error"])
+        self.assertEqual(payload["error"], "En el móvil no se inicia sesión: empareja desde el ordenador")
         odoo.assert_not_called()
 
     def test_login_asks_for_the_code_and_then_trusts_the_device(self):
@@ -541,8 +547,10 @@ class HandlerTest(unittest.TestCase):
         os.remove(c.CONFIG_FILE)
         status, _, payload, odoo, _ = self.login({"user": "ana", "password": "pw"})
         self.assertEqual(status, 409)
-        self.assertIn("Configura Odoo primero", payload["error"])
+        self.assertEqual(payload["error"], "Configura Odoo primero: faltan la URL y la base de datos")
         odoo.assert_not_called()
+        odoo = self.login({"url": "https://o", "db": "db"})[3]
+        self.assertEqual(odoo.return_value.login.call_args.args, ("", "", ""))
         status, _, _, _, _ = self.login({"url": "https://o", "db": "db", "user": "ana", "password": "pw"})
         self.assertEqual(status, 200)
         self.assertEqual(c.read_config(), {"url": "https://o", "db": "db", "user": "ana"})
@@ -561,8 +569,8 @@ class HandlerTest(unittest.TestCase):
         self.assertTrue(name_pair["url"].startswith("https://mac.local:8443/pair?t="))
         self.assertTrue(ip_pair["qr"].startswith("<svg"))
         token = ip_pair["url"].split("t=")[1]
-        status, headers, _ = self.request("GET", f"/pair?t={token}", host="10.0.0.2:8443", ip="10.0.0.9", cookie=None, tls=True)
-        self.assertEqual((status, headers["Location"]), (303, "/"))
+        status, headers, body = self.request("GET", f"/pair?t={token}", host="10.0.0.2:8443", ip="10.0.0.9", cookie=None, tls=True)
+        self.assertEqual((status, headers["Location"], headers["Content-Type"], body), (303, "/", "text/plain", b""))
         self.assertIn(f"{sv.COOKIE_NAME}=sid; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.COOKIE_NAME]}; HttpOnly; SameSite=Lax; Secure", headers["Set-Cookie"])
         for spent in (f"/pair?t={token}", "/pair?t=nope", "/pair"):
             status, headers, _ = self.request("GET", spent, host="10.0.0.2:8443", ip="10.0.0.9", cookie=None)
@@ -642,6 +650,8 @@ class HandlerTest(unittest.TestCase):
     def test_unreadable_body(self):
         self.assertEqual(self.post("/api/state", b"{rota")[:3:2], (400, {"error": "Cuerpo de la petición ilegible"}))
         self.assertEqual(self.post("/api/state", b"")[0], 200)
+        self.assertEqual(self.post("/api/state", b'{"muted": true}garbage', length=15)[2]["muted"], True)
+        self.assertEqual(self.post("/api/state", b"garbage", length=None)[0], 200)
 
     def test_state_writes(self):
         status, _, payload = self.post("/api/state", {"lunch_minutes": 45, "break_minutes": 10, "muted": 1})
@@ -657,7 +667,7 @@ class HandlerTest(unittest.TestCase):
         self.assertIn("lunch_button_from", payload["error"])
         status, _, payload = self.post("/api/state", {"lunch_button_to": 780, "muted": 0})
         self.assertEqual(status, 400)
-        self.assertIn("antes", payload["error"])
+        self.assertEqual(payload["error"], "El botón de comida tiene que aparecer antes de la hora en que desaparece")
         self.assertTrue(self.get("/api/state")[2]["muted"])
         self.assertEqual(self.post("/otro", {})[0], 404)
         self.post("/api/state", {"lunch_button_from": 600})
