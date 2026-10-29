@@ -170,7 +170,7 @@ class SvgTest(unittest.TestCase):
         out = qr.svg("hola", scale=2, quiet=3)
         size = (21 + 6) * 2
         self.assertIn(f'viewBox="0 0 {size} {size}"', out)
-        self.assertIn("<path", out)
+        self.assertIn('d="M6 6h2v2h-2z M8 6h2v2h-2z ', out)
         self.assertTrue(out.startswith("<svg") and out.endswith("</svg>"))
 
     def test_paints_one_square_per_dark_module(self):

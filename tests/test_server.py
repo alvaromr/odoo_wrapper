@@ -287,8 +287,8 @@ class HandlerTest(unittest.TestCase):
             sv._rights.clear()
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
-            self.assertEqual((payload["phone"], payload["state"], payload["requests"], payload["can_edit"]),
-                             (None, st.OTHER_STATE, [{"id": 552}], False))
+            self.assertEqual((payload["phone"], payload["state"], payload["requests"], payload["can_edit"], payload["sessions"]),
+                             (None, st.OTHER_STATE, [{"id": 552}], False, []))
             requests.assert_called_with(client.return_value, 9)
             fetch.assert_called_with(client.return_value, fresh=True, employee=9)
 
@@ -450,7 +450,7 @@ class HandlerTest(unittest.TestCase):
             status, _, payload = self.get("/api/data")
         self.assertEqual((status, payload["error"]), (502, "Odoo no responde (Connection refused)"))
         with patch.object(dt, "fetch_data", side_effect=RuntimeError), redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-            self.assertEqual(self.get("/api/data")[0], 500)
+            self.assertEqual(self.get("/api/data")[:3:2], (500, {"error": "Error interno del dashboard"}))
 
     def test_an_expired_session_is_forgotten_and_the_cookie_cleared(self):
         with patch.object(dt, "fetch_data", side_effect=SessionExpired("caducada")):
@@ -629,8 +629,9 @@ class HandlerTest(unittest.TestCase):
     def test_login_lockout(self):
         for _ in range(sv.LOGIN_TRIES):
             self.login({"password": "no"})
-        with patch.object(sv, "login_wait", return_value=12.5):
+        with patch.object(sv, "login_wait", return_value=12.5) as wait:
             status, _, payload, odoo, _ = self.login({"password": "pw"})
+        wait.assert_called_once_with("127.0.0.1")
         self.assertEqual((status, payload), (429, {"error": "Demasiados intentos. Espera 13 s"}))
         odoo.assert_not_called()
         self.login({"password": "no"}, ip="::1")
@@ -659,6 +660,8 @@ class HandlerTest(unittest.TestCase):
         self.assertIn("antes", payload["error"])
         self.assertTrue(self.get("/api/state")[2]["muted"])
         self.assertEqual(self.post("/otro", {})[0], 404)
+        self.post("/api/state", {"lunch_button_from": 600})
+        self.assertEqual(self.post("/api/state", {"lunch_button_to": 700})[0], 200)
 
     def test_punch_errors(self):
         with patch.object(sv, "new_client", side_effect=OdooError("caído")):

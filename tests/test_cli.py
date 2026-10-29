@@ -81,7 +81,7 @@ class CommandTest(unittest.TestCase):
         self.assertIn("Horas hoy: 0.00h", out)
 
     def test_status_and_history_send_exactly_these_queries(self):
-        moment = datetime(2026, 3, 2, 12, 0, tzinfo=timezone.utc)
+        moment = datetime(2026, 3, 2, 12, 34, 56, 789, tzinfo=timezone.utc)
 
         class Frozen(datetime):
             @classmethod
@@ -91,8 +91,8 @@ class CommandTest(unittest.TestCase):
         with patch.object(cli, "datetime", Frozen):
             self.run_cmd(odoo, "status")
             self.run_cmd(odoo, "history", 3)
-        midnight = (moment.astimezone().replace(hour=0, minute=0, second=0).astimezone(timezone.utc)
-                    .strftime("%Y-%m-%d %H:%M:%S"))
+        midnight = (datetime.combine(moment.astimezone().date(), datetime.min.time()).astimezone()
+                    .astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
         fields = ["check_in", "check_out", "worked_hours"]
 
         def call(domain, kwargs):
@@ -100,7 +100,7 @@ class CommandTest(unittest.TestCase):
         self.assertEqual([params for _, params, _ in odoo.opener.calls[2:]], [
             call([["employee_id", "=", 7]], {"fields": fields, "limit": 1, "order": "check_in desc"}),
             call([["employee_id", "=", 7], ["check_in", ">=", midnight]], {"fields": fields, "order": "check_in asc"}),
-            call([["employee_id", "=", 7], ["check_in", ">=", "2026-02-27 12:00:00"]],
+            call([["employee_id", "=", 7], ["check_in", ">=", "2026-02-27 12:34:56"]],
                  {"fields": fields, "order": "check_in desc"}),
         ])
 
@@ -130,6 +130,7 @@ class CommandTest(unittest.TestCase):
         out = self.run_cmd(odoo, "check_in")
         self.assertIn("CHECK-IN registrado", out)
         self.assertIn("Horas hoy: 0.50h", out)
+        self.assertEqual(odoo.opener.calls[-1][1], {"attendance_reason_id": 5})
 
     def test_check_out(self):
         self.assertIn("No hay fichaje abierto", self.run_cmd(client(self.EMP, kw([])), "check_out"))
@@ -138,6 +139,7 @@ class CommandTest(unittest.TestCase):
         out = self.run_cmd(odoo, "check_out")
         self.assertIn("CHECK-OUT registrado", out)
         self.assertIn("(0.50h esta sesión)", out)
+        self.assertIn("Horas hoy: 4.00h", out)
 
     def test_break(self):
         open_att = kw([{"id": 1, "check_in": utc(30)}])
