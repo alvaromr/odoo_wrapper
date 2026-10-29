@@ -148,7 +148,7 @@ class WatchTest(unittest.TestCase):
                 raise StopLoop
 
         with patch.object(pr, "stamps", side_effect=stamp_values), patch.object(time, "sleep", side_effect=sleep), \
-                patch.object(pr, "NET_INTERVAL", interval), patch.object(os, "execv", side_effect=StopLoop) as execv, \
+                patch.object(pr, "NET_INTERVAL", interval), patch.object(os, "execve", side_effect=StopLoop) as execv, \
                 redirect_stdout(io.StringIO()) as out:
             with self.assertRaises(StopLoop):
                 pr.watch_sources(Mock(side_effect=identities))
@@ -158,7 +158,7 @@ class WatchTest(unittest.TestCase):
         with patch.object(sys, "argv", ["dash", "--host", "0.0.0.0", "--open"]):
             execv, out = self.watch([{"a.py": 1}, {"a.py": 2}], ["", ""], 30)
         self.assertIn("Cambio en a.py", out)
-        execv.assert_called_once_with(sys.executable, pr.launch_command(["--host", "0.0.0.0"]))
+        execv.assert_called_once_with(sys.executable, pr.launch_command(["--host", "0.0.0.0"]), dict(os.environ))
 
     def test_a_vanished_source_restarts(self):
         execv, out = self.watch([{"a.py": 1, "b.py": 1}, {"b.py": 1}], ["", ""], 30)
@@ -176,9 +176,31 @@ class WatchTest(unittest.TestCase):
         execv, _ = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1"], 30)
         execv.assert_not_called()
 
+    def test_a_held_watcher_restarts_nothing_until_released(self):
+        pr.hold()
+        self.addCleanup(pr.release)
+        execv, _ = self.watch([{"a.py": 1}, {"a.py": 2}, {"a.py": 3}], ["mac|1", "mac|2", "mac|3"], -1)
+        execv.assert_not_called()
+        pr.release()
+        execv, _ = self.watch([{"a.py": 1}, {"a.py": 2}], ["", ""], 30)
+        execv.assert_called_once()
+
+    def test_a_restart_into_a_new_install_runs_its_interpreter_and_package(self):
+        with patch.object(os, "execve", side_effect=StopLoop) as execve, self.assertRaises(StopLoop):
+            pr.restart(["--host", "0.0.0.0"], installed="/tools/odoo-wrapper/bin/python")
+        command = ["/tools/odoo-wrapper/bin/python", "-c", pr.INSTALLED_BOOTSTRAP, "--host", "0.0.0.0"]
+        self.assertEqual(execve.call_args.args[:2], (command[0], command))
+        self.assertEqual(execve.call_args.args[2][pr.UPDATED_ENV], "1")
+        with patch.object(sys, "platform", "win32"), patch.object(subprocess, "Popen") as popen, \
+                patch.object(os, "_exit", side_effect=StopLoop), self.assertRaises(StopLoop):
+            pr.restart([], installed="C:\\tools\\python.exe")
+        self.assertEqual(popen.call_args.args[0][:3], ["C:\\tools\\python.exe", "-c", pr.INSTALLED_BOOTSTRAP])
+        self.assertEqual((popen.call_args.kwargs["env"][pr.UPDATED_ENV], popen.call_args.kwargs["env"][pr.RESTART_ENV]),
+                         ("1", "1"))
+
     def test_windows_spawns_a_child_and_exits(self):
         with patch.object(sys, "platform", "win32"), patch.object(subprocess, "Popen") as popen, \
-                patch.object(os, "execv") as execv, patch.object(os, "_exit", side_effect=StopLoop) as exit_:
+                patch.object(os, "execve") as execv, patch.object(os, "_exit", side_effect=StopLoop) as exit_:
             with self.assertRaises(StopLoop):
                 pr.restart(["--host", "0.0.0.0"])
         execv.assert_not_called()

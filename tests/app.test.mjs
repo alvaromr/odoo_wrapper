@@ -39,7 +39,10 @@ function flatten(name, seen = new Set(), order = []) {
   return order;
 }
 
-const SOURCES = Object.fromEntries(["app.js", "team.js"].map(name => [name, flatten(name)]));
+const THEME = { name: "theme.js", body: readModule("theme.js") };
+const SOURCES = Object.fromEntries(["app.js", "team.js"].map(name => [name, [THEME, ...flatten(name)]]));
+const UP_TO_DATE = { available: false, current: "1.1.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
+  error: "" };
 
 test("every imported name is exported by its module", () => {
   for (const file of JS_FILES) {
@@ -137,6 +140,7 @@ function makeDocument() {
       return e;
     },
     body: element("body"),
+    documentElement: element("html"),
     createElementNS: (_, tag) => element(tag),
     querySelector(sel) {
       for (const root of byId.values()) {
@@ -160,7 +164,12 @@ function makeDocument() {
   };
 }
 
-function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", storage = null, globals = {} } = {}) {
+function memoryStorage(items = {}) {
+  return { getItem: key => (key in items ? items[key] : null), setItem: (key, value) => { items[key] = String(value); } };
+}
+
+function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", storage = null, local = memoryStorage(),
+  globals = {} } = {}) {
   const document = makeDocument();
   const calls = { fetch: [], replace: [], reload: 0, timers: [] };
   const sandbox = {
@@ -170,10 +179,12 @@ function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", sto
       pushState: (a, b, url) => { (calls.pushed ||= []).push(url); calls.hash = url; },
       go: n => (calls.went ||= []).push(n) },
     ...(storage ? { sessionStorage: storage } : {}),
+    localStorage: local,
     location: { assign: url => (calls.assigned ||= []).push(url), hostname: "localhost", protocol: "http:", pathname: path.split(/[?#]/)[0],
       search: path.includes("?") ? path.slice(path.indexOf("?")).split("#")[0] : "",
       hash: path.includes("#") ? path.slice(path.indexOf("#")) : "", replace: url => calls.replace.push(url), reload: () => calls.reload++ },
     fetch: fetchImpl || (async (url, opts) => {
+      if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
       calls.fetch.push([url, opts]);
       if (url.includes("fixes")) return { ok: true, status: 200, json: async () => teamFixes() };
       if (!data) throw new Error("sin datos");
@@ -1391,6 +1402,7 @@ const yearPayload = (year = 2025) => {
 };
 
 const byPeriod = urls => async url => {
+  if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
   urls.push(url);
   const data = url.includes("fixes") ? teamFixes() : url.includes("year=") ? yearPayload()
     : url.includes("month=") ? monthPayload() : teamPayload();
@@ -1902,7 +1914,8 @@ test("the gear opens the settings, each saved on change and explained in its too
   assert.equal(dialog.open, true);
   assert.ok(dialog.children.includes(tip));
   const rows = dialog.querySelectorAll(".setting");
-  assert.deepEqual(rows.map(r => r.children[0].textContent), ["Comida", "Descanso", "Botón «Salir a comer»"]);
+  assert.deepEqual(rows.map(r => r.children[0].textContent),
+    ["Comida", "Descanso", "Botón «Salir a comer»", "Tema", "Actualizaciones"]);
   rows[2].listeners.pointerenter[0]({ clientX: 0, clientY: 0 });
   assert.match(tip.children[0].textContent, /^Horas entre las que aparece el botón/);
 
@@ -1924,12 +1937,215 @@ test("the gear opens the settings, each saved on change and explained in its too
   await to.listeners.change[0]();
   assert.deepEqual([to.value, doc.getElementById("settingsNote").textContent, posts.length], ["16:00", "", 3]);
 
-  dialog.querySelectorAll(".btn")[0].listeners.click[0]();
+  dialog.querySelectorAll(".btn").find(b => b.textContent === "Cerrar").listeners.click[0]();
   dialog.listeners.close[0]();
   assert.equal(dialog.open, false);
   assert.ok(doc.body.children.includes(tip));
   page.run("store.data.breaks = false; openSettings()");
-  assert.equal(dialog.querySelectorAll(".setting").length, 2);
+  assert.equal(dialog.querySelectorAll(".setting").length, 4);
+});
+
+test("«Tema» keeps this browser's theme, and says so when the browser will not keep it", () => {
+  const items = { theme: "dark" };
+  const page = load({ local: memoryStorage(items) });
+  const doc = page.document;
+  assert.equal(doc.documentElement.dataset.theme, "dark");
+  page.run("store.data = { breaks: false }; openSettings()");
+  const seg = doc.getElementById("settingsDialog").querySelectorAll(".seg")[0];
+  const pressed = () => seg.children.map(b => b.getAttribute("aria-pressed"));
+  assert.deepEqual(seg.children.map(b => b.textContent), ["Sistema", "Claro", "Oscuro"]);
+  assert.deepEqual(pressed(), ["false", "false", "true"]);
+  seg.children[1].listeners.click[0]();
+  assert.deepEqual([doc.documentElement.dataset.theme, items.theme, pressed()], ["light", "light", ["false", "true", "false"]]);
+  assert.equal(doc.getElementById("settingsNote").textContent, "");
+  seg.children[0].listeners.click[0]();
+  assert.deepEqual([doc.documentElement.dataset.theme, items.theme], ["", ""]);
+
+  const blocked = { getItem: () => { throw new Error("bloqueado"); }, setItem: () => { throw new Error("bloqueado"); } };
+  const locked = load({ local: blocked });
+  assert.equal(locked.document.documentElement.dataset.theme, undefined);
+  locked.run("store.data = { breaks: false }; openSettings()");
+  const dark = locked.document.getElementById("settingsDialog").querySelectorAll(".seg")[0].children[2];
+  dark.listeners.click[0]();
+  assert.equal(locked.document.documentElement.dataset.theme, "dark");
+  assert.match(locked.document.getElementById("settingsNote").textContent, /^Este navegador no deja guardar el tema/);
+});
+
+test("a newer version shows the banner on both pages, and «Actualizaciones» checks now and says the answer", async () => {
+  const newer = { available: true, current: "1.0.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
+    error: "" };
+  let answer = newer;
+  const urls = [];
+  const fetchImpl = async url => {
+    urls.push(url);
+    if (url.startsWith("/api/update")) {
+      if (answer instanceof Error) throw answer;
+      const body = answer;
+      return { ok: !body.refused, status: body.refused ? 401 : 200, json: async () => body };
+    }
+    return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
+  };
+  for (const [entry, path] of [["app.js", "/"], ["team.js", "/gestion"]]) {
+    const page = load({ entry, path, fetchImpl });
+    await settle();
+    const banner = page.document.getElementById("updateBanner");
+    assert.equal(banner.classList.contains("hidden"), false, entry);
+    assert.deepEqual(banner.children.map(c => c.tagName), ["P", "P", "P"]);
+    assert.deepEqual(banner.querySelectorAll("code").map(c => c.textContent),
+      ["uv tool upgrade odoo-wrapper", "claude plugin update odoo@odoo-wrapper"]);
+    assert.equal(banner.children[0].children[0].textContent, "Hay una versión nueva, la 1.1.0");
+    assert.equal(banner.children[0].children[1], " (tienes la 1.0.0). ");
+    const notes = banner.querySelectorAll("a")[0];
+    assert.deepEqual([notes.textContent, notes.href, notes.target, notes.rel],
+      ["Novedades", newer.url, "_blank", "noopener"]);
+    assert.ok(page.calls.timers.some(([, ms]) => ms === 3600000), entry);
+  }
+
+  const page = load({ fetchImpl });
+  await settle();
+  const doc = page.document, banner = doc.getElementById("updateBanner"), note = doc.getElementById("settingsNote");
+  const poll = page.calls.timers.find(([, ms]) => ms === 3600000)[0];
+  answer = { refused: true, error: "no autorizado" };
+  await poll();
+  await settle();
+  assert.equal(banner.classList.contains("hidden"), false);
+  answer = new Error("sin red");
+  await poll();
+  await settle();
+  assert.equal(banner.classList.contains("hidden"), false);
+
+  page.run("openSettings()");
+  const check = doc.getElementById("settingsDialog").querySelectorAll(".btn").find(b => b.textContent === "Buscar ahora");
+  const cases = [
+    [UP_TO_DATE, "Tienes la última versión, la 1.1.0.", true],
+    [newer, "Hay una versión nueva: el aviso de arriba dice cómo instalarla.", false],
+    [{ ...UP_TO_DATE, latest: null, url: null, error: "No se pudo consultar GitHub: HTTP Error 403" },
+      "No se pudo consultar GitHub: HTTP Error 403", true],
+    [new Error("sin red"), "No se pudo buscar actualizaciones: sin red", true],
+  ];
+  for (const [next, text, hidden] of cases) {
+    answer = next;
+    await check.listeners.click[0]();
+    assert.deepEqual([note.textContent, banner.classList.contains("hidden"), check.disabled], [text, hidden, false]);
+  }
+  assert.equal(urls.filter(u => u === "/api/update?fresh").length, 4);
+});
+
+test("on the machine itself «Actualizar ahora» installs after a second click, waits for the restart and reloads", async () => {
+  const newer = { available: true, current: "1.0.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
+    error: "", local: true, how: "auto" };
+  const state = { answer: newer, install: { ok: true, status: 200, body: { ok: true } }, down: false };
+  const posts = [];
+  const page = load({ fetchImpl: async (url, opts) => {
+    if (url === "/api/update" && opts?.method === "POST") {
+      posts.push(url);
+      const { ok, status, body } = state.install;
+      return { ok, status, json: async () => body };
+    }
+    if (url.startsWith("/api/update")) {
+      if (state.down) throw new Error("reiniciando");
+      return { ok: true, status: 200, json: async () => state.answer };
+    }
+    return { ok: true, status: 200, json: async () => payload([]) };
+  } });
+  await settle();
+  const doc = page.document, banner = doc.getElementById("updateBanner");
+  const button = () => banner.querySelectorAll("button")[0];
+  const note = () => banner.querySelectorAll("span")[0];
+  const waits = () => (page.calls.timeouts || []).filter(([, ms]) => ms === 2000);
+  const drive = async (steps = 3) => {
+    for (let done = 0; done < steps; done++) {
+      await settle();
+      const pending = waits().splice(0);
+      page.calls.timeouts = (page.calls.timeouts || []).filter(([, ms]) => ms !== 2000);
+      if (!pending.length) return;
+      pending.forEach(([fn]) => fn());
+    }
+  };
+  assert.equal(banner.querySelectorAll("code").some(c => c.textContent === "uv tool upgrade odoo-wrapper"), false);
+  assert.deepEqual(banner.children.map(c => c.className || c.tagName), ["P", "update-actions"]);
+  assert.equal(banner.querySelectorAll("code").length, 0);
+  assert.deepEqual(banner.children.at(-1).children, [button(), note()]);
+  assert.equal(button().textContent, "Actualizar ahora");
+
+  button().listeners.click[0]();
+  assert.equal(button().textContent, "¿Instalar la 1.1.0?");
+  page.calls.timeouts.find(([, ms]) => ms === 4000)[0]();
+  assert.equal(button().textContent, "Actualizar ahora");
+  assert.equal(posts.length, 0);
+
+  state.install = { ok: false, status: 502, body: { error: "uv no pudo instalarla: boom" } };
+  button().listeners.click[0]();
+  await button().listeners.click[0]();
+  assert.deepEqual([note().textContent, button().disabled, button().textContent],
+    ["No se pudo actualizar: uv no pudo instalarla: boom", false, "Actualizar ahora"]);
+
+  state.install = { ok: true, status: 200, body: { ok: true } };
+  state.down = true;
+  button().listeners.click[0]();
+  const installing = button().listeners.click[0]();
+  await settle();
+  assert.deepEqual([button().disabled, button().textContent, note().textContent],
+    [true, "Instalando…", "Instalada: reiniciando el panel…"]);
+  const kept = button();
+  page.run("showUpdate({ available: false })");
+  assert.equal(banner.classList.contains("hidden"), false);
+  await drive();
+  state.down = false;
+  await drive();
+  assert.equal(page.calls.reload, 0);
+  state.answer = { ...newer, current: "1.1.0", available: false };
+  await drive();
+  await installing;
+  assert.equal(page.calls.reload, 1);
+  assert.equal(button(), kept);
+
+  state.answer = newer;
+  const stuck = load({ fetchImpl: async (url, opts) => ({ ok: true, status: 200,
+    json: async () => (opts?.method === "POST" ? { ok: true } : url.startsWith("/api/update") ? newer : payload([])) }) });
+  await settle();
+  const stuckBanner = stuck.document.getElementById("updateBanner");
+  const stuckButton = stuckBanner.querySelectorAll("button")[0];
+  stuckButton.listeners.click[0]();
+  const pending = stuckButton.listeners.click[0]();
+  for (let i = 0; i < 100; i++) {
+    await settle();
+    const timers = (stuck.calls.timeouts || []).filter(([, ms]) => ms === 2000);
+    stuck.calls.timeouts = [];
+    timers.forEach(([fn]) => fn());
+  }
+  await pending;
+  assert.match(stuckBanner.querySelectorAll("span")[0].textContent, /el panel no ha vuelto en tres minutos/);
+  assert.equal(stuck.calls.reload, 0);
+
+  let restartedYet = false;
+  const partial = load({ fetchImpl: async (url, opts) => ({ ok: true, status: 200, json: async () => (
+    opts?.method === "POST" ? { ok: true, skills: "marketplace not found" }
+      : url.startsWith("/api/update") ? (restartedYet ? { ...newer, current: "1.2.0" } : { ...newer, latest: "1.2.0" })
+        : payload([])) }) });
+  await settle();
+  const partialBanner = partial.document.getElementById("updateBanner");
+  const partialButton = partialBanner.querySelectorAll("button")[0];
+  partialButton.listeners.click[0]();
+  const partialRun = partialButton.listeners.click[0]();
+  await settle();
+  restartedYet = true;
+  partial.calls.timeouts.filter(([, ms]) => ms === 2000).forEach(([fn]) => fn());
+  await partialRun;
+  const said = partialBanner.querySelectorAll("span")[0];
+  assert.deepEqual([partial.calls.reload, partialButton.textContent, partialButton.disabled], [0, "Instalada", true]);
+  assert.equal(said.children[0], "La 1.2.0 ya funciona, pero las skills de Claude Code no se han actualizado "
+    + "(marketplace not found). Ejecuta ");
+  assert.equal(said.children[1].textContent, "claude plugin update odoo@odoo-wrapper");
+
+  const texts = how => {
+    const other = load({ fetchImpl: async url => ({ ok: true, status: 200,
+      json: async () => (url.startsWith("/api/update") ? { ...newer, how } : payload([])) }) });
+    return settle().then(() => other.document.getElementById("updateBanner").children.map(p => p.children
+      .filter(c => typeof c === "string").join("")));
+  };
+  assert.equal((await texts("git"))[1], "Es la instalación de desarrollo: tráela con git.");
+  assert.match((await texts("manual"))[1], /^No encuentro uv en este ordenador\. Para instalarla, ejecuta/);
 });
 
 test("a full fortnight draws every part of the dashboard: break, lunch, leave, holidays and progress", async () => {
@@ -2633,13 +2849,14 @@ test("the personal page's punches to fix open the correcting dialog when the ses
   page.run("store.other = null; renderErrors()");
   assert.equal(items()[0].children[1].textContent, "Solicitar cambio");
   page.run("store.data.can_edit = true; renderErrors()");
+  assert.deepEqual(items()[0].children.slice(1).map(b => b.textContent), ["Corregir", "Solicitar cambio"]);
   down = false;
   await items()[0].children[1].listeners.click[0]();
   await settle();
   assert.ok(urls.at(-1).startsWith("/api/team?week="));
 });
 
-test("your own punches to fix open Odoo's change request form when you may not correct them", async () => {
+test("your own punches to fix open Odoo's change request form, and the header an empty one", async () => {
   const today = new Date();
   const back = n => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
   const urls = [];

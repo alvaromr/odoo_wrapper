@@ -2,7 +2,7 @@
 
 - Each system's own per-user mechanism, nothing that needs an administrator: a LaunchAgent on macOS, a
   `systemd --user` unit on Linux (any system that is neither of the other two), a value under HKCU's Run key
-  on Windows. Only macOS has run it; Linux and Windows are supported by reading.
+  on Windows. macOS and Windows 11 have run it (AGENTS.md, known limitations); Linux is supported by reading.
 - The entry runs process.launch_command() with no arguments: the interpreter running now, so the same entry
   serves a copy of the repo and an install made with uv. On Windows it is the pythonw.exe beside it, so no
   console window opens. Running `on` again rewrites the entry, which follows the interpreter after a
@@ -19,6 +19,10 @@
   restarts the running process, with its old command line. Windows keeps no handle on the process it
   started, so there it only takes over at the next login.
 - `off` only removes the entry: the dashboard running keeps going until it is stopped or the session ends.
+- follow() rewrites an entry that exists for the interpreter running now, and starts nothing: the dashboard
+  calls it on its first start after «Actualizar ahora» (updates.py), which may have moved it to another
+  install. Without it the entry would name the install it replaced, gone or stale at the next login. No
+  entry, nothing written: updating never turns the start at login on.
 - ExecStart in a systemd unit is not a shell line: quotes, backslashes, `%` and `$` mean something to systemd
   itself, hence SYSTEMD_ESCAPES on each argument.
 """
@@ -70,8 +74,17 @@ def systemctl(*args, check=True):
     subprocess.run(["systemctl", "--user", *args], check=check)
 
 
-def mac_on():
+def mac_write():
     write(launch_agent(), plistlib.dumps({"Label": LABEL, "ProgramArguments": command(), "RunAtLoad": True}))
+
+
+def mac_follow():
+    if os.path.exists(launch_agent()):
+        mac_write()
+
+
+def mac_on():
+    mac_write()
     session = f"gui/{os.getuid()}"
     subprocess.run(["launchctl", "bootout", f"{session}/{LABEL}"], capture_output=True)
     bootstrap = ["launchctl", "bootstrap", session, launch_agent()]
@@ -86,7 +99,7 @@ def mac_off():
     remove(launch_agent())
 
 
-def linux_on():
+def linux_write():
     exec_start = " ".join(f'"{arg.translate(SYSTEMD_ESCAPES)}"' for arg in command())
     write(unit_file(), (
         "[Unit]\nDescription=Odoo dashboard\n\n"
@@ -94,6 +107,15 @@ def linux_on():
         "[Install]\nWantedBy=default.target\n"
     ).encode())
     systemctl("daemon-reload")
+
+
+def linux_follow():
+    if os.path.exists(unit_file()):
+        linux_write()
+
+
+def linux_on():
+    linux_write()
     systemctl("enable", UNIT)
     systemctl("restart", UNIT)
 
@@ -121,9 +143,28 @@ def windows_off():
         winreg.DeleteValue(key, RUN_VALUE)
 
 
-SYSTEMS = {"darwin": (mac_on, mac_off), "win32": (windows_on, windows_off)}
+def windows_follow():
+    import winreg
+    access = winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, access) as key:
+        try:
+            winreg.QueryValueEx(key, RUN_VALUE)
+        except FileNotFoundError:
+            return
+        winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, subprocess.list2cmdline(command()))
+
+
+SYSTEMS = {"darwin": (mac_on, mac_off, mac_follow), "win32": (windows_on, windows_off, windows_follow)}
+
+
+def system():
+    return SYSTEMS.get(sys.platform, (linux_on, linux_off, linux_follow))
 
 
 def set_autostart(enabled):
-    on, off = SYSTEMS.get(sys.platform, (linux_on, linux_off))
+    on, off, _ = system()
     (on if enabled else off)()
+
+
+def follow():
+    system()[2]()

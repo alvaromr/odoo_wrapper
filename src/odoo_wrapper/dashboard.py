@@ -10,6 +10,7 @@ itself at its top:
   lan.py       phone access: LAN address and name, self-signed certificate, QR
   process.py   log, self-restart on source or network changes, port check
   autostart.py what --autostart registers so the dashboard starts at login, on each system
+  updates.py   whether GitHub holds a newer release, and installing it, asked for by the pages through server.py
   cli.py       the CLI, whose Odoo session is kept alive from here
 
 The page is documented at the top of each file in templates/js/ and of templates/style.css, the QR
@@ -25,7 +26,7 @@ import threading
 import webbrowser
 from http.server import ThreadingHTTPServer
 
-from . import autostart, cli, lan, process, server
+from . import __version__, autostart, cli, lan, process, server
 from .client import STATE_DIR, read_config
 
 USAGE = f"""Uso: odoo-dashboard [--host <ip>] [--open]
@@ -61,9 +62,17 @@ cambio en Odoo; nada más escribe en Odoo salvo fichar. En un día con un fichaj
 además el aviso para quien lo hizo: copiarlo, o enviárselo por privado con el bot de Discord si este equipo
 tiene su token (botón «Discord» de Gestión, u odoo discord) y las fichas de Odoo de los dos, quien
 lo envía y quien lo recibe, su ID de Discord. El botón del mensaje abre la solicitud de cambio de fichaje
-ya rellena para que la revise y la envíe él. Quien no puede corregir sus fichajes abre esa misma
-solicitud desde cada fichaje por corregir de su panel, con «Solicitar cambio», y una vacía con
-«Nueva solicitud».
+ya rellena para que la revise y la envíe él. Cada uno abre esa misma solicitud desde cada fichaje
+por corregir de su panel, con «Solicitar cambio» (junto a «Corregir» si además puede corregirlos), y
+una vacía con «Nueva solicitud».
+
+El panel busca en GitHub cada pocas horas si hay una versión publicada más nueva que la suya y, si la
+hay, lo avisa con sus novedades. En este ordenador «Actualizar ahora» la instala con uv desde GitHub,
+como la instalación del README aunque la tuya se hiciera de otra forma, actualiza también las skills
+si Claude Code las tiene (y si falla, lo dice con el comando para reintentarlo), y reinicia el panel en
+ella, llevándose el arranque al iniciar sesión si lo tenías; la instalación de desarrollo (editable) se
+actualiza con git, y sin uv se dan los comandos. «Ajustes» lo comprueba en el momento y cambia el tema
+(sistema, claro u oscuro) de ese navegador.
 
 Al guardar cambios en el código se reinicia solo; no hace falta pararlo. Si el puerto {server.PORT}
 está ocupado es que ya hay otro dashboard: recarga esa página en vez de arrancar otro.
@@ -101,6 +110,15 @@ def switch_autostart(choice):
     sys.exit(0)
 
 
+def follow_update():
+    process.say(f"Actualizado a la versión {__version__}, en {sys.executable}")
+    try:
+        autostart.follow()
+    except (OSError, subprocess.CalledProcessError) as error:
+        process.say(f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
+                    "Ejecuta odoo-dashboard --autostart on")
+
+
 def main():
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
         print(USAGE)
@@ -108,6 +126,8 @@ def main():
     if "--autostart" in sys.argv:
         switch_autostart(option("--autostart"))
     process.own_the_output()
+    if os.environ.pop(process.UPDATED_ENV, None):
+        follow_update()
     if "--host" in sys.argv:
         host = option("--host")
         if host is None:

@@ -10,11 +10,18 @@
  * missing in the management charts (its dark step is darker than --destructive,
  * which is too light for a mark there; validated with the dataviz validator).
  * Orange (--chart-error marks, --status-warning text, --warning-wash) is a punch
- * error (a check-in or check-out missing or forgotten); red is a target not met, short or with too many
+ * error (a check-in or check-out missing or forgotten), and the one other alert, the banner of a new version
+ * (.update), which is no data and sits apart from any chart; red is a target not met, short or with too many
  * hours alike. In the management charts too many hours is a paler red (--chart-over) beside hours short,
  * and a positive balance is neutral (--chart-surplus): it is no flag until it passes the margin. Its
- * blue is kept for change requests, which used to share it with too many hours.
- * Light and dark both ship; the page follows prefers-color-scheme.
+ * blue is kept for change requests, which used to share it with too many hours; as text they wear
+ * --status-info, a darker blue that reads on white (the chart's blue did not reach 4.5:1).
+ * Light and dark both ship: each colour token holds both steps in light-dark(), so it is written once, and
+ * color-scheme picks one. It follows the system unless «Ajustes» chose one (data-theme on <html>, set by
+ * js/theme.js before the first paint). The light steps were raised for contrast: a grey page under white
+ * cards, borders and inputs one step darker, secondary text at 7:1 instead of 4.7:1, warning text at 6:1 on
+ * its own wash (it was 4.4:1), and the in-progress
+ * blue darkened until it clears the surface (validated as an ordinal pair with --chart-2).
  *
  * Breaks: in the day meter and the calendar rows each break is drawn
  * where it happened along the bar, never stacked at the end (an end segment
@@ -29,26 +36,27 @@
  */
 :root {
   color-scheme: light dark;
-  --background: #fff;
-  --card: #fff;
-  --foreground: #0a0a0a;
-  --muted-foreground: #737373;
-  --muted: #f5f5f5;
-  --secondary: #f5f5f5;
-  --accent: #f5f5f5;
-  --border: #e5e5e5;
-  --input: #e5e5e5;
-  --ring: #a1a1a1;
-  --primary: #171717;
-  --primary-foreground: #fafafa;
-  --status-success: #15803d;
-  --destructive: #e40014;
-  --chart-1: #8ec5ff;
+  --background: light-dark(#f5f5f5, #0a0a0a);
+  --card: light-dark(#fff, #171717);
+  --foreground: light-dark(#0a0a0a, #fafafa);
+  --muted-foreground: light-dark(#525252, #a1a1a1);
+  --muted: light-dark(#f5f5f5, #262626);
+  --secondary: light-dark(#e5e5e5, #262626);
+  --accent: light-dark(#e5e5e5, #404040);
+  --border: light-dark(#d4d4d4, #ffffff12);
+  --input: light-dark(#a3a3a3, #ffffff26);
+  --ring: #737373;
+  --primary: light-dark(#171717, #e5e5e5);
+  --primary-foreground: light-dark(#fafafa, #171717);
+  --status-success: light-dark(#15803d, #86efac);
+  --status-info: light-dark(#1d4ed8, #2b7fff);
+  --destructive: light-dark(#e40014, #ff6568);
+  --chart-1: light-dark(#74b0ff, #8ec5ff);
   --chart-2: #2b7fff;
-  --chart-rest: #4a3aa7;
-  --chart-short: var(--destructive);
-  --chart-error: #d97706;
-  --status-warning: #b45309;
+  --chart-rest: light-dark(#4a3aa7, #b388ff);
+  --chart-short: light-dark(var(--destructive), #f5474f);
+  --chart-error: light-dark(#d97706, #f59e0b);
+  --status-warning: light-dark(#92400e, #fbbf24);
   --chart-foreground: #171717;
 
   --subtle-foreground: color-mix(in srgb, var(--muted-foreground) 70%, var(--background));
@@ -66,33 +74,16 @@
   --font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --card: #171717;
-    --foreground: #fafafa;
-    --muted-foreground: #a1a1a1;
-    --muted: #262626;
-    --secondary: #262626;
-    --accent: #404040;
-    --border: #ffffff12;
-    --input: #ffffff26;
-    --ring: #737373;
-    --primary: #e5e5e5;
-    --primary-foreground: #171717;
-    --status-success: #86efac;
-    --destructive: #ff6568;
-    --chart-rest: #b388ff;
-    --chart-short: #f5474f;
-    --chart-error: #f59e0b;
-    --status-warning: #fbbf24;
-  }
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-body {
+html, body {
   background: var(--background);
+}
+
+body {
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -177,6 +168,16 @@ header .sub { color: var(--muted-foreground); font-size: 13px; flex: 1; }
   header .sub { flex: 1 1 100%; order: 3; }
 }
 
+.update {
+  border: 1px solid var(--chart-error); border-radius: var(--radius);
+  background: linear-gradient(var(--warning-wash), var(--warning-wash)), var(--card);
+  padding: 12px 16px; margin-bottom: 16px; font-size: 13px; display: grid; gap: 6px;
+}
+.update .update-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 4px; }
+.update strong, .update a { color: var(--status-warning); }
+.update code { font-family: var(--font-mono); font-size: 12px; background: var(--muted); padding: 1px 5px;
+  border-radius: var(--radius-xs); user-select: all; }
+
 #tip {
   position: fixed; z-index: 10; pointer-events: none; display: none;
   background: var(--popover, var(--card)); border: 1px solid var(--border); border-radius: var(--radius);
@@ -236,9 +237,9 @@ dialog.dialog::backdrop { background: color-mix(in srgb, var(--background) 65%, 
 .notice .meta { align-self: center; color: var(--muted-foreground); font-size: 12px; }
 #discordDialog .edit-row { margin-top: 10px; }
 #discordDialog input { flex: 1 1 200px; }
-.dialog .btn.small { padding: 4px 10px; font-size: 12.5px; }
+.btn.small { padding: 4px 10px; font-size: 12.5px; }
 .dialog-note { font-size: 13px; color: var(--status-warning); margin-top: 8px; }
 .dialog-note:empty { display: none; }
-:is(#tip, .dialog) .t-note.pending { color: var(--chart-2); font-weight: 600; }
+:is(#tip, .dialog) .t-note.pending { color: var(--status-info); font-weight: 600; }
 :is(#tip, .dialog) .t-note.approved { color: var(--status-success); }
 :is(#tip, .dialog) .t-note.refused { text-decoration: line-through; }

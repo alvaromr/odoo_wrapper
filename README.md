@@ -15,7 +15,7 @@ bin/odoo             clock in / status / history
 bin/odoo-dashboard   web dashboard at http://localhost:8931/
 src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.py (entry point) and the
                      server modules it wires: server.py, data.py, team.py, state.py, lan.py, process.py,
-                     autostart.py; qr.py;
+                     autostart.py, updates.py; qr.py;
                      sheets.py (Google Sheets for `odoo notices`); discord.py (the Discord bot's notices);
                      templates/ (pages, style.css and the page's scripts in js/)
 .ai/skills/          the agent skills odoo-attendance and odoo-notices, as the Claude Code plugin `odoo`
@@ -25,8 +25,9 @@ src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.p
 
 - **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history`, `notices`, `sheet`,
   `discord` — see `odoo` with no arguments.
-- **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes; whoever
-  may not correct their punches opens Odoo's change request form from it, filled for each punch to fix.
+- **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes; it
+  opens Odoo's change request form, filled for each punch to fix, beside the correction for whoever may also
+  correct. Light or dark theme, and a banner when GitHub holds a newer release, which installs it.
 - **Management view**: for a user who can read other people's attendances, `/gestion` shows everyone's week,
   month or year with punch errors (orange), targets missed, short or over (red) and change requests (blue); a day's dialog
   corrects its punches and approves its change requests, and warns whoever punched wrong by a private
@@ -43,7 +44,12 @@ src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.p
 ## Getting started
 
 The same on macOS, Linux and Windows. [uv](https://docs.astral.sh/uv/) installs the commands, and Python
-with them if the machine has none; it runs nothing afterwards.
+with them if the machine has none; afterwards it only runs again to update.
+
+On Windows, run steps 1 to 3 in a normal terminal, not through an agent in the Claude desktop app. That app
+is packaged (MSIX), and Windows redirects what it writes in `AppData` and in the Run key to the app's own
+private space: Python, the commands and the start at login then exist only inside the app, and nothing starts
+when you log in. If it was installed that way, repeat steps 1 to 3 in a normal terminal.
 
 1. **uv**, once: `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS and Linux,
    `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"` on Windows.
@@ -57,7 +63,9 @@ with them if the machine has none; it runs nothing afterwards.
 5. **The skills, for Claude Code**:
    `claude plugin install odoo --marketplace https://github.com/alvaromr/odoo_wrapper.git`.
 
-To update: `uv tool upgrade odoo-wrapper` and `claude plugin update odoo@odoo-wrapper`. To remove:
+To update: when a new version is out the dashboard says so, and its «Actualizar ahora» installs it, the
+skills included when Claude Code has them, and restarts. By hand: `uv tool upgrade odoo-wrapper` and
+`claude plugin update odoo@odoo-wrapper`. To remove:
 `odoo-dashboard --autostart off`, `uv tool uninstall odoo-wrapper` and `claude plugin uninstall
 odoo@odoo-wrapper`; `~/.odoo_dashboard/` stays until you delete it.
 
@@ -94,10 +102,11 @@ each module, and `AGENTS.md` says how to work on the repo. This README does not 
 
 ## Status
 
-Used daily on macOS against Odoo 18 Enterprise. Linux and Windows have not been exercised yet — the code
-avoids macOS-only paths, but the first run there is the real test. The Python package is covered line by
-line by mocked unit tests and the page's logic runs under `node --test`; `AGENTS.md` lists the commands and
-the manual checks that have actually caught regressions.
+Used daily on macOS against Odoo 18 Enterprise. On Windows 11 the install, the CLI without a session and the
+start at login have been reported to work; logging in, punching and the rest are not reported yet. Linux has
+not been exercised — the code avoids macOS-only paths, but the first run there is the real test. The Python
+package is covered line by line by mocked unit tests and the page's logic runs under `node --test`;
+`AGENTS.md` lists the commands and the manual checks that have actually caught regressions.
 
 ## License
 

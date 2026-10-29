@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fichajes · Horas semanales</title>
 <link rel="stylesheet" href="/style.css">
+<script src="/js/theme.js"></script>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#171717">
@@ -227,10 +228,10 @@
   .errors button.fix { border: 1px solid var(--input); border-radius: var(--radius-sm); padding: 1px 8px;
     font-size: 12px; color: var(--muted-foreground); }
   .errors button.fix:hover { color: var(--foreground); text-decoration: none; }
-  .errors .req { color: var(--chart-2); font-weight: 600; }
+  .errors .req { color: var(--status-info); font-weight: 600; }
   .errors .day { font-weight: 600; }
   .errors.requests { border-color: var(--chart-2); background: var(--card); }
-  .errors.requests h2, .errors.requests summary::marker { color: var(--chart-2); }
+  .errors.requests h2, .errors.requests summary::marker { color: var(--status-info); }
   .week-head .total.long { color: var(--status-warning); }
   .week-head .total-warn { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--status-warning); }
   .week-head .total-warn + .total { margin-left: 8px; }
@@ -307,6 +308,7 @@
     <button class="hdr-btn" id="refreshBtn" type="button">Actualizar</button>
     <button class="hdr-btn" id="logoutBtn" type="button">Cerrar sesión</button>
   </header>
+  <div class="update hidden" id="updateBanner" role="status"></div>
 
   <div id="loadmsg">Cargando datos de Odoo…</div>
 

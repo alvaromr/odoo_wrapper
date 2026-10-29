@@ -118,6 +118,19 @@ class MainTest(unittest.TestCase):
             with patch.object(d.autostart, "set_autostart", side_effect=error):
                 self.assertIn("no se pudo cambiar el arranque", self.fails("--autostart", "on"))
 
+    def test_the_first_start_after_an_update_moves_the_login_entry_and_says_so(self):
+        with patch.dict(os.environ, {pr.UPDATED_ENV: "1"}), patch.object(d.autostart, "follow") as follow:
+            out = self.main()
+            self.assertNotIn(pr.UPDATED_ENV, os.environ)
+        follow.assert_called_once_with()
+        self.assertIn(f"Actualizado a la versión {d.__version__}", out)
+        with patch.object(d.autostart, "follow") as follow:
+            self.main()
+        follow.assert_not_called()
+        for error in (PermissionError("plist"), d.subprocess.CalledProcessError(1, ["systemctl"])):
+            with patch.dict(os.environ, {pr.UPDATED_ENV: "1"}), patch.object(d.autostart, "follow", side_effect=error):
+                self.assertIn("odoo-dashboard --autostart on", self.main())
+
     def test_host_flag_needs_a_value(self):
         self.assertIn("--host necesita una dirección", self.fails("--host"))
         self.server.serve_forever.assert_not_called()

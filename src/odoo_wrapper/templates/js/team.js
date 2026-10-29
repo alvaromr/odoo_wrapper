@@ -74,7 +74,7 @@
  */
 import { DayNames, MonthNames } from "./store.js";
 import { fmtHM, fmtDelta, fmtDay, fmtYear, fmtTime, isoDay, parseDay, shiftDays, plural } from "./format.js";
-import { el, api, wireLogout, wireMouseHistory, attachTip, hideTip, tipRow, panScroll } from "./shared.js";
+import { el, api, wireLogout, wireMouseHistory, wireUpdates, attachTip, hideTip, tipRow, panScroll } from "./shared.js";
 import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireDayDialog } from "./dayedit.js";
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
 import { team, FixKinds, FlagText, thisDay, named } from "./teamstate.js";
@@ -587,5 +587,6 @@ wireDiscord(document.getElementById("discordBtn"));
 
 wireLogout(document.getElementById("logoutBtn"));
 wireMouseHistory();
+wireUpdates();
 
 load(restoreState());

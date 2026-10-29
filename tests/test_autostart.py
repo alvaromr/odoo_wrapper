@@ -77,6 +77,18 @@ class MacTest(AutostartCase):
         self.assertFalse(os.path.exists(au.launch_agent()))
         self.off("darwin")
 
+    def test_follow_rewrites_an_existing_agent_and_starts_nothing(self):
+        with patch.object(sys, "platform", "darwin"):
+            au.follow()
+            self.assertFalse(os.path.exists(au.launch_agent()))
+            self.on("darwin")
+            self.run_.reset_mock()
+            with patch.object(au, "command", return_value=["/new/python", "-c", "x"]):
+                au.follow()
+        with open(au.launch_agent(), "rb") as f:
+            self.assertEqual(plistlib.load(f)["ProgramArguments"], ["/new/python", "-c", "x"])
+        self.run_.assert_not_called()
+
 
 class LinuxTest(AutostartCase):
     def test_on_writes_a_user_unit_and_restarts_it(self):
@@ -109,12 +121,24 @@ class LinuxTest(AutostartCase):
         self.assertFalse(self.run_.call_args.kwargs["check"])
         self.assertFalse(os.path.exists(au.unit_file()))
 
+    def test_follow_rewrites_an_existing_unit_and_only_reloads_systemd(self):
+        with patch.object(sys, "platform", "linux"):
+            au.follow()
+            self.assertFalse(os.path.exists(au.unit_file()))
+            self.on("linux")
+            self.run_.reset_mock()
+            with patch.object(au, "command", return_value=["/new/python"]):
+                au.follow()
+        with open(au.unit_file()) as f:
+            self.assertIn('ExecStart="/new/python"\n', f.read())
+        self.assertEqual([c.args[0][2:] for c in self.run_.call_args_list], [["daemon-reload"]])
+
 
 class WindowsTest(AutostartCase):
     def setUp(self):
         super().setUp()
-        self.winreg = SimpleNamespace(HKEY_CURRENT_USER="HKCU", KEY_SET_VALUE=2, REG_SZ=1, OpenKey=MagicMock(),
-                                      SetValueEx=Mock(), DeleteValue=Mock())
+        self.winreg = SimpleNamespace(HKEY_CURRENT_USER="HKCU", KEY_SET_VALUE=2, KEY_QUERY_VALUE=1, REG_SZ=1,
+                                      OpenKey=MagicMock(), SetValueEx=Mock(), DeleteValue=Mock(), QueryValueEx=Mock())
         patcher = patch.dict(sys.modules, {"winreg": self.winreg})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -133,6 +157,18 @@ class WindowsTest(AutostartCase):
         self.winreg.DeleteValue.assert_called_once_with(key, au.RUN_VALUE)
         self.winreg.DeleteValue.side_effect = FileNotFoundError
         self.off("win32")
+
+    def test_follow_rewrites_an_existing_run_value_and_starts_nothing(self):
+        with patch.object(sys, "platform", "win32"):
+            self.winreg.QueryValueEx.side_effect = FileNotFoundError
+            au.follow()
+            self.winreg.SetValueEx.assert_not_called()
+            self.winreg.QueryValueEx.side_effect = None
+            au.follow()
+        self.winreg.OpenKey.assert_called_with("HKCU", au.RUN_KEY, 0, 3)
+        key = self.winreg.OpenKey.return_value.__enter__.return_value
+        self.winreg.SetValueEx.assert_called_once_with(key, au.RUN_VALUE, 0, 1, subprocess.list2cmdline(au.command()))
+        self.popen.assert_not_called()
 
 
 if __name__ == "__main__":

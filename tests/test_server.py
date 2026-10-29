@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+import sys
 import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -174,17 +175,19 @@ class HandlerTest(unittest.TestCase):
         for cookie in (None, "sid"):
             self.assertIn(b'rel="manifest"', self.get("/", cookie=cookie)[2])
 
-    def test_each_page_loads_one_entry_script_and_every_other_script_is_imported(self):
+    def test_each_page_loads_the_theme_and_one_entry_script_and_every_other_script_is_imported(self):
+        theme = '<script src="/js/theme.js">'
         entries = {"/": "app.js", "/gestion": "team.js"}
         for path, entry in entries.items():
             tags = re.findall(r'<script[^>]*>', self.get(path)[2].decode())
-            self.assertEqual(tags, [f'<script type="module" src="/js/{entry}">'], path)
+            self.assertEqual(tags, [theme, f'<script type="module" src="/js/{entry}">'], path)
+        self.assertEqual(re.findall(r'<script[^>]*>', self.get("/login")[2].decode()), [theme, "<script>"])
         sources = {}
         for name in os.listdir(sv.SCRIPTS):
             with open(os.path.join(sv.SCRIPTS, name)) as f:
                 sources[name] = f.read()
         for name in sources:
-            if name in entries.values():
+            if name in entries.values() or name == "theme.js":
                 continue
             self.assertTrue(
                 any(re.search(rf'from "\./{re.escape(name)}"', src) for src in sources.values()), name)
@@ -238,6 +241,25 @@ class HandlerTest(unittest.TestCase):
                 patch.object(sv.discord, "own_request", return_value=(200, {"url": "L"})) as own:
             self.assertEqual(self.get("/api/request?date=2026-10-19&employee=9")[:3:2], (200, {"url": "L"}))
             own.assert_called_once_with(client.return_value, "2026-10-19")
+
+    def test_the_update_check_needs_a_session_and_forces_a_check_only_when_fresh(self):
+        self.assertEqual(self.get("/api/update", cookie=None)[0], 401)
+        answer = {"available": True, "current": "1.0.0", "latest": "1.1.0", "url": "U", "error": ""}
+        with patch.object(sv.updates, "check", return_value=answer) as check, \
+                patch.object(sv.updates, "how", return_value="auto"):
+            self.assertEqual(self.get("/api/update")[:3:2], (200, dict(answer, local=True, how="auto")))
+            self.assertEqual(self.get("/api/update?fresh", ip="10.0.0.9")[2]["local"], False)
+        self.assertEqual(check.call_args_list, [((False,),), ((True,),)])
+
+    def test_only_the_machine_itself_installs_an_update(self):
+        self.assertEqual(self.post("/api/update", {}, cookie=None)[0], 401)
+        with patch.object(sv.updates, "install", return_value=(200, {"ok": True})) as install, \
+                patch.object(sys, "argv", ["odoo-dashboard", "--host", "0.0.0.0", "--open"]):
+            self.assertEqual(self.post("/api/update", {}, ip="10.0.0.9")[:3:2],
+                             (403, {"error": "Solo se actualiza desde el propio ordenador"}))
+            install.assert_not_called()
+            self.assertEqual(self.post("/api/update", {})[:3:2], (200, {"ok": True}))
+        install.assert_called_once_with(["--host", "0.0.0.0"], sv.PORT)
 
     def test_team_writes(self):
         self.assertEqual(self.post("/api/team/attendance", {}, cookie=None)[0], 401)

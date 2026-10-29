@@ -26,6 +26,10 @@
   shells cannot decide the destination. Under pythonw.exe (Windows, started at login) there are no streams
   at all, so the log takes their place. A background launch once inherited a log path in another project's
   scratchpad and the restarts carried that descriptor for days.
+- «Actualizar ahora» (updates.py) holds the watcher while uv replaces the install, so a half-written folder
+  never restarts anything, and then restarts into the new install itself: its interpreter, with a bootstrap
+  that imports the package installed there instead of putting this copy's folder first, and UPDATED_ENV,
+  which tells the new process to move the login entry to itself (autostart.follow).
 - source_version is the newest mtime across the package and its templates; a page on localhost polls it and
   reloads when it moves, so an edit needs no manual refresh.
 """
@@ -34,6 +38,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -41,6 +46,7 @@ from .client import STATE_DIR
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOOTSTRAP = f"import sys; sys.path.insert(0, {os.path.dirname(HERE)!r}); from odoo_wrapper.dashboard import main; main()"
+INSTALLED_BOOTSTRAP = "from odoo_wrapper.dashboard import main; main()"
 TEMPLATES = os.path.join(HERE, "templates")
 WATCHED = [os.path.join(HERE, name) for name in sorted(os.listdir(HERE)) if name.endswith(".py")]
 SOURCES = WATCHED + sorted(
@@ -51,7 +57,9 @@ LOG_MAX = 1_000_000
 WATCH_INTERVAL = 2
 NET_INTERVAL = 30
 RESTART_ENV = "ODOO_DASHBOARD_RESTART"
+UPDATED_ENV = "ODOO_DASHBOARD_UPDATED"
 RESTART_GRACE = 5
+_held = threading.Event()
 
 
 def say(message):
@@ -104,6 +112,8 @@ def watch_sources(net_identity=lambda: ""):
     initial, net, checked_net = stamps(), net_identity(), time.monotonic()
     while True:
         time.sleep(WATCH_INTERVAL)
+        if _held.is_set():
+            continue
         current = stamps()
         changed = [p for p, t in initial.items() if current.get(p) != t]
         if changed:
@@ -116,16 +126,29 @@ def watch_sources(net_identity=lambda: ""):
                 continue
             reason = "Cambio de red"
         say(f"{reason}: reiniciando…")
-        restart([a for a in sys.argv[1:] if a != "--open"])
+        restart(relaunch_args())
+
+
+def relaunch_args():
+    return [a for a in sys.argv[1:] if a != "--open"]
 
 
 def launch_command(args=(), executable=None):
     return [executable or sys.executable, "-c", BOOTSTRAP, *args]
 
 
-def restart(args):
-    command = launch_command(args)
+def hold():
+    _held.set()
+
+
+def release():
+    _held.clear()
+
+
+def restart(args, installed=None):
+    command = [installed, "-c", INSTALLED_BOOTSTRAP, *args] if installed else launch_command(args)
+    env = {**os.environ, **({UPDATED_ENV: "1"} if installed else {})}
     if sys.platform != "win32":
-        os.execv(sys.executable, command)
-    subprocess.Popen(command, env={**os.environ, RESTART_ENV: "1"})
+        os.execve(command[0], command, env)
+    subprocess.Popen(command, env={**env, RESTART_ENV: "1"})
     os._exit(0)

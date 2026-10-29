@@ -69,6 +69,11 @@ API
 - GET /api/request?date=YYYY-MM-DD is the link to Odoo's attendance change request form for that day of the
   session's own employee, filled as the Discord notice's button (discord.own_request), and without a date the
   empty form; it only reads.
+- GET /api/update[?fresh] says whether GitHub holds a newer release than this version (updates.py), for the
+  pages' banner and «Ajustes», plus whether this client is the machine itself (local) and how this install
+  is updated (how: auto, git or manual, updates.how); it needs a session like the data,
+  though it touches no Odoo. POST /api/update installs the latest release and restarts into it
+  (updates.install), from loopback only, like pairing: the LAN never starts an install on this machine.
 - GET /api/team?week=<any day>[&fresh] is team.py's payload for that day's week (this week by default), and
   ?month=YYYY-MM the one for every week of that month, ?year=YYYY that year summarised by month, ?fixes
   the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
@@ -98,7 +103,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
 
-from . import corrections, data, discord, lan, process, state, team
+from . import corrections, data, discord, lan, process, state, team, updates
 from .client import (
     CONFIG_KEYS, AccessDenied, OdooClient, OdooDown, OdooError, SessionExpired, TotpRequired,
     load_config, read_config, save_config,
@@ -315,6 +320,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"error": "no autorizado"})
                 return
             self._send(*discord.own_request(new_client(self.session), dict(parse_qsl(query)).get("date")))
+        elif self.path == "/api/update":
+            if not self._authorized():
+                self._send(401, {"error": "no autorizado"})
+                return
+            answer = updates.check("fresh" in dict(parse_qsl(query, keep_blank_values=True)))
+            self._send(200, dict(answer, local=self._local(), how=updates.how()))
         elif self.path == "/api/data":
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})
@@ -460,6 +471,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
         elif self.path == "/api/attendance":
             self._send(*data.punch(new_client(self.session), body.get("action")))
+        elif self.path == "/api/update":
+            if not self._local():
+                self._send(403, {"error": "Solo se actualiza desde el propio ordenador"})
+            else:
+                self._send(*updates.install(process.relaunch_args(), PORT))
         elif self.path in ("/api/team/attendance", "/api/team/delete", "/api/team/approve", "/api/team/discord",
                            "/api/team/discord/token", "/api/team/discord/test"):
             client = new_client(self.session)

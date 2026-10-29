@@ -59,10 +59,12 @@
  *   with a request the viewer may approve has «Revisar» instead when they may not correct. On someone else's page,
  *   whoever may approve their pending change requests gets them in the same banner (the payload's requests; the
  *   employee never sees them), in blue, grouped with the punch errors of their day: one line and one «Corregir»
- *   per day, whose dialog also approves the request. On their own page, whoever may not correct gets «Solicitar
- *   cambio» instead: Odoo's change request form for that day, filled as the Discord notice's button (discord.py),
+ *   per day, whose dialog also approves the request. On their own page, every day also has «Solicitar cambio»,
+ *   beside «Corregir» for whoever may correct: some who may still have to file a request for their own punches.
+ *   It opens Odoo's change request form for that day, filled as the Discord notice's button (discord.py),
  *   in a tab opened on the click itself, since one opened after the server's answer is a popup Safari blocks
- *   (openRequest). The header's «Nueva solicitud» opens the same form empty, for any other day.
+ *   (openRequest). The header's «Nueva solicitud» opens the same form empty, for any other day, on their own
+ *   page alike.
  * - Red and grey follow the management view's rule (team.js): hours over target are never green, only grey,
  *   and a finished week short of its target is red only when the range shown (the «Mostrar» buttons) is short
  *   too, the balance tile's own sum (rangeShort): a short week made up by the rest of the range is grey, in the
@@ -925,7 +927,8 @@ export function renderErrors() {
         fix.title = e.message;
       }));
       li.appendChild(fix);
-    } else if (!store.other) {
+    }
+    if (!store.other) {
       const ask = el("button", "fix", "Solicitar cambio");
       ask.type = "button";
       ask.title = "Abre en Odoo la solicitud de cambio de fichaje de este día, preparada: "

@@ -27,13 +27,16 @@ src/odoo_wrapper/
   lan.py             phone access: LAN address and name, self-signed certificate, QR
   process.py         log, self-restart on source or network changes, port check
   autostart.py       the login entry `--autostart` registers on each system
+  updates.py         whether GitHub holds a newer release than this version, for the pages' banner, and
+                     «Actualizar ahora»: installing it with uv and restarting into it
   qr.py              hand-written QR encoder
   templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
                      (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
                      as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
                      week, ui, api, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
-                     teamstate.js hold each page's state. Served at /style.css and /js/<name>
+                     teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
+                     loaded from every page's <head>. Served at /style.css and /js/<name>
 tests/               unittest + node tests, see below
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
@@ -52,7 +55,8 @@ Don't duplicate — each fact has one home:
   flag means), `corrections.py` (what the day dialog writes and when it warns), `discord.py` (why a bot, and
   how the recipient is found), `state.py` (the shared state),
   `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports, how it is launched),
-  `autostart.py` (the login entry on each system), `cli.py` (the commands),
+  `autostart.py` (the login entry on each system), `updates.py` (where the version lives, how it is compared, how
+  often GitHub is asked, and how each kind of install is updated), `cli.py` (the commands),
   `sheets.py` (why gws, and how little is asked of it),
   each file in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
@@ -70,7 +74,9 @@ Read the header of a module before touching it.
    is why `qr.py` is hand-written instead of pulling `segno`/`qrencode`. A dependency needs the user's explicit
    agreement, not an assumption that it is more convenient. Two have it: the `gws` CLI, an external program that
    only `odoo notices` runs, for the Google sign-in and nothing else (the header of `sheets.py` says why); and
-   uv, the installer the README sends users to, which runs nothing once the commands are installed.
+   uv, the installer the README sends users to, which afterwards runs only when the dashboard's «Actualizar
+   ahora» installs a new release (`updates.py`), and is never required to run from the repo. That button also
+   runs the `claude` CLI, when it is there and has the plugin, to update the skills; nothing needs it.
 2. **Start the dashboard only through `bin/odoo-dashboard` or the login entry of the development install
    (below), and only if nothing listens on port 8931 yet.**
    Never kill and relaunch it (saving a `.py` restarts it by itself) and never patch `PORT`/`TLS_PORT` to dodge
@@ -120,6 +126,22 @@ the editable install, before merging a change that could break them:
 - **The install from GitHub** (`pyproject.toml`, `.claude-plugin/`): push a branch and install from it with
   the README's commands, `git+…@<branch>` for uv and `…odoo_wrapper.git#<branch>` for the plugin.
 
+## Releasing
+
+Every push to `main` is a release, because users install `main` and the dashboards' update banner only
+looks at releases (`updates.py`'s header says why): a push without one reaches nobody. In the commit that
+goes to `main`, raise `__version__` in `src/odoo_wrapper/__init__.py`, the only place it is written
+(semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit).
+Once `main` is pushed, tag that commit and publish it:
+
+```bash
+git tag -a vX.Y.Z -m vX.Y.Z <commit on main>
+git push origin vX.Y.Z
+gh release create vX.Y.Z --verify-tag --generate-notes
+```
+
+A tag is never moved or reused; a broken release is fixed by the next one.
+
 ## How to verify changes
 
 Start with the unit tests:
@@ -164,6 +186,11 @@ spreadsheet saved (`odoo sheet <URL>`).
 Never run `odoo-dashboard --autostart on` to try it: it registers a real login entry for the user and starts
 a dashboard through the system, whatever `HOME` says. What it writes is tested with the system calls mocked;
 by hand, generate the entry in a throwaway `HOME` with them mocked and lint it (`plutil -lint` on macOS).
+
+Never press «Actualizar ahora», nor POST `/api/update`, on a user's install to try it: it replaces their
+install and restarts their dashboard for real (the development install refuses it). It is tested with uv,
+the restart and the system calls mocked; by hand, run the uv command it builds (`updates.install`) with
+`UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` in the scratchpad and start the result with `--help`.
 
 To verify `qr.py`, decode its output rather than diffing the matrix against a reference library (its header
 says why, and names the `swift`/Vision recipe).
@@ -232,12 +259,22 @@ Don't re-investigate these from scratch:
 - **A Wi-Fi with client isolation blocks phone→laptop regardless of the URL.** On an ordinary home or office
   network the whole path works: pairing QR, a certificate per network, and data.
 - **Tailscale and any external service are out of scope.** The dashboard stays LAN-only; don't propose them.
-  Reaching the dashboard is meant: the one service it calls out to besides Odoo is Discord's API, to send the day
-  dialog's notices from a bot (`discord.py`), which the user asked for.
+  Reaching the dashboard is meant: the services it calls out to besides Odoo are Discord's API, to send the day
+  dialog's notices from a bot (`discord.py`), and GitHub's, to ask whether a newer version is out
+  (`updates.py`), both of which the user asked for.
 - **An Odoo API key cannot replace the password.** Verified against Odoo 18: the external RPC API (`/jsonrpc`,
   the only place Odoo accepts API keys) authenticates and reads fine, but it cannot punch — a regular employee has
   no `create`/`write` on `hr.attendance`, and `hr.employee` exposes no public clock method in 18
   (`attendance_manual` and `attendance_action_change` no longer exist). The only clock path is the systray
   controller, which needs a web session, and `/web/session/authenticate` rejects API keys.
-- **Linux and Windows are supported by reading, not by running.** The first report from either platform is the
-  test.
+- **Linux is supported by reading, not by running, and Windows only partly by running.** The first report
+  from Windows 11 (uv 0.13.6, Python 3.12, 2026-10-29) found no fault in the code: the install from GitHub,
+  `odoo` with no arguments, `odoo-dashboard --help`, `odoo status` without a session (it asks for the login)
+  and `--autostart on` (the Run key, and the dashboard answering on 8931) work. Login, two-factor, punching,
+  breaks, the phone mode with openssl, `odoo notices` and the management view are still unreported. The
+  first report from Linux is the test.
+- **Installed by an agent in the Claude desktop app on Windows, nothing exists outside that app.** The app is
+  packaged (MSIX), and Windows redirects its writes to `AppData` and to the Run key into the app's private
+  space: uv's Python, the tool and the login entry all landed there, and nothing started at login. uv also
+  failed installing Python there («Missing expected target directory for Python minor version link»), from
+  the same cause. Not a fault of the code; the README says to install from a normal terminal.

@@ -6,7 +6,9 @@
  *   lunch button shows, all in the shared state (state.py), each saved as soon as it changes. Each row's
  *   tooltip says what the setting drives. A modal dialog sits in the browser's top layer, above any z-index,
  *   so the tooltip is moved inside it while it is open and back to the body when it closes. A window that
- *   would end before it starts is refused here with a note, and by the server too.
+ *   would end before it starts is refused here with a note, and by the server too. Two rows are not shared
+ *   state: «Tema», this browser's own (theme.js), and «Actualizaciones», which asks the server to check GitHub
+ *   now (updates.py) and says the answer, or why there is none, in the dialog's note.
  * - Every punch button asks for confirmation in place: the first click arms it («¿Confirmar?») for four
  *   seconds, the second one punches. The server validates the real state and answers 409 on invalid
  *   actions; the error lands in the hero's error box. A punch that succeeds but is followed by a failed
@@ -16,7 +18,7 @@
  *   repaint now".
  */
 import { store, LunchMax } from "./store.js";
-import { el, api, tipOpen, attachTip, hideTip } from "./shared.js";
+import { el, api, tipOpen, attachTip, hideTip, showUpdate } from "./shared.js";
 import { saveState, loadAndRender } from "./api.js";
 import { checkAlarms } from "./alarms.js";
 
@@ -56,7 +58,58 @@ const SettingsTips = {
   window: "Horas entre las que aparece el botón «Salir a comer», solo los días con comida en tu calendario de "
     + "Odoo y mientras no lo hayas usado ese día. Ficha una salida normal y además pone en marcha el aviso de "
     + "fin de comida.",
+  theme: "Colores de la página en este navegador. «Sistema» sigue el modo claro u oscuro del dispositivo.",
+  updates: "El panel busca versiones nuevas en GitHub cada pocas horas y avisa arriba cuando hay una. Este botón "
+    + "lo comprueba ahora.",
 };
+
+const Themes = [["", "Sistema"], ["light", "Claro"], ["dark", "Oscuro"]];
+
+function themeField() {
+  const seg = el("div", "seg");
+  seg.setAttribute("role", "group");
+  seg.setAttribute("aria-label", "Tema");
+  const buttons = Themes.map(([theme, label]) => {
+    const b = el("button", null, label);
+    b.type = "button";
+    b.dataset.theme = theme;
+    return b;
+  });
+  const press = () => buttons.forEach(b => b.setAttribute("aria-pressed",
+    String(b.dataset.theme === (document.documentElement.dataset.theme || ""))));
+  for (const b of buttons) {
+    const { theme } = b.dataset;
+    b.addEventListener("click", () => {
+      const kept = window.chooseTheme(theme);
+      press();
+      document.getElementById("settingsNote").textContent = kept ? ""
+        : "Este navegador no deja guardar el tema: vuelve al del sistema al recargar la página.";
+    });
+    seg.appendChild(b);
+  }
+  press();
+  return seg;
+}
+
+function updatesField() {
+  const b = el("button", "btn ghost small", "Buscar ahora");
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    const note = document.getElementById("settingsNote");
+    b.disabled = true;
+    try {
+      const answer = showUpdate(await api("/api/update?fresh"));
+      note.textContent = answer.error
+        || (answer.available ? "Hay una versión nueva: el aviso de arriba dice cómo instalarla."
+          : `Tienes la última versión, la ${answer.current}.`);
+    } catch (e) {
+      note.textContent = "No se pudo buscar actualizaciones: " + e.message;
+    } finally {
+      b.disabled = false;
+    }
+  });
+  return b;
+}
 
 export function minutesField(label, key) {
   const field = el("label", "duration");
@@ -131,6 +184,8 @@ export function openSettings() {
   }
   rows.push(settingRow("Botón «Salir a comer»", SettingsTips.window,
     "de", clockField("Aparece a las", "lunch_button_from"), "a", clockField("Desaparece a las", "lunch_button_to")));
+  rows.push(settingRow("Tema", SettingsTips.theme, themeField()),
+    settingRow("Actualizaciones", SettingsTips.updates, updatesField()));
   document.getElementById("settingsBody").replaceChildren(...rows);
   document.getElementById("settingsNote").textContent = "";
   const dialog = document.getElementById("settingsDialog");

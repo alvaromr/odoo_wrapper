@@ -35,8 +35,8 @@
   real times, so a last subtext line, after FOOTER, asks them to check it (REVIEW): sent as it comes, it
   would approve an estimate. The day is read again from Odoo (team.fetch_team, cached), never taken from the
   page.
-- The same link opens from the personal page's own punch errors (own_request), for whoever may not correct
-  them: always the session's own employee, never one the page names. Without a date it is the empty form.
+- The same link opens from the personal page's own punch errors (own_request), whether or not the session may
+  correct them: always the session's own employee, never one the page names. Without a date it is the empty form.
 - The bot's token is a password: `odoo discord` asks for it without echo, and the management view's «Discord»
   dialog sends it once (set_token); either checks it with Discord (GET /users/@me, which also names the bot)
   and keeps it in TOKEN_FILE, mode 600, like the Odoo session. Nothing ever sends it back: the page only learns
