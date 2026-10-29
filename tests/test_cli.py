@@ -46,6 +46,35 @@ class CommandTest(unittest.TestCase):
         self.assertIn("Último check-out", out)
         self.assertIn("Horas hoy: 1.00h", out)
 
+    def test_status_adds_every_session_of_today_and_counts_a_long_open_one_to_the_minute(self):
+        odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(200 * 60)}]), kw([NORMAL]),
+                      kw([{"check_in": utc(201 * 60), "check_out": utc(200 * 60 + 30), "worked_hours": 0.5},
+                          {"check_in": utc(200 * 60 + 20), "check_out": utc(200 * 60 + 10), "worked_hours": 0.25},
+                          {"check_in": utc(200 * 60), "check_out": False, "worked_hours": 0}]))
+        out = self.run_cmd(odoo, "status")
+        self.assertIn("(200.0h)", out)
+        self.assertIn("Horas hoy: 200.75h", out)
+
+    def test_missing_hours_read_as_zero(self):
+        open_att, reasons = kw([{"id": 1, "check_in": utc(30)}]), kw([NORMAL, REST])
+        runs = [
+            ("check_in", client(self.EMP, kw([]), reasons, {"result": {"attendance": {"check_in": utc(0)}}})),
+            ("check_out", client(self.EMP, open_att, {"result": {"attendance": {"check_out": utc(0)}}})),
+            ("take_break", client(self.EMP, open_att, reasons, kw([{"attendance_reason_ids": [5]}]), {"result": {}},
+                                  {"result": {"attendance": {"check_in": utc(0)}}})),
+            ("resume", client(self.EMP, open_att, reasons, kw([{"attendance_reason_ids": [3]}]), {"result": {}},
+                              {"result": {"attendance": {"check_in": utc(0)}}})),
+            ("toggle", client(self.EMP, open_att, reasons,
+                              {"result": {"attendance_state": "checked_out", "attendance": {"check_out": utc(0)}}})),
+        ]
+        for command, odoo in runs:
+            out = self.run_cmd(odoo, command)
+            self.assertIn("Horas hoy: 0.00h", out, command)
+            if command in ("check_out", "toggle"):
+                self.assertIn("(0.00h esta sesión)", out, command)
+            if command == "resume":
+                self.assertIn("(0.00h de descanso)", out)
+
     def test_status_with_no_history(self):
         out = self.run_cmd(client(self.EMP, kw([]), kw([]), kw([])), "status")
         self.assertNotIn("Último", out)
@@ -149,6 +178,36 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(out.count("TOTAL"), 2)
         self.assertIn("TOTAL: 2.00h", out)
         self.assertIn("(1.00h)", out)
+
+    def test_history_prints_each_day_its_sessions_and_its_total(self):
+        moment = datetime(2026, 3, 2, 12, 0, tzinfo=timezone.utc)
+
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return moment.astimezone(tz)
+        odoo = client(self.EMP, kw([
+            {"check_in": "2026-03-01 14:00:00", "check_out": "2026-03-01 15:00:00", "worked_hours": 1.0},
+            {"check_in": "2026-03-01 08:00:00", "check_out": False, "worked_hours": 0},
+            {"check_in": "2026-03-01 06:00:00", "check_out": "2026-03-01 07:00:00", "worked_hours": 1.0},
+            {"check_in": "2026-02-27 08:00:00", "check_out": "2026-02-27 10:00:00", "worked_hours": 2.0},
+        ]))
+        with patch.object(cli, "datetime", Frozen):
+            out = self.run_cmd(odoo, "history")
+
+        def at(stamp, fmt="%H:%M"):
+            return cli.local_time(stamp).strftime(fmt)
+        total = f"  {'':>23} TOTAL: "
+        self.assertEqual(out.split("\n"), [
+            "", at("2026-03-01 14:00:00", "%Y-%m-%d (%a)"),
+            f"  {at('2026-03-01 14:00:00')} - {at('2026-03-01 15:00:00')}  (1.00h)",
+            f"  {at('2026-03-01 08:00:00')} - ...    (28.00h en curso)",
+            f"  {at('2026-03-01 06:00:00')} - {at('2026-03-01 07:00:00')}  (1.00h)",
+            f"{total}30.00h",
+            "", at("2026-02-27 08:00:00", "%Y-%m-%d (%a)"),
+            f"  {at('2026-02-27 08:00:00')} - {at('2026-02-27 10:00:00')}  (2.00h)",
+            f"{total}2.00h", "",
+        ])
 
     def test_history_without_records(self):
         self.assertIn("No hay registros en los últimos 7 días", self.run_cmd(client(self.EMP, kw([])), "history"))
@@ -335,7 +394,7 @@ class MainTest(unittest.TestCase):
     def test_unknown_command(self):
         code, out, _ = self.run_main("volar")
         self.assertEqual(code, 1)
-        self.assertIn("Comando desconocido: volar", out)
+        self.assertEqual(out, f"Comando desconocido: volar\n{cli.USAGE}\n")
 
     def test_dispatches_each_command(self):
         for cmd, function in (("status", "status"), ("checkin", "check_in"), ("checkout", "check_out"),
@@ -375,7 +434,7 @@ class MainTest(unittest.TestCase):
         code, _, err = self.run_main("sheet", "https://example.com/hoja")
         self.assertEqual(code, 1)
         self.assertIn("«https://example.com/hoja» no es la dirección de una hoja de cálculo de Google", err)
-        for argv in (["https://docs.google.com/spreadsheets/d/1mF_a-b9/edit?usp=sharing"], []):
+        for argv in (["https://docs.google.com/spreadsheets/d/1mF_a-b9/edit?usp=sharing", "sobra"], []):
             out = io.StringIO()
             with patch.object(sys, "argv", ["odoo", "sheet", *argv]), redirect_stdout(out):
                 cli.main()
@@ -390,6 +449,7 @@ class MainTest(unittest.TestCase):
             with patch.object(sys, "argv", ["odoo", "discord"]), redirect_stdout(out):
                 cli.main()
             save.assert_called_once_with("tok")
+            cli.getpass.getpass.assert_called_once_with("Token del bot de Discord: ")
             self.assertEqual(out.getvalue(), f"Bot «Odoo» guardado en {cli.discord.TOKEN_FILE}\n")
             save.side_effect = cli.DiscordError("Discord no responde")
             code, _, err = self.run_main("discord")
@@ -475,14 +535,15 @@ class MainTest(unittest.TestCase):
     def test_login_asks_once_and_saves_the_session(self):
         home = temp_state(self)
         answers = iter(["https://odoo.example/", "db", "ana"])
-        with patch.object(cli, "OdooClient") as odoo, patch("builtins.input", side_effect=lambda _: next(answers)), \
+        with patch.object(cli, "OdooClient") as odoo, patch("builtins.input", side_effect=lambda _: next(answers)) as ask, \
                 patch.object(cli.getpass, "getpass", return_value="p") as getpass:
             odoo.return_value.session_id, odoo.return_value.device = "fresh", ""
             with patch.object(sys, "argv", ["odoo", "login"]), redirect_stdout(io.StringIO()) as out:
                 cli.main()
         odoo.assert_called_once_with("https://odoo.example/", "db", device="")
         odoo.return_value.login.assert_called_once_with("ana", "p")
-        getpass.assert_called_once()
+        getpass.assert_called_once_with("Contraseña: ")
+        self.assertEqual([call.args[0] for call in ask.call_args_list], ["URL de Odoo: ", "Base de datos: ", "Usuario: "])
         self.assertEqual(c.load_config(), {"url": "https://odoo.example", "db": "db", "user": "ana"})
         self.assertEqual(c.read_private(cli.CLI_SESSION_FILE), "fresh")
         self.assertEqual(oct(os.stat(cli.CLI_SESSION_FILE).st_mode & 0o777), "0o600")

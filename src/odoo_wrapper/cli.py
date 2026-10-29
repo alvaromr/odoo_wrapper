@@ -203,7 +203,7 @@ def check_in(client):
         return
     normal, _ = client.sign_in_reasons()
     result = client.punch(normal and normal["id"])
-    att = result.get("attendance", {})
+    att = result["attendance"]
     print(f"CHECK-IN registrado a las {local_time(att['check_in']).strftime('%H:%M:%S')}")
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
@@ -214,7 +214,7 @@ def check_out(client):
         print("No hay fichaje abierto. Usa 'checkin' para entrar.")
         return
     result = client.punch()
-    att = result.get("attendance", {})
+    att = result["attendance"]
     session_hours = result.get("last_attendance_worked_hours", 0)
     print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
           f"({session_hours:.2f}h esta sesión)")
@@ -235,7 +235,7 @@ def take_break(client):
         return
     client.punch()
     result = client.punch(rest["id"])
-    att = result.get("attendance", {})
+    att = result["attendance"]
     print(f"DESCANSO iniciado a las {local_time(att['check_in']).strftime('%H:%M:%S')}")
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
@@ -248,7 +248,7 @@ def resume(client):
         return
     closed = client.punch()
     result = client.punch(normal and normal["id"])
-    att = result.get("attendance", {})
+    att = result["attendance"]
     print(f"VUELTA del descanso a las {local_time(att['check_in']).strftime('%H:%M:%S')}"
           f" ({closed.get('last_attendance_worked_hours', 0):.2f}h de descanso)")
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
