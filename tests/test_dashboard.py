@@ -43,10 +43,11 @@ class MainTest(unittest.TestCase):
             d.main()
         return out.getvalue()
 
-    def fails(self, *argv):
+    def fails(self, *argv, code=1):
         out = io.StringIO()
-        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), self.assertRaises(SystemExit):
+        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), self.assertRaises(SystemExit) as caught:
             d.main()
+        self.assertEqual(caught.exception.code, code)
         return out.getvalue()
 
     def test_loopback_only(self):
@@ -62,13 +63,26 @@ class MainTest(unittest.TestCase):
                          [pr.watch_sources, cli.keep_alive])
 
     def test_serves_the_whole_lan_over_tls_by_default(self):
+        plain = self.server.socket
         out = self.main()
         self.assertIn("https://mac.local:8443/", out)
         self.assertIn("https://10.0.0.2:8443/", out)
         self.mocks["cert"].assert_called_once()
         self.mocks["ssl"].SSLContext.return_value.load_cert_chain.assert_called_once_with("c.pem", "k.pem")
-        self.assertEqual(self.mocks["server"].call_args_list[1].args[0], ("0.0.0.0", lan.TLS_PORT))
+        self.assertEqual(self.mocks["server"].call_args_list[1].args, (("0.0.0.0", lan.TLS_PORT), sv.Handler))
         self.assertEqual(lan._local_only, "")
+        ssl = self.mocks["ssl"]
+        ssl.SSLContext.assert_called_once_with(ssl.PROTOCOL_TLS_SERVER)
+        context = ssl.SSLContext.return_value
+        self.assertIs(self.server.socket, context.wrap_socket.return_value)
+        self.assertEqual(context.wrap_socket.call_args.kwargs, {"server_side": True})
+        self.assertEqual(context.wrap_socket.call_args.args, (plain,))
+        self.assertEqual([call.kwargs for call in self.mocks["thread"].call_args_list], [
+            {"target": self.server.serve_forever, "daemon": True},
+            {"target": pr.watch_sources, "args": (lan.net_identity,), "daemon": True},
+            {"target": cli.keep_alive, "daemon": True},
+        ])
+        self.assertIn("Para entrar desde él, pulsa «Emparejar móvil» en http://localhost:8931/", out)
 
     def test_without_a_certificate_it_stays_on_this_machine(self):
         self.mocks["cert"].return_value = None
@@ -82,7 +96,7 @@ class MainTest(unittest.TestCase):
     def test_open_launches_the_browser(self):
         self.main("--open")
         timer = self.mocks["timer"].call_args
-        self.assertEqual((timer.args[1], timer.args[2]), (d.webbrowser.open, ["http://localhost:8931/"]))
+        self.assertEqual(timer.args, (0.4, d.webbrowser.open, ["http://localhost:8931/"]))
 
     def test_help(self):
         for flag in ("-h", "--help"):
@@ -95,14 +109,15 @@ class MainTest(unittest.TestCase):
 
     def test_refuses_a_busy_port(self):
         self.mocks["port_taken"].return_value = True
-        self.assertIn("ya hay un dashboard", self.fails())
+        self.assertEqual(self.fails(), "ERROR: ya hay un dashboard escuchando en http://localhost:8931/\nRecarga esa página; "
+                                       "para aplicar cambios de código basta con guardarlos (se reinicia solo).\n")
         self.mocks["port_taken"].side_effect = [False, True]
         self.assertIn("8443", self.fails("--host", "0.0.0.0"))
 
     def test_autostart_switches_and_says_what_it_did(self):
         with patch.object(d.autostart, "set_autostart") as switch:
-            self.assertIn("arrancará solo", self.fails("--autostart", "on"))
-            self.assertIn("ya no arrancará", self.fails("--autostart", "off"))
+            self.assertIn("arrancará solo", self.fails("--autostart", "on", code=0))
+            self.assertIn("ya no arrancará", self.fails("--autostart", "off", code=0))
         self.assertEqual([call.args for call in switch.call_args_list], [(True,), (False,)])
         self.mocks["own_the_output"].assert_not_called()
         self.server.serve_forever.assert_not_called()
