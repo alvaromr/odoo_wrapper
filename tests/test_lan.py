@@ -18,8 +18,9 @@ class NetworkTest(unittest.TestCase):
     def test_lan_ip_from_a_routed_socket(self):
         sock = Mock()
         sock.getsockname.return_value = ("192.168.1.9", 0)
-        with patch.object(socket, "socket", return_value=sock):
+        with patch.object(socket, "socket", return_value=sock) as opened:
             self.assertEqual(lan.lan_ip(), "192.168.1.9")
+        opened.assert_called_once_with(socket.AF_INET, socket.SOCK_DGRAM)
         sock.connect.assert_called_once_with(("192.0.2.1", 53))
         sock.close.assert_called_once()
 

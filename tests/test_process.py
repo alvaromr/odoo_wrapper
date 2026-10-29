@@ -25,6 +25,7 @@ class PortTest(unittest.TestCase):
             self.assertTrue(pr.port_taken(8931))
             sock.connect_ex.return_value = 61
             self.assertFalse(pr.port_taken(8931))
+        sock.settimeout.assert_called_with(0.3)
 
     def test_port_taken_probes_the_given_host(self):
         sock = Mock()
@@ -47,6 +48,7 @@ class PortTest(unittest.TestCase):
             self.assertEqual(sleep.call_count, 2)
             sock.connect_ex.side_effect = [0, 0]
             self.assertTrue(pr.port_taken(8931, grace=1))
+            self.assertEqual(sleep.call_args_list, [unittest.mock.call(0.2)] * 2)
 
 
 class OutputTest(unittest.TestCase):
@@ -61,11 +63,18 @@ class OutputTest(unittest.TestCase):
         with patch.object(sys, "stdout", streams[0]), patch.object(sys, "stderr", streams[1]), patch.object(os, "dup2") as dup2:
             pr.own_the_output()
         self.assertEqual([call.args[1] for call in dup2.call_args_list], [1, 2])
+        self.assertTrue(all(isinstance(call.args[0], int) for call in dup2.call_args_list))
         self.assertTrue(os.path.exists(os.path.join(home, "dashboard.log")))
 
     def test_a_big_log_is_set_aside(self):
         home = temp_state(self)
         log = os.path.join(home, "dashboard.log")
+        with open(log, "w") as f:
+            f.write("x" * pr.LOG_MAX)
+        streams = (SimpleNamespace(isatty=lambda: False, fileno=lambda: 1), SimpleNamespace(fileno=lambda: 2))
+        with patch.object(sys, "stdout", streams[0]), patch.object(sys, "stderr", streams[1]), patch.object(os, "dup2"):
+            pr.own_the_output()
+        self.assertFalse(os.path.exists(log + ".1"))
         with open(log, "w") as f:
             f.write("x" * (pr.LOG_MAX + 1))
         streams = (SimpleNamespace(isatty=lambda: False, fileno=lambda: 1), SimpleNamespace(fileno=lambda: 2))
