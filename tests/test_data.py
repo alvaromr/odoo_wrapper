@@ -274,6 +274,11 @@ class BuildDataTest(unittest.TestCase):
         self.assertEqual(payload["contract_hours"], {})
         self.assertEqual(payload["long_hours"], 12)
 
+    def test_a_contract_on_another_calendar_asking_the_same_hours_changes_nothing(self):
+        contract = {"employee_id": [7, "Ana"], "date_start": "2020-01-01", "date_end": False, "resource_calendar_id": [9, "Otro"]}
+        payload, _ = self.build([], rows={"hr.contract": [contract]})
+        self.assertEqual(payload["contract_hours"], {})
+
     def test_without_attendance_reasons(self):
         payload, client = self.build([{"check_in": utc(30), "check_out": False, "worked_hours": 0}], reasons=(None, None))
         self.assertFalse(payload["breaks"])

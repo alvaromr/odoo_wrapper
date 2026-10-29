@@ -96,6 +96,10 @@ REQUEST_STATES = ("new", "pending", "approved", "refused")
 DISCORD_LABEL = "discord"
 
 
+def hundredths(hours):
+    return round(hours, 2)
+
+
 def odoo_time(day):
     return datetime.combine(day, time()).astimezone().astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -105,7 +109,7 @@ def monday_of(day):
 
 
 def month_span(first):
-    stop = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    stop = date(first.year + first.month // 12, first.month % 12 + 1, 1)
     monday = monday_of(first)
     return monday, (monday_of(stop - timedelta(days=1)) - monday).days // 7 + 1, first, stop
 
@@ -133,10 +137,10 @@ def month_row(month, employee, today):
     schedule = employee["target"] is not None
     return {
         "month": month,
-        "hours": round(sum(d["hours"] for d in days), 2),
-        "target": round(sum(d["target"] for d in days), 2) if schedule else None,
-        "balance": round(sum(d["hours"] - d["target"] for d in days if d["date"] < today), 2) if schedule else None,
-        "due": round(sum(d["target"] for d in days if d["date"] < today), 2) if schedule else None,
+        "hours": hundredths(sum(d["hours"] for d in days)),
+        "target": hundredths(sum(d["target"] for d in days)) if schedule else None,
+        "balance": hundredths(sum(d["hours"] - d["target"] for d in days if d["date"] < today)) if schedule else None,
+        "due": hundredths(sum(d["target"] for d in days if d["date"] < today)) if schedule else None,
         "under": sum("under" in w["flags"] for w in weeks),
         "over": sum("over" in w["flags"] for w in weeks),
         "flagged_days": sum(bool(d["flags"]) for d in days),
@@ -219,28 +223,29 @@ def day_row(day, target, absence, sessions, requests, today):
         ("empty", past and target > 0 and not mine),
         ("long", hours > LONG_DAY),
     ) if hit]
-    return {"date": day.isoformat(), "hours": round(hours, 2), "target": round(target, 2), "absence": absence,
+    return {"date": day.isoformat(), "hours": hundredths(hours), "target": hundredths(target), "absence": absence,
             "sessions": mine, "flags": flags,
             "requests": [{k: v for k, v in r.items() if k != "user"} for r in requests]}
 
 
 def week_row(monday, days, schedule, today):
-    hours = round(sum(d["hours"] for d in days), 2)
+    hours = hundredths(sum(d["hours"] for d in days))
     suspect = any("long" in d["flags"] for d in days)
     target: Optional[float] = None
     balance: Optional[float] = None
     due: Optional[float] = None
     flags: list = []
     if schedule:
-        target = round(sum(d["target"] for d in days), 2)
+        target = hundredths(sum(d["target"] for d in days))
         judged = monday + timedelta(days=7) <= today and not any(d["flags"] for d in days)
+        short = hours <= target - UNDER_MARGIN  # pragma: no mutate - hours and target are hundredths, never 1/60 apart
         flags = [flag for flag, hit in (
-            ("under", judged and hours <= target - UNDER_MARGIN),
+            ("under", judged and short),
             ("over", judged and hours > target + OVER_MARGIN),
         ) if hit]
         past = [d for d in days if d["date"] < today.isoformat()]
-        balance = round(sum(d["hours"] - d["target"] for d in past), 2)
-        due = round(sum(d["target"] for d in past), 2)
+        balance = hundredths(sum(d["hours"] - d["target"] for d in past))
+        due = hundredths(sum(d["target"] for d in past))
     return {"monday": monday.isoformat(), "hours": hours, "target": target, "balance": balance, "due": due,
             "flags": flags, "suspect": suspect}
 
@@ -270,11 +275,11 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
     start, stop = (start or monday).isoformat(), (stop or monday + timedelta(weeks=weeks)).isoformat()
     inside = [d for d in days if start <= d["date"] < stop]
     return {"id": employee["id"], "name": employee["name"], "discord": employee.get("discord"),
-            "hours": round(sum(d["hours"] for d in inside), 2),
-            "target": round(sum(d["target"] for d in inside), 2) if schedule else None,
-            "balance": round(sum(d["hours"] - d["target"] for d in inside if d["date"] < today.isoformat()), 2)
+            "hours": hundredths(sum(d["hours"] for d in inside)),
+            "target": hundredths(sum(d["target"] for d in inside)) if schedule else None,
+            "balance": hundredths(sum(d["hours"] - d["target"] for d in inside if d["date"] < today.isoformat()))
             if schedule else None,
-            "due": round(sum(d["target"] for d in inside if d["date"] < today.isoformat()), 2) if schedule else None,
+            "due": hundredths(sum(d["target"] for d in inside if d["date"] < today.isoformat())) if schedule else None,
             "flags": [flag for flag in ("under", "over") if any(flag in w["flags"] for w in week_rows)],
             "suspect": any("long" in d["flags"] for d in inside),
             "flagged_days": sum(bool(d["flags"]) for d in inside),

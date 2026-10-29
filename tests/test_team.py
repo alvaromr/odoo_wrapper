@@ -547,10 +547,11 @@ class FetchTeamTest(unittest.TestCase):
         dt.drop_data_cache()
         calls = []
         original = tm.build_team
-        tm.build_team = lambda client, monday, weeks, start, stop: calls.append((client.session_id, monday)) or len(calls)
+        tm.build_team = lambda client, monday, weeks, start, stop: calls.append((client.session_id, monday, weeks)) or len(calls)
         self.addCleanup(setattr, tm, "build_team", original)
         client = SimpleNamespace(session_id="sid")
         self.assertEqual(tm.fetch_team(client, MONDAY), 1)
+        self.assertEqual(calls, [("sid", MONDAY, 1)])
         self.assertEqual(tm.fetch_team(client, MONDAY), 1)
         self.assertEqual(tm.fetch_team(client, MONDAY + timedelta(days=7)), 2)
         self.assertEqual(tm.fetch_team(client, MONDAY, fresh=True), 3)

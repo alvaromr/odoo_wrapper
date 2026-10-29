@@ -252,19 +252,18 @@ def contract_calendars(contracts):
 
 
 def contract_hours(client, schedule, contracts, monday0, end):
-    if not contracts:
-        return {}
     pick = calendar_on(contracts, client.calendar_id)
     others = contract_calendars(contracts) - {client.calendar_id}
     schedules = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
     schedules[client.calendar_id] = schedule
-    base = schedule["hours"] if schedule else [0] * 7
+
+    def hours_on(day, chosen):
+        return chosen["hours"][day.weekday()] if chosen else 0
     overrides = {}
     for i in range((end - monday0).days):
         day = monday0 + timedelta(days=i)
-        own = schedules.get(pick(day.isoformat()))
-        hours = own["hours"][day.weekday()] if own else 0
-        if hours != base[day.weekday()]:
+        hours = hours_on(day, schedules.get(pick(day.isoformat())))
+        if hours != hours_on(day, schedule):
             overrides[day.isoformat()] = hours
     return overrides
 
@@ -325,10 +324,6 @@ def punch(client, action):
         if open_att:
             return 409, {"error": "Ya hay un fichaje abierto"}
         client.punch(normal_id)
-    elif action == "checkout":
-        if not open_att:
-            return 409, {"error": "No hay fichaje abierto"}
-        client.punch()
     elif action == "break":
         if not rest:
             return 409, {"error": "Este Odoo no tiene el motivo Descanso"}

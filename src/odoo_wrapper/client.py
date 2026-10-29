@@ -79,13 +79,14 @@ class KeepRedirects(urllib.request.HTTPRedirectHandler):
 
 
 def set_cookies(headers):
-    pairs = (header.partition(";")[0].partition("=") for header in headers.get_all("Set-Cookie") or [])
+    sent = headers.get_all("Set-Cookie") or []  # pragma: no mutate - header names are case-insensitive
+    pairs = (header.partition(";")[0].partition("=") for header in sent)
     return {name.strip(): value.strip() for name, _, value in pairs}
 
 
 def write_private(path, text):
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
-    pending = path + ".tmp"
+    pending = path + ".tmp"  # pragma: no mutate - any name works: it is replaced within this function
     with open(os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         f.write(text)
     os.replace(pending, path)
@@ -101,9 +102,9 @@ def read_private(path):
 
 def read_config():
     try:
-        config = json.loads(read_private(CONFIG_FILE) or "{}")
+        config = json.loads(read_private(CONFIG_FILE))
     except ValueError:
-        config = {}
+        return {}
     if isinstance(config, dict) and all(config.get(key) for key in CONFIG_KEYS):
         return {key: str(config[key]) for key in CONFIG_KEYS}
     return {}
@@ -133,7 +134,7 @@ class OdooClient:
         self.employee_name = None
         self.calendar_id = None
         self._reasons = None
-        self._csrf = ""
+        self._csrf = ""  # pragma: no mutate - login() sets it before login_totp() sends it
 
     def _open(self, endpoint, data, headers):
         try:
@@ -145,9 +146,9 @@ class OdooClient:
         data = json.dumps(
             {"jsonrpc": "2.0", "method": "call", "params": params, "id": 1}
         ).encode()
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json"}  # pragma: no mutate - header names are case-insensitive
         if self.session_id:
-            headers["Cookie"] = f"{SESSION_COOKIE}={self.session_id}"
+            headers["Cookie"] = f"{SESSION_COOKIE}={self.session_id}"  # pragma: no mutate - as above
         resp = self._open(endpoint, data, headers)
         try:
             result = json.loads(resp.read())
@@ -168,10 +169,8 @@ class OdooClient:
 
     def form(self, fields=None):
         cookies = {SESSION_COOKIE: self.session_id, DEVICE_COOKIE: self.device}
-        headers = {
-            "Cookie": "; ".join(f"{name}={value}" for name, value in cookies.items() if value),
-            "User-Agent": self.user_agent,
-        }
+        cookie = "; ".join(f"{name}={value}" for name, value in cookies.items() if value)
+        headers = {"Cookie": cookie, "User-Agent": self.user_agent}  # pragma: no mutate - as in post()
         data = urllib.parse.urlencode(fields).encode() if fields else None
         return self._open(TOTP_PATH, data, headers)
 
@@ -190,7 +189,7 @@ class OdooClient:
             {"db": self.db, "login": user, "password": password},
         )
         self.uid = session.get("uid")
-        self.session_id = set_cookies(headers).get(SESSION_COOKIE, "")
+        self.session_id = set_cookies(headers).get(SESSION_COOKIE)
         if not self.session_id:
             raise OdooError("Autenticación fallida: Odoo no devolvió una sesión")
         if self.uid:

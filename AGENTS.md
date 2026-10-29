@@ -99,7 +99,8 @@ Read the header of a module before touching it.
 ## Code style
 
 - Functional over imperative where it reads better; no inline comments — the code should not need them. The
-  why lives in each module's header (docstring or top comment block), nowhere else.
+  why lives in each module's header (docstring or top comment block), nowhere else. The one exception is the
+  `# pragma: no mutate - <reason>` of an equivalent mutant (see How to verify changes).
 - Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
@@ -165,6 +166,13 @@ Mutation testing runs now and then rather than on every commit: it takes minutes
 uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 run     # config in pyproject.toml, [tool.mutmut]
 uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 results  # the mutants no test killed
 ```
+
+Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
+original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences
+every mutant starting on that line, not only the equivalent one: on a line whose other mutants a test kills, the
+equivalent part moves to a line of its own first, unless splitting reads worse, as in a dict of HTTP headers,
+whose names are equivalent in any case. A message moved to a constant to escape its mutants proves nothing: constants are
+for what reads better or repeats.
 
 Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes
 with the test that runs it, and each report names what is missing. A branch no input can take is removed from

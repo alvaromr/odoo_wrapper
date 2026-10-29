@@ -2,6 +2,7 @@
 
 import http.client
 import io
+import json
 import os
 import unittest
 import urllib.error
@@ -26,13 +27,15 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(c.read_config(), {})
         with self.assertRaises(c.OdooError) as caught:
             c.load_config()
-        self.assertIn("odoo login", str(caught.exception))
+        self.assertEqual(str(caught.exception), "Falta configurar Odoo. Inicia sesión con `odoo login` o desde el dashboard")
 
     def test_save_and_load(self):
         c.save_config("https://odoo.example/", "db", "u")
         self.assertEqual(c.load_config(), CONFIG)
         self.assertEqual(oct(os.stat(c.CONFIG_FILE).st_mode & 0o777), "0o600")
         self.assertEqual(os.listdir(self.home), ["config.json"])
+        c.save_config("https://odoX/", "db", "u")
+        self.assertEqual(c.load_config()["url"], "https://odoX")
 
     def test_junk_or_incomplete_config_counts_as_none(self):
         for text in ("{roto", "[]", '{"url": "x", "db": "y"}', '{"url": "", "db": "y", "user": "u"}'):
@@ -157,6 +160,21 @@ class RpcTest(unittest.TestCase):
             with self.assertRaises(c.OdooDown) as caught:
                 odoo.call_kw("m", "read", [])
         self.assertEqual(str(caught.exception), "Odoo no responde (respuesta no válida)")
+
+    def test_each_request_is_a_json_rpc_call_and_the_form_names_its_browser(self):
+        odoo = client({"result": None}, {"page": TOTP_PAGE})
+        sent = []
+        record = odoo.opener.open
+        odoo.opener.open = lambda req: sent.append(req) or record(req)
+        odoo.jsonrpc("/x", {"a": 1})
+        odoo.form()
+        self.assertEqual(json.loads(sent[0].data), {"jsonrpc": "2.0", "method": "call", "params": {"a": 1}, "id": 1})
+        self.assertEqual(sent[1].get_header("User-agent"), c.USER_AGENT)
+
+    def test_a_new_client_trims_the_url_and_knows_nothing_yet(self):
+        odoo = c.OdooClient("https://odoX/", "db", "sid", device="dev")
+        self.assertEqual((odoo.url, odoo.device, odoo.uid, odoo.employee_id, odoo.employee_name, odoo.calendar_id),
+                         ("https://odoX", "dev", None, None, None, None))
 
     def test_call_kw_shape(self):
         odoo = client(kw([1]))
