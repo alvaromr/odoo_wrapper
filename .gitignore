@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+mutants/
 .DS_Store
 *.pem
 .claude/settings.local.json

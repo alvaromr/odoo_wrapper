@@ -94,6 +94,7 @@ class OutputTest(unittest.TestCase):
             sys.stdout.close()
         dup2.assert_not_called()
 
+    @unittest.skipIf("MUTANT_UNDER_TEST" in os.environ, "mutmut runs a copy of the package no subprocess can import")
     def test_the_launch_command_needs_no_pythonpath(self):
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
         done = subprocess.run(pr.launch_command(["--help"]), env=env, cwd=temp_state(self), capture_output=True, text=True)

@@ -18,7 +18,7 @@ import { setClock, indexSessions } from "./week.js";
 import { isoDay } from "./format.js";
 import { renderHero, renderAll, setRangeMonths, punchText, openRequest } from "./render.js";
 import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
-import { wireLogout, wireMouseHistory, wireUpdates } from "./shared.js";
+import { wireLogout, wireMouseHistory, wireUpdates, warned } from "./shared.js";
 import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
 import { wireDayDialog, onDaySaved } from "./dayedit.js";
 
@@ -28,7 +28,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   stopFlash();
   if (!store.data || newDay()) return;
-  if (stale() && !busy()) loadAndRender().catch(() => {});
+  if (stale() && !busy()) loadAndRender().catch(warned("the reload on returning to the tab"));
 });
 
 function newDay() {
@@ -40,7 +40,7 @@ function newDay() {
   indexSessions();
   renderHero();
   renderAll();
-  loadAndRender().catch(() => {});
+  loadAndRender().catch(warned("the reload on a new day"));
   return true;
 }
 
@@ -54,7 +54,9 @@ async function checkSources() {
     const { version } = await (await fetch("/api/version")).json();
     if (SourceVersion === null) SourceVersion = version;
     else if (version !== SourceVersion) location.reload();
-  } catch (e) {}
+  } catch (e) {
+    warned("the source version poll")(e);
+  }
 }
 
 if (LOOPBACK.includes(location.hostname)) setInterval(checkSources, ReloadPoll);
@@ -68,7 +70,7 @@ function tick() {
   if (newDay()) return;
   const live = new Date();
   if (stale() && document.visibilityState === "visible" && !busy()) {
-    loadAndRender().catch(() => {});
+    loadAndRender().catch(warned("the reload of stale data"));
     return;
   }
   refreshState();

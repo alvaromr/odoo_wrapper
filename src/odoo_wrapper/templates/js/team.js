@@ -74,7 +74,9 @@
  */
 import { DayNames, MonthNames } from "./store.js";
 import { fmtHM, fmtDelta, fmtDay, fmtYear, fmtTime, isoDay, parseDay, shiftDays, plural } from "./format.js";
-import { el, api, wireLogout, wireMouseHistory, wireUpdates, attachTip, hideTip, tipRow, panScroll } from "./shared.js";
+import {
+  el, api, wireLogout, wireMouseHistory, wireUpdates, warned, attachTip, hideTip, tipRow, panScroll,
+} from "./shared.js";
 import { balanced, dayDetails, dayLabel, requestLine, openDay, onDaySaved, wireDayDialog } from "./dayedit.js";
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
 import { team, FixKinds, FlagText, thisDay, named } from "./teamstate.js";
@@ -437,12 +439,12 @@ export function readState(hash) {
 function saveState() {
   const hash = stateHash();
   globalThis.history?.replaceState(null, "", hash);
-  try { sessionStorage.setItem(StateKey, hash); } catch (e) {}
+  try { sessionStorage.setItem(StateKey, hash); } catch (e) { warned("saving the view")(e); }
 }
 
 function restoreState() {
   let saved = "";
-  try { saved = sessionStorage.getItem(StateKey) || ""; } catch (e) {}
+  try { saved = sessionStorage.getItem(StateKey) || ""; } catch (e) { warned("restoring the view")(e); }
   return readState(location.hash || saved);
 }
 
@@ -528,7 +530,7 @@ export async function load(key, fresh, push = false) {
     if (push) globalThis.history?.pushState(null, "", stateHash());
     render();
     if (fresh || !team.fixes) loadFixes(fresh);
-    if (unit !== "year") fetch(`/api/team?${unit}=${Views[unit].step(-1)}`).catch(() => {});
+    if (unit !== "year") fetch(`/api/team?${unit}=${Views[unit].step(-1)}`).catch(warned("the prefetch"));
   } catch (e) {
     loadmsg.textContent = "Error cargando datos de Odoo: " + e.message;
     loadmsg.classList.remove("hidden");

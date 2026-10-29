@@ -83,7 +83,7 @@ CHECK_TTL = 6 * 3600
 FRESH_MIN = 60
 _lock = threading.Lock()
 _installing = threading.Lock()
-_last = {"at": None, "answer": None}
+_last: dict = {"at": None, "answer": None}
 
 
 def numbers(version):
@@ -129,7 +129,7 @@ def update_skills():
     claude = find("claude")
     if not claude:
         return ""
-    quiet = {"capture_output": True, "text": True, "stdin": subprocess.DEVNULL, "timeout": CLAUDE_TIMEOUT}
+    quiet: dict = {"capture_output": True, "text": True, "stdin": subprocess.DEVNULL, "timeout": CLAUDE_TIMEOUT}
     try:
         listed = subprocess.run([claude, "plugin", "list", "--json"], check=True, **quiet)
         if PLUGIN not in {plugin.get("id") for plugin in json.loads(listed.stdout)}:

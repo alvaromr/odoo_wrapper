@@ -1,0 +1,3 @@
+#!/bin/sh
+# The gate before every commit: tests/check.py says what it runs. Enabled per clone, see AGENTS.md.
+exec python3 tests/check.py

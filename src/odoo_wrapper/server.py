@@ -53,6 +53,11 @@ Same-site guard
   403. That blocks DNS rebinding (reads the data by defeating CORS) and a cross-site POST to
   /api/attendance (needs no preflight with text/plain and would clock the user in or out). Every response
   carries X-Frame-Options: DENY so no page can frame the dashboard and click its buttons through an overlay.
+- Every response also carries CONTENT_POLICY: scripts only from this server's own files (no inline script,
+  hence js/login.js), requests only to itself, nothing framed or framing; and X-Content-Type-Options:
+  nosniff, so a JSON answer is never run as a script. Styles may be inline: each page keeps its own <style>
+  block and the scripts set element styles. The page builds nothing from user text with innerHTML (only
+  the QR's SVG, which qr.py writes), so the policy is a second wall, not the only one.
 
 Assets
 - /manifest.json and /icon.svg make the page installable, so the phone can add it to the home screen and
@@ -129,12 +134,14 @@ LOGIN_LOCK = 30
 LOGIN_LOCK_MAX = 900
 PAIR_TTL = 120
 SEES_TTL = 1800
+CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; "
+                  "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
-_sessions = {}
-_rights = {}
-_pairings = {}
-_login_fails = {}
+_sessions: dict = {}
+_rights: dict = {}
+_pairings: dict = {}
+_login_fails: dict = {}
 _login_lock = threading.Lock()
 
 
@@ -234,6 +241,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", CONTENT_POLICY)
+        self.send_header("X-Content-Type-Options", "nosniff")
         secure = "; Secure" if isinstance(self.connection, ssl.SSLSocket) else ""
         for name, value in cookies:
             max_age = COOKIE_MAX_AGE[name] if value else 0
@@ -368,7 +377,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(403, {"error": NOT_TEAM})
                 return
             if year:
-                self._send(200, dict(team.fetch_year(client, year, "fresh" in params), can_message=discord.configured()))
+                payload = team.fetch_year(client, year, "fresh" in params)
+                self._send(200, dict(payload, can_message=discord.configured()))
                 return
             if "fixes" in params:
                 self._send(200, team.fetch_fixes(client, "fresh" in params))

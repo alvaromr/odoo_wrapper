@@ -30,7 +30,7 @@ class VersionTest(unittest.TestCase):
             qr.codewords(b"x" * 107)
 
     def test_codewords_fill_the_whole_block(self):
-        for version, total, ec in qr.SPEC:
+        for _, total, ec in qr.SPEC:
             self.assertEqual(len(qr.codewords(b"a" * (total - 2))[1]), total + ec)
 
 

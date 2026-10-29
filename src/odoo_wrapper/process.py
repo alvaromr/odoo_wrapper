@@ -45,8 +45,8 @@ from datetime import datetime
 from .client import STATE_DIR
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOOTSTRAP = f"import sys; sys.path.insert(0, {os.path.dirname(HERE)!r}); from odoo_wrapper.dashboard import main; main()"
 INSTALLED_BOOTSTRAP = "from odoo_wrapper.dashboard import main; main()"
+BOOTSTRAP = f"import sys; sys.path.insert(0, {os.path.dirname(HERE)!r}); {INSTALLED_BOOTSTRAP}"
 TEMPLATES = os.path.join(HERE, "templates")
 WATCHED = [os.path.join(HERE, name) for name in sorted(os.listdir(HERE)) if name.endswith(".py")]
 SOURCES = WATCHED + sorted(

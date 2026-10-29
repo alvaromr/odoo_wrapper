@@ -2,6 +2,9 @@
  * What both pages (the dashboard and the management view) need, with no side effects on import: team.js
  * cannot import the dashboard's modules, which register listeners and read their own DOM as they load.
  *
+ * - A failure the page deliberately rides out (a background poll, a reload retried later, storage the browser
+ *   blocks) still leaves a trace: warned(what) is the handler that logs it to the console. Swallowed outright,
+ *   a broken poll looked exactly like a quiet one.
  * - Any 401 sends the page to /login: the cookie is the Odoo session, and Odoo decides when it is dead.
  * - While any api() call is in flight the #loadbar at the top of the page runs: an Odoo load takes a
  *   second or two and the page looked frozen meanwhile. Background requests (the team page's prefetch,
@@ -27,6 +30,10 @@
  *   with the command to retry; the development install is told to use git; anywhere else, or without uv, the
  *   commands for the dashboard and the skills. While it installs the poll leaves the banner alone, so the button and its note stay.
  */
+export function warned(what) {
+  return error => console.warn(`[odoo] ${what} failed:`, error);
+}
+
 export function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -159,7 +166,9 @@ async function restarted(old) {
     try {
       const res = await fetch("/api/update");
       if (res.ok && (await res.json()).current !== old) return;
-    } catch (e) {}
+    } catch (e) {
+      warned("waiting for the restarted dashboard")(e);
+    }
   }
   throw new Error("el panel no ha vuelto en tres minutos: mira ~/.odoo_dashboard/dashboard.log");
 }
@@ -243,7 +252,7 @@ export function showUpdate(answer) {
 
 export function wireUpdates() {
   const poll = () => fetch("/api/update").then(res => res.ok && res.json()).then(answer => answer && showUpdate(answer))
-    .catch(() => {});
+    .catch(warned("the update check"));
   poll();
   setInterval(poll, UpdateEveryMs);
 }

@@ -62,7 +62,7 @@ LONG_HOURS = 12
 DATA_TTL = 45
 VIEW_TTL = 300
 _data_lock = threading.Lock()
-_data_cache = {}
+_data_cache: dict = {}
 
 
 def local(ts):
@@ -74,8 +74,9 @@ def week_monday(dt):
 
 
 def schedule_from(blocks):
-    hours, lunch_from = [0.0] * 7, [None] * 7
-    spans = [[] for _ in range(7)]
+    hours = [0.0] * 7
+    lunch_from: list = [None] * 7
+    spans: list = [[] for _ in range(7)]
     for block in blocks:
         try:
             day = int(block["dayofweek"])
@@ -231,7 +232,7 @@ def fetch_contracts(client, ids, monday, end):
         raise
     except OdooError:
         return {}
-    contracts = {}
+    contracts: dict = {}
     for c in rows:
         contracts.setdefault(c["employee_id"][0], []).append(c)
     return contracts

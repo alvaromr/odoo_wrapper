@@ -6,7 +6,7 @@
  * - The choice is per browser (localStorage), not in the shared state: a phone in a dark room and a laptop by a
  *   window want different ones. «Ajustes» (ui.js) changes it through window.chooseTheme, which says whether it
  *   could be kept: with storage blocked (some private modes) it lasts until the page reloads, and «Ajustes»
- *   says so. Blocked storage on load just leaves the system's theme.
+ *   says so. Blocked storage on load leaves the system's theme and a warning in the console.
  */
 const ThemeKey = "theme";
 
@@ -22,4 +22,6 @@ window.chooseTheme = choice => {
 
 try {
   document.documentElement.dataset.theme = localStorage.getItem(ThemeKey) || "";
-} catch (e) {}
+} catch (e) {
+  console.warn("[odoo] reading the theme failed:", e);
+}

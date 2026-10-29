@@ -139,7 +139,7 @@ class OdooClient:
         try:
             return self.opener.open(urllib.request.Request(f"{self.url}{endpoint}", data=data, headers=headers))
         except urllib.error.URLError as error:
-            raise OdooDown(f"Odoo no responde ({error.reason})")
+            raise OdooDown(f"Odoo no responde ({error.reason})") from error
 
     def post(self, endpoint, params):
         data = json.dumps(
@@ -151,8 +151,8 @@ class OdooClient:
         resp = self._open(endpoint, data, headers)
         try:
             result = json.loads(resp.read())
-        except ValueError:
-            raise OdooDown("Odoo no responde (respuesta no válida)")
+        except ValueError as unreadable:
+            raise OdooDown("Odoo no responde (respuesta no válida)") from unreadable
         if "error" in result:
             error = result["error"]
             details = error.get("data", {})
@@ -309,7 +309,8 @@ class OdooClient:
         return next((name for name, f in fields.items() if f["string"].strip().lower() == label), None)
 
     def offered_reasons(self):
-        rows = [r for r in self.attendance_reasons() if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]]
+        rows = [r for r in self.attendance_reasons()
+                if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]]
         return sorted(rows, key=lambda r: r["is_rest"])
 
     def sign_in_reasons(self):

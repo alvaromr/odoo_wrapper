@@ -81,7 +81,7 @@ import {
   fmtShort, fmtTime, fmtHM, fmtDelta, fmtDay, fmtDate, fmtClock, hourOf, dayKey, isoDay, plural,
 } from "./format.js";
 import { openDayOf } from "./dayedit.js";
-import { el, api, attachTip, tipRow } from "./shared.js";
+import { el, api, attachTip, tipRow, warned } from "./shared.js";
 import { fillBar, bellIcon, gearIcon, qrIcon, actionButton, openSettings } from "./ui.js";
 import { saveState } from "./api.js";
 import { stopFlash, notifyStatus } from "./alarms.js";
@@ -377,7 +377,7 @@ async function pair(button) {
 function unpair() {
   pairing = null;
   renderPhone();
-  api("/api/pair", { revoke: true }).catch(() => {});
+  api("/api/pair", { revoke: true }).catch(warned("revoking the pairing"));
 }
 
 /* ---------- KPIs ---------- */

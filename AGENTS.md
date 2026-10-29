@@ -37,7 +37,8 @@ src/odoo_wrapper/
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /style.css and /js/<name>
-tests/               unittest + node tests, see below
+tests/               unittest + node tests and check.py, the gate; see below
+.githooks/           pre-commit: runs the gate before each commit
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
 .claude-plugin/      marketplace.json: publishes .ai/ as the Claude Code plugin `odoo`, its skills/ the
@@ -144,14 +145,25 @@ A tag is never moved or reused; a broken release is fixed by the next one.
 
 ## How to verify changes
 
-Start with the unit tests:
+Start with the gate, one command that needs uv and Node ≥ 22 and installs nothing in the repo:
 
 ```bash
-python3 -m unittest discover -s tests   # the Python suite
-python3 tests/report_coverage.py        # the same with coverage: every line and branch (branches: Python ≥ 3.14)
-node --test tests/app.test.mjs          # the page's logic (Node ≥ 18, nothing to install)
-node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=100 \
-     --test-coverage-branches=100 --test-coverage-functions=100 tests/app.test.mjs  # with coverage (Node ≥ 22)
+python3 tests/check.py                   # Ruff, mypy, both suites, both coverages; its header lists each step
+git config core.hooksPath .githooks      # once per clone: the pre-commit hook runs the gate before each commit
+```
+
+Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
+suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
+`node --test tests/app.test.mjs` (the page's logic). Ruff leaves line length free in `tests/`, whose fixtures
+read best on one line; the code keeps to 120 columns. mypy checks the bodies of functions without annotations,
+which is all the package has; annotate only what it cannot infer.
+
+Mutation testing runs now and then rather than on every commit: it takes minutes, and its working copy,
+`mutants/`, is ignored by git. mutmut 3.3 needs pytest 8.3, and skips the one test that starts a subprocess:
+
+```bash
+uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 run     # config in pyproject.toml, [tool.mutmut]
+uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 results  # the mutants no test killed
 ```
 
 Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes

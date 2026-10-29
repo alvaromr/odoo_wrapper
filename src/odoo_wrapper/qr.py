@@ -52,11 +52,10 @@ def ec_codewords(data, count):
 
 
 def codewords(payload):
-    for version, total, ec in SPEC:
-        if len(payload) <= total - 2:
-            break
-    else:
+    fitting = next((spec for spec in SPEC if len(payload) <= spec[1] - 2), None)
+    if fitting is None:
         raise ValueError("texto demasiado largo para un QR versión 5")
+    version, total, ec = fitting
     bits = "0100" + f"{len(payload):08b}" + "".join(f"{b:08b}" for b in payload)
     bits += "0" * min(4, total * 8 - len(bits))
     bits += "0" * (-len(bits) % 8)
@@ -67,7 +66,7 @@ def codewords(payload):
 
 def skeleton(version):
     size = version * 4 + 17
-    mod = [[None] * size for _ in range(size)]
+    mod: list = [[None] * size for _ in range(size)]
     for r0, c0 in ((0, 0), (0, size - 7), (size - 7, 0)):
         for r in range(-1, 8):
             for c in range(-1, 8):

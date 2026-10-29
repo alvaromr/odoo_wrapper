@@ -24,3 +24,21 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 odoo_wrapper = ["templates/*", "templates/js/*"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+files = ["src/odoo_wrapper"]
+check_untyped_defs = true
+
+[tool.mutmut]
+paths_to_mutate = ["src/odoo_wrapper/"]
+tests_dir = ["tests/"]
+pytest_add_cli_args = ["-q", "-p", "no:cacheprovider"]

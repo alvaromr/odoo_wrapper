@@ -82,6 +82,7 @@ read, with the problems a reviewer looks for already flagged.
 import html
 import re
 from datetime import date, datetime, time, timedelta, timezone
+from typing import Optional
 
 from . import data
 from .client import OdooError, SessionExpired
@@ -225,27 +226,33 @@ def day_row(day, target, absence, sessions, requests, today):
 
 def week_row(monday, days, schedule, today):
     hours = round(sum(d["hours"] for d in days), 2)
-    target = round(sum(d["target"] for d in days), 2) if schedule else None
     suspect = any("long" in d["flags"] for d in days)
-    judged = bool(schedule) and monday + timedelta(days=7) <= today and not any(d["flags"] for d in days)
-    flags = [flag for flag, hit in (
-        ("under", judged and hours <= target - UNDER_MARGIN),
-        ("over", judged and hours > target + OVER_MARGIN),
-    ) if hit]
-    past = [d for d in days if d["date"] < today.isoformat()]
-    balance = round(sum(d["hours"] - d["target"] for d in past), 2) if schedule else None
-    due = round(sum(d["target"] for d in past), 2) if schedule else None
+    target: Optional[float] = None
+    balance: Optional[float] = None
+    due: Optional[float] = None
+    flags: list = []
+    if schedule:
+        target = round(sum(d["target"] for d in days), 2)
+        judged = monday + timedelta(days=7) <= today and not any(d["flags"] for d in days)
+        flags = [flag for flag, hit in (
+            ("under", judged and hours <= target - UNDER_MARGIN),
+            ("over", judged and hours > target + OVER_MARGIN),
+        ) if hit]
+        past = [d for d in days if d["date"] < today.isoformat()]
+        balance = round(sum(d["hours"] - d["target"] for d in past), 2)
+        due = round(sum(d["target"] for d in past), 2)
     return {"monday": monday.isoformat(), "hours": hours, "target": target, "balance": balance, "due": due,
             "flags": flags, "suspect": suspect}
 
 
 def employee_row(employee, schedule_on, absences, sessions, requests, monday, today, weeks=1, start=None, stop=None):
     full = {a["date"]: a["type"] for a in absences if "hours" not in a}
-    partial = {}
+    partial: dict = {}
     for a in absences:
         if "hours" in a:
             partial[a["date"]] = partial.get(a["date"], 0) + a["hours"]
-    sessions_on, requests_on = {}, {}
+    sessions_on: dict = {}
+    requests_on: dict = {}
     for s in sessions:
         sessions_on.setdefault(s["in"][:10], []).append(s)
     for r in requests:

@@ -40,7 +40,7 @@ function flatten(name, seen = new Set(), order = []) {
 }
 
 const THEME = { name: "theme.js", body: readModule("theme.js") };
-const SOURCES = Object.fromEntries(["app.js", "team.js"].map(name => [name, [THEME, ...flatten(name)]]));
+const SOURCES = Object.fromEntries(["app.js", "team.js", "login.js"].map(name => [name, [THEME, ...flatten(name)]]));
 const UP_TO_DATE = { available: false, current: "1.1.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
   error: "" };
 
@@ -173,7 +173,8 @@ function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", sto
   const document = makeDocument();
   const calls = { fetch: [], replace: [], reload: 0, timers: [] };
   const sandbox = {
-    document, window: fakeAudio().window, console, URLSearchParams, Date, innerWidth: 1280, innerHeight: 800,
+    document, window: fakeAudio().window, URLSearchParams, Date, innerWidth: 1280, innerHeight: 800,
+    console: { ...console, warn: (...args) => (calls.warnings ||= []).push(args.map(String).join(" ")) },
     addEventListener: (type, fn) => ((calls.window ||= {})[type] ||= []).push(fn),
     history: { replaceState: (a, b, url) => { calls.hash = url; },
       pushState: (a, b, url) => { (calls.pushed ||= []).push(url); calls.hash = url; },
@@ -833,6 +834,63 @@ test("a punch that itself fails restores the button and shows the plain error", 
   assert.equal(errBox.textContent, "Error: sin conexión");
   assert.equal(button.disabled, false);
   assert.equal(button.textContent, "Fichar salida");
+});
+
+test("the login page asks only for what Odoo still needs, and for the code when Odoo wants one", async () => {
+  const open = async (cfg, answers = []) => {
+    const posts = [];
+    const page = load({ entry: "login.js", path: "/login", fetchImpl: async (url, opts) => {
+      if (url === "/api/config") return { ok: true, status: 200, json: async () => cfg };
+      posts.push(JSON.parse(opts.body));
+      const next = answers.shift();
+      if (next instanceof Error) throw next;
+      return { ok: next.status === 200, status: next.status, json: async () => next.body };
+    } });
+    const field = id => page.document.getElementById(id);
+    const focused = [];
+    for (const id of ["url", "user", "pass", "code"]) field(id).focus = () => focused.push(id);
+    await settle();
+    return { page, field, focused, posts, submit: () => field("login").listeners.submit[0]({ preventDefault() {} }) };
+  };
+
+  const known = await open({ configured: true, local: true, user: "ana", url: "u", db: "d" }, [
+    { status: 401, body: { error: "Falta el código", totp: true } },
+    { status: 401, body: { error: "Usuario o contraseña incorrectos" } },
+    { status: 500, body: {} },
+    new Error("sin red"),
+    { status: 200, body: { ok: true } },
+  ]);
+  assert.match(known.field("clock").textContent, /^\d\d:\d\d$/);
+  assert.ok(known.page.calls.timers.some(([, ms]) => ms === 10000));
+  assert.deepEqual([known.field("user").value, known.focused], ["ana", ["pass"]]);
+  known.field("pass").type = "password";
+  known.field("eye").listeners.click[0]();
+  assert.deepEqual([known.field("pass").type, known.field("eye").getAttribute("aria-label")],
+    ["text", "Ocultar contraseña"]);
+  known.field("eye").listeners.click[0]();
+  assert.deepEqual([known.field("pass").type, known.field("eye-slash").style.display], ["password", "none"]);
+  known.field("pass").value = "secreta";
+  await known.submit();
+  assert.deepEqual([known.field("code").hidden, known.field("code").required, known.field("submit").disabled],
+    [false, true, false]);
+  assert.match(known.field("hint").textContent, /^Introduce el código/);
+  known.field("code").value = "123456";
+  for (const said of ["Usuario o contraseña incorrectos", "HTTP 500", "sin red"]) {
+    await known.submit();
+    assert.deepEqual([known.field("err").textContent, known.field("submit").disabled], [said, false]);
+  }
+  await known.submit();
+  assert.deepEqual(known.page.calls.replace, ["/"]);
+  assert.deepEqual(known.posts[1], { url: "", db: "", user: "ana", password: "secreta", code: "123456" });
+
+  const fresh = await open({ configured: false, local: true });
+  assert.deepEqual([fresh.field("url").hidden, fresh.field("db").required, fresh.focused], [false, true, ["url"]]);
+  const nameless = await open({ configured: true, local: true });
+  assert.deepEqual(nameless.focused, ["user"]);
+  const phone = await open({ configured: true, local: false });
+  assert.match(phone.field("hint").textContent, /^Aquí no se inicia sesión/);
+  assert.deepEqual(["user", "secret", "submit"].map(id => phone.field(id).hidden), [true, true, true]);
+  assert.deepEqual(phone.focused, []);
 });
 
 test("a 401 sends the page to the login", async () => {
@@ -2337,7 +2395,7 @@ test("a punch that goes through reloads and checks the alarms", async () => {
   assert.equal(hero.querySelector(".err").textContent, "");
 });
 
-test("failed reloads from a returning tab, a new day or a prefetch stay quiet", async () => {
+test("failed reloads from a returning tab, a new day or a prefetch leave the page alone and only log", async () => {
   let down = false;
   const page = load({ fetchImpl: async () => {
     if (down) throw new Error("sin red");
@@ -2351,6 +2409,8 @@ test("failed reloads from a returning tab, a new day or a prefetch stay quiet", 
   page.document.listeners.visibilitychange[0]();
   await settle();
   assert.equal(page.run("isoDay(store.today)"), page.run("isoDay(new Date())"));
+  assert.ok(page.calls.warnings.includes("[odoo] the reload on returning to the tab failed: Error: sin red"));
+  assert.ok(page.calls.warnings.includes("[odoo] the reload on a new day failed: Error: sin red"));
   const urls = [];
   const team = load({ entry: "team.js", fetchImpl: async url => {
     urls.push(url);
@@ -2360,6 +2420,7 @@ test("failed reloads from a returning tab, a new day or a prefetch stay quiet", 
   await settle();
   assert.ok(urls.some(url => url.startsWith("/api/team?week=")));
   assert.equal(team.document.getElementById("gridCard").classList.contains("hidden"), false);
+  assert.ok(team.calls.warnings.includes("[odoo] the prefetch failed: Error: sin red"));
 });
 
 test("the dashboard's texts in their other cases", () => {

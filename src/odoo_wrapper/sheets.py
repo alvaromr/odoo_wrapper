@@ -50,8 +50,8 @@ def credentials():
     try:
         answer = json.loads(subprocess.run([gws, *EXPORT], capture_output=True).stdout)
         return {key: answer[key] for key in CREDENTIALS}
-    except (OSError, ValueError, KeyError, TypeError):
-        raise SheetsError(f"gws no tiene una sesión de Google. Ejecuta: {LOGIN}")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SheetsError(f"gws no tiene una sesión de Google. Ejecuta: {LOGIN}") from error
 
 
 def send(opener, request):
@@ -61,9 +61,9 @@ def send(opener, request):
     except urllib.error.HTTPError:
         raise
     except urllib.error.URLError as error:
-        raise SheetsError(f"Google no responde ({error.reason})")
-    except ValueError:
-        raise SheetsError("Google no responde (su respuesta no es JSON)")
+        raise SheetsError(f"Google no responde ({error.reason})") from error
+    except ValueError as error:
+        raise SheetsError("Google no responde (su respuesta no es JSON)") from error
 
 
 def reason(error):
@@ -83,8 +83,8 @@ class Sheets:
         body = urllib.parse.urlencode(dict(credentials(), grant_type="refresh_token")).encode()
         try:
             self.token = send(self.opener, urllib.request.Request(TOKEN_URL, data=body))["access_token"]
-        except (urllib.error.HTTPError, KeyError, TypeError):
-            raise SheetsError(f"Google ya no acepta la sesión de gws. Ejecuta: {LOGIN}")
+        except (urllib.error.HTTPError, KeyError, TypeError) as error:
+            raise SheetsError(f"Google ya no acepta la sesión de gws. Ejecuta: {LOGIN}") from error
 
     def _call(self, cells, verb="", rows=None, **query):
         if not self.token:
@@ -95,7 +95,8 @@ class Sheets:
         try:
             return send(self.opener, urllib.request.Request(url, data=data, headers=headers))
         except urllib.error.HTTPError as error:
-            raise SheetsError(f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})")
+            raise SheetsError(
+                f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})") from error
 
     def get(self, cells):
         return self._call(cells, valueRenderOption="UNFORMATTED_VALUE").get("values", [])

@@ -165,6 +165,9 @@ class HandlerTest(unittest.TestCase):
             self.assertTrue(headers["Content-Type"].startswith(ctype), path)
             self.assertEqual(headers["X-Frame-Options"], "DENY")
             self.assertEqual(headers["Cache-Control"], "no-store")
+            self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+            self.assertIn("script-src 'self';", headers["Content-Security-Policy"])
+            self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         for path in ("/js/nada.js", "/js/../server.py", "/js/", "/app.js"):
             self.assertEqual(self.get(path)[0], 404, path)
 
@@ -181,13 +184,14 @@ class HandlerTest(unittest.TestCase):
         for path, entry in entries.items():
             tags = re.findall(r'<script[^>]*>', self.get(path)[2].decode())
             self.assertEqual(tags, [theme, f'<script type="module" src="/js/{entry}">'], path)
-        self.assertEqual(re.findall(r'<script[^>]*>', self.get("/login")[2].decode()), [theme, "<script>"])
+        self.assertEqual(re.findall(r'<script[^>]*>', self.get("/login")[2].decode()),
+                         [theme, '<script type="module" src="/js/login.js">'])
         sources = {}
         for name in os.listdir(sv.SCRIPTS):
             with open(os.path.join(sv.SCRIPTS, name)) as f:
                 sources[name] = f.read()
         for name in sources:
-            if name in entries.values() or name == "theme.js":
+            if name in entries.values() or name in ("theme.js", "login.js"):
                 continue
             self.assertTrue(
                 any(re.search(rf'from "\./{re.escape(name)}"', src) for src in sources.values()), name)
@@ -214,7 +218,7 @@ class HandlerTest(unittest.TestCase):
         with patch.object(sv, "SEES_TTL", -1):
             sv.sees_others(client)
         self.assertEqual(client.calls, 2)
-        with patch.object(sv, "new_client") as other:
+        with patch.object(sv, "new_client"):
             self.post("/api/logout", {})
         self.assertNotIn("sid", sv._rights)
 

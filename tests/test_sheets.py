@@ -13,6 +13,7 @@ import helpers  # noqa: F401
 from odoo_wrapper import sheets as sh
 
 EXPORTED = {"type": "authorized_user", "client_id": "cid", "client_secret": "s3cret", "refresh_token": "r3fresh"}
+EXPORTED_OUTPUT = json.dumps(EXPORTED).encode()
 TOKEN = {"access_token": "tok", "expires_in": 3599}
 VALUES = "https://sheets.googleapis.com/v4/spreadsheets/hoja/values/"
 
@@ -37,7 +38,7 @@ class Opener:
 
 
 class CredentialsTest(unittest.TestCase):
-    def export(self, stdout=json.dumps(EXPORTED).encode(), which="/bin/gws", **run):
+    def export(self, stdout=EXPORTED_OUTPUT, which="/bin/gws", **run):
         with patch.object(sh.shutil, "which", return_value=which) as which, \
                 patch.object(sh.subprocess, "run", return_value=SimpleNamespace(stdout=stdout), **run) as ran:
             self.which, self.ran = which, ran

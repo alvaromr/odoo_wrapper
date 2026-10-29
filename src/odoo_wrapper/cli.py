@@ -189,7 +189,8 @@ def toggle(client):
         print(f"CHECK-IN registrado a las {local_time(att['check_in']).strftime('%H:%M:%S')}")
     elif state == "checked_out":
         session_hours = result.get("last_attendance_worked_hours", 0)
-        print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} ({session_hours:.2f}h esta sesión)")
+        print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
+              f"({session_hours:.2f}h esta sesión)")
 
     print(f"Horas hoy: {hours_today:.2f}h")
 
@@ -197,7 +198,8 @@ def toggle(client):
 def check_in(client):
     open_att = client.open_attendance()
     if open_att:
-        print(f"Ya estás fichado desde las {local_time(open_att['check_in']).strftime('%H:%M:%S')}. Usa 'checkout' para salir.")
+        print(f"Ya estás fichado desde las {local_time(open_att['check_in']).strftime('%H:%M:%S')}. "
+              "Usa 'checkout' para salir.")
         return
     normal, _ = client.sign_in_reasons()
     result = client.punch(normal and normal["id"])
@@ -214,7 +216,8 @@ def check_out(client):
     result = client.punch()
     att = result.get("attendance", {})
     session_hours = result.get("last_attendance_worked_hours", 0)
-    print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} ({session_hours:.2f}h esta sesión)")
+    print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
+          f"({session_hours:.2f}h esta sesión)")
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 

@@ -12,7 +12,7 @@
  *   itself. State writes render optimistically and roll back if the request fails.
  */
 import { store, NoSchedule, DataMaxAge, RetryAfter } from "./store.js";
-import { api } from "./shared.js";
+import { api, warned } from "./shared.js";
 import { busy } from "./ui.js";
 import { setClock, indexSessions } from "./week.js";
 import { fmtDay, fmtTime } from "./format.js";
@@ -54,7 +54,9 @@ export async function refreshState() {
     if (next.lunch !== store.state.lunch) LastRing.lunch = 0;
     store.state = next;
     renderHero();
-  } catch (e) {}
+  } catch (e) {
+    warned("the shared state poll")(e);
+  }
 }
 
 export async function loadAndRender(fresh) {

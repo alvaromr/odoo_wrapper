@@ -46,7 +46,7 @@
  */
 import { DayNames } from "./store.js";
 import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtYear, fmtTime, dayKey, parseDay } from "./format.js";
-import { el, api, hideTip, tipRow } from "./shared.js";
+import { el, api, hideTip, tipRow, warned } from "./shared.js";
 
 export const RequestText = { new: "Borrador", pending: "Pendiente", approved: "Aprobada", refused: "Rechazada" };
 
@@ -333,6 +333,6 @@ export async function openDayOf(employeeId, date) {
 
 export async function refreshDay(employeeId, date, message) {
   await Reload();
-  await openDayOf(employeeId, date).catch(() => {});
+  await openDayOf(employeeId, date).catch(warned("reopening the day"));
   say(message);
 }

@@ -23,10 +23,13 @@
   calls it on its first start after «Actualizar ahora» (updates.py), which may have moved it to another
   install. Without it the entry would name the install it replaced, gone or stale at the next login. No
   entry, nothing written: updating never turns the start at login on.
+- winreg exists only on Windows, so it is imported when a Windows entry is touched (registry()), by name: the
+  type checker runs on any system, and a plain `import winreg` there reads as a module with nothing in it.
 - ExecStart in a systemd unit is not a shell line: quotes, backslashes, `%` and `$` mean something to systemd
   itself, hence SYSTEMD_ESCAPES on each argument.
 """
 
+import importlib
 import os
 import plistlib
 import subprocess
@@ -126,25 +129,29 @@ def linux_off():
         remove(unit_file())
 
 
+def registry():
+    return importlib.import_module("winreg")
+
+
 def run_key(winreg):
     return winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE)
 
 
 def windows_on():
-    import winreg
+    winreg = registry()
     with run_key(winreg) as key:
         winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, subprocess.list2cmdline(command()))
     subprocess.Popen(command(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def windows_off():
-    import winreg
+    winreg = registry()
     with run_key(winreg) as key, suppress(FileNotFoundError):
         winreg.DeleteValue(key, RUN_VALUE)
 
 
 def windows_follow():
-    import winreg
+    winreg = registry()
     access = winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, access) as key:
         try:

@@ -164,7 +164,9 @@ class BuildTeamTest(unittest.TestCase):
 
     def test_the_hour_of_a_punch_is_never_judged(self):
         day = MONDAY + timedelta(days=1)
-        flags = lambda *sessions: tm.day_row(day, 8, None, [dt.session_of(s, {}) for s in sessions], [], date.today())["flags"]
+        def flags(*sessions):
+            return tm.day_row(day, 8, None, [dt.session_of(s, {}) for s in sessions], [], date.today())["flags"]
+
         self.assertEqual(flags(att(1, 1, (5, 0), (13, 0), 8.0)), [])
         self.assertEqual(flags(dict(att(1, 1, (16, 0), (23, 59), 8.0), check_out=at(2, 0, 1))), [])
         overnight = att(1, 1, (15, 0), None, 0)
