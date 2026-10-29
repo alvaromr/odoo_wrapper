@@ -51,16 +51,29 @@ class CommandTest(unittest.TestCase):
         self.assertNotIn("Último", out)
         self.assertIn("Horas hoy: 0.00h", out)
 
-    def test_status_queries_todays_hours_from_local_midnight(self):
-        odoo = client(self.EMP, kw([]), kw([]), kw([]))
-        self.run_cmd(odoo, "status")
-        domain = odoo.opener.calls[-1][1]["args"][0]
-        today_start = next(value for field, _, value in domain if field == "check_in")
-        expected = (
-            datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-            .astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        )
-        self.assertEqual(today_start, expected)
+    def test_status_and_history_send_exactly_these_queries(self):
+        moment = datetime(2026, 3, 2, 12, 0, tzinfo=timezone.utc)
+
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return moment.astimezone(tz) if tz else moment.astimezone().replace(tzinfo=None)
+        odoo = client(self.EMP, kw([]), kw([]), kw([]), kw([]))
+        with patch.object(cli, "datetime", Frozen):
+            self.run_cmd(odoo, "status")
+            self.run_cmd(odoo, "history", 3)
+        midnight = (moment.astimezone().replace(hour=0, minute=0, second=0).astimezone(timezone.utc)
+                    .strftime("%Y-%m-%d %H:%M:%S"))
+        fields = ["check_in", "check_out", "worked_hours"]
+
+        def call(domain, kwargs):
+            return {"model": "hr.attendance", "method": "search_read", "args": [domain], "kwargs": kwargs}
+        self.assertEqual([params for _, params, _ in odoo.opener.calls[2:]], [
+            call([["employee_id", "=", 7]], {"fields": fields, "limit": 1, "order": "check_in desc"}),
+            call([["employee_id", "=", 7], ["check_in", ">=", midnight]], {"fields": fields, "order": "check_in asc"}),
+            call([["employee_id", "=", 7], ["check_in", ">=", "2026-02-27 12:00:00"]],
+                 {"fields": fields, "order": "check_in desc"}),
+        ])
 
     def test_toggle_in_and_out(self):
         reasons = kw([NORMAL])
