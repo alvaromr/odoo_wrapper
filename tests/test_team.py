@@ -209,9 +209,14 @@ class BuildTeamTest(unittest.TestCase):
             return EMPLOYEES
         self.client.labelled[("hr.employee", "discord")] = "x_studio_discord"
         self.client.rows["hr.employee"] = public_only
+        self.client.queries.clear()
         payload = tm.build_team(self.client, MONDAY)
         self.assertEqual([(e["name"], e["discord"]) for e in payload["employees"]],
                          [("Ana", None), ("Bea", None), ("Carl", None), ("Dani", None)])
+        reads = [query for query in self.client.queries if query[0] == "hr.employee"]
+        self.assertEqual([(method, args[1]) for _, method, args, _ in reads],
+                         [("read", ["name", "resource_calendar_id", "user_id", "x_studio_discord"]),
+                          ("read", ["name", "resource_calendar_id", "user_id"])])
         self.client.labelled.clear()
         self.client.rows["hr.employee"] = lambda args, kwargs: (_ for _ in ()).throw(OdooError("caído"))
         with self.assertRaises(OdooError):

@@ -451,10 +451,12 @@ class PunchTest(unittest.TestCase):
         self.assertEqual(dt._data_cache, {})
         state = st.read_state(3)
         self.assertTrue(state["lunch"] and state["lunch_done"] and state["punched_at"])
+        st.write_state(3, punched_at=None)
         self.punch("checkin")
         state = st.read_state(3)
         self.assertIsNone(state["lunch"])
         self.assertTrue(state["lunch_done"])
+        self.assertTrue(state["punched_at"])
 
 
 if __name__ == "__main__":
