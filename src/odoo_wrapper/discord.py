@@ -97,10 +97,10 @@ def refusal(error):
 
 
 def call(token, path, body=None):
-    request = urllib.request.Request(
-        API + path, data=None if body is None else json.dumps(body).encode(),
-        headers={"Authorization": f"Bot {token}", "Content-Type": "application/json", "User-Agent": USER_AGENT},
-    )
+    headers = {"Authorization": f"Bot {token}", "User-Agent": USER_AGENT,  # pragma: no mutate - names ignore case
+               "Content-Type": "application/json"}  # pragma: no mutate - as above
+    request = urllib.request.Request(API + path, data=None if body is None else json.dumps(body).encode(),
+                                     headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             return json.load(response)

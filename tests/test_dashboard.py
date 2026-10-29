@@ -87,7 +87,7 @@ class MainTest(unittest.TestCase):
     def test_without_a_certificate_it_stays_on_this_machine(self):
         self.mocks["cert"].return_value = None
         out = self.main()
-        self.assertIn("solo en este ordenador", out)
+        self.assertIn(" Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador\n", out)
         self.assertNotIn("escucha en https://", out)
         self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
         self.mocks["ssl"].SSLContext.assert_not_called()
@@ -124,8 +124,8 @@ class MainTest(unittest.TestCase):
 
     def test_autostart_needs_on_or_off(self):
         with patch.object(d.autostart, "set_autostart") as switch:
-            self.assertIn("necesita on u off", self.fails("--autostart"))
-            self.assertIn("necesita on u off", self.fails("--autostart", "yes"))
+            self.assertEqual(self.fails("--autostart"), "ERROR: --autostart necesita on u off\n")
+            self.assertEqual(self.fails("--autostart", "yes"), "ERROR: --autostart necesita on u off\n")
         switch.assert_not_called()
 
     def test_autostart_reports_what_the_system_refused(self):
@@ -144,10 +144,12 @@ class MainTest(unittest.TestCase):
         follow.assert_not_called()
         for error in (PermissionError("plist"), d.subprocess.CalledProcessError(1, ["systemctl"])):
             with patch.dict(os.environ, {pr.UPDATED_ENV: "1"}), patch.object(d.autostart, "follow", side_effect=error):
-                self.assertIn("odoo-dashboard --autostart on", self.main())
+                self.assertIn(f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
+                              "Ejecuta odoo-dashboard --autostart on\n", self.main())
 
     def test_host_flag_needs_a_value(self):
-        self.assertIn("--host necesita una dirección", self.fails("--host"))
+        self.assertEqual(self.fails("--host"),
+                         "ERROR: --host necesita una dirección (127.0.0.1 para no salir de este ordenador)\n")
         self.server.serve_forever.assert_not_called()
 
     def test_a_restart_child_waits_for_the_ports(self):

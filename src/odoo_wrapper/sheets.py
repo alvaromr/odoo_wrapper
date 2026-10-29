@@ -90,7 +90,8 @@ class Sheets:
         if not self.token:
             self._authorize()
         url = f"{API}/{self.id}/values/{urllib.parse.quote(cells, safe='')}{verb}?{urllib.parse.urlencode(query)}"
-        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {self.token}",  # pragma: no mutate - names ignore case
+                   "Content-Type": "application/json"}  # pragma: no mutate - as above
         data = json.dumps({"values": rows}).encode() if rows else None
         try:
             return send(self.opener, urllib.request.Request(url, data=data, headers=headers))

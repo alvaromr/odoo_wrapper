@@ -128,7 +128,7 @@ class DiscordTest(unittest.TestCase):
         cases = [
             (refused(403, json.dumps({"code": dc.CANNOT_MESSAGE}).encode()),
              "Discord no deja al bot escribirle: no está en su servidor o no acepta mensajes privados de él"),
-            (refused(404, json.dumps({"code": dc.UNKNOWN_USER}).encode()), "no conoce ese ID"),
+            (refused(404, json.dumps({"code": dc.UNKNOWN_USER}).encode()), "Discord no conoce ese ID de usuario"),
             (refused(400, json.dumps({"code": 50035, "message": "Invalid Form Body"}).encode()),
              "Discord respondió 400: Invalid Form Body"),
             (refused(502, b"<html>", "Bad Gateway"), "Discord respondió 502: Bad Gateway"),
@@ -138,7 +138,7 @@ class DiscordTest(unittest.TestCase):
         for error, words in cases:
             with self.opener(error), self.assertRaises(dc.DiscordError) as caught:
                 dc.send("123", "hola")
-            self.assertIn(words, str(caught.exception))
+            self.assertEqual(str(caught.exception), words)
 
     def test_the_sender_is_their_own_discord_id_from_their_employee_record(self):
         odoo = ScriptedClient({"hr.employee": [{"id": 9, "x_studio_discord": "555"}]})

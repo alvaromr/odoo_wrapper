@@ -29,7 +29,8 @@ STAMP = "%Y-%m-%d %H:%M:%S"
 
 
 def odoo_stamp(iso):
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc).strftime(STAMP)
+    aware = iso.replace("Z", "+00:00")  # pragma: no mutate - mutmut runs on 3.12, which reads Z itself; 3.9 needs this
+    return datetime.fromisoformat(aware).astimezone(timezone.utc).strftime(STAMP)
 
 
 def lost_entry(client, employee_id, old_out, new_out):

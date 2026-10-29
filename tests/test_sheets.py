@@ -6,6 +6,7 @@ import json
 import unittest
 import urllib.error
 import urllib.parse
+import urllib.request
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -27,10 +28,11 @@ class Opener:
 
     def __init__(self, *replies):
         self.replies = list(replies)
-        self.requests = []
+        self.requests, self.timeouts = [], []
 
     def open(self, request, timeout):
         self.requests.append(request)
+        self.timeouts.append(timeout)
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
@@ -50,8 +52,9 @@ class CredentialsTest(unittest.TestCase):
         self.ran.assert_called_once_with(["/bin/gws", "auth", "export", "--unmasked"], capture_output=True)
 
     def test_without_gws_it_says_so(self):
-        with self.assertRaisesRegex(sh.SheetsError, "Falta el programa gws"):
+        with self.assertRaises(sh.SheetsError) as caught:
             self.export(which=None)
+        self.assertEqual(str(caught.exception), "Falta el programa gws, con el que se inicia sesión en Google")
         self.ran.assert_not_called()
 
     def test_anything_but_credentials_is_gws_signed_out(self):
@@ -91,6 +94,14 @@ class SheetsTest(unittest.TestCase):
         self.assertEqual(read.full_url, VALUES + "Avisos%202026%21B4%3AE?valueRenderOption=UNFORMATTED_VALUE")
         self.assertEqual((read.get_method(), read.get_header("Authorization")), ("GET", "Bearer tok"))
         self.assertEqual(again.get_header("Authorization"), "Bearer tok")
+        self.assertEqual(sheets.opener.timeouts, [sh.TIMEOUT] * 3)
+
+    def test_a_new_spreadsheet_has_no_token_and_a_sheet_name_is_quoted_whole(self):
+        fresh = sh.Sheets("hoja")
+        self.assertEqual((fresh.token, type(fresh.opener)), (None, urllib.request.OpenerDirector))
+        sheets = self.sheets(TOKEN, {"range": "x"})
+        sheets.get("Hoja/2!A1")
+        self.assertEqual(sheets.opener.requests[1].full_url, VALUES + "Hoja%2F2%21A1?valueRenderOption=UNFORMATTED_VALUE")
 
     def test_rows_are_appended_as_typed_over_the_empty_rows_and_none_asks_nothing(self):
         sheets = self.sheets(TOKEN, {"updates": {"updatedRows": 1}})
