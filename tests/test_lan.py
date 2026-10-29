@@ -152,6 +152,8 @@ class SameSiteNamesTest(unittest.TestCase):
             "http://localhost:8931/x": "localhost",
             "https://192.168.1.51:8443": "192.168.1.51",
             "[::1]:8443": "::1",
+            "[::1]]:8443": "::1",
+            "evil.com:80:8931": "evil.com",
             "mac.local": "mac.local",
             "": "",
             None: "",

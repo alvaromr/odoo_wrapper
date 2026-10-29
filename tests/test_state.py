@@ -73,7 +73,9 @@ class StateTest(unittest.TestCase):
             self.assertIsNone(st.read_state(3)["lunch"], stamp)
 
     def test_lunch_done_outlives_the_stamp(self):
-        st.write_state(3, lunch=datetime.now().astimezone().isoformat(), lunch_done=True)
+        stamp = datetime.now().astimezone().isoformat()
+        st.write_state(3, lunch=stamp, lunch_done=True)
+        self.assertEqual(st.write_state(3, muted=True)["lunch"], stamp)
         st.write_state(3, lunch=None)
         state = st.read_state(3)
         self.assertIsNone(state["lunch"])
