@@ -178,8 +178,8 @@ Every surviving mutant is either a missing test, which gets written, or an equiv
 original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences
 every mutant starting on that line, not only the equivalent one: on a line whose other mutants a test kills, the
 equivalent part moves to a line of its own first, unless splitting reads worse, as in a dict of HTTP headers,
-whose names are equivalent in any case. A message moved to a constant to escape its mutants proves nothing: constants are
-for what reads better or repeats.
+whose names are equivalent in any case. A message moved to a constant to escape its mutants proves nothing:
+constants are for what reads better or repeats.
 
 Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes
 with the test that runs it, and each report names what is missing. A branch no input can take is removed from
