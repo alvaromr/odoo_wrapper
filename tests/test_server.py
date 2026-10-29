@@ -32,6 +32,8 @@ class SessionTest(unittest.TestCase):
 
     def test_the_cookie_is_read_and_sanitised(self):
         self.assertEqual(sv.session_cookie(self.cookie("abc-DEF_09")), "abc-DEF_09")
+        every = "".join(sorted(sv.SESSION_CHARS))
+        self.assertEqual(sv.session_cookie(self.cookie(every)), every)
         for value in ("", "a b", "a;b", 'a"b', "ñ", None):
             self.assertEqual(sv.session_cookie(self.cookie(value)), "", value)
 
@@ -101,6 +103,53 @@ class LoginThrottleTest(unittest.TestCase):
         self.assertEqual(sv.login_wait("192.0.2.8"), 0)
 
 
+class ClockEdgeTest(unittest.TestCase):
+    """The throttle, the pairings and the remembered rights at the exact second each rule turns."""
+
+    def setUp(self):
+        self.now = 1000.0
+        patcher = patch.object(sv, "time", SimpleNamespace(monotonic=lambda: self.now))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for store in (sv._login_fails, sv._pairings, sv._rights):
+            store.clear()
+            self.addCleanup(store.clear)
+
+    def test_each_lock_doubles_from_the_limit_and_resets_once_the_longest_has_passed(self):
+        ip, waits = "192.0.2.7", []
+        for _ in range(sv.LOGIN_TRIES + 2):
+            sv.login_failed(ip)
+            waits.append(sv.login_wait(ip))
+        self.assertEqual(waits, [0] * (sv.LOGIN_TRIES - 1) + [sv.LOGIN_LOCK, 2 * sv.LOGIN_LOCK, 4 * sv.LOGIN_LOCK])
+        self.now += 4 * sv.LOGIN_LOCK + sv.LOGIN_LOCK_MAX
+        sv.login_failed(ip)
+        self.assertEqual(sv.login_wait(ip), 8 * sv.LOGIN_LOCK)
+        self.now += 8 * sv.LOGIN_LOCK + sv.LOGIN_LOCK_MAX + 1
+        sv.login_failed(ip)
+        self.assertEqual(sv.login_wait(ip), 0)
+
+    def test_an_unknown_address_never_waits(self):
+        self.now = 0.5
+        self.assertEqual(sv.login_wait("192.0.2.9"), 0)
+        for _ in range(sv.LOGIN_TRIES - 1):
+            sv.login_failed("192.0.2.9")
+        self.assertEqual(sv.login_wait("192.0.2.9"), 0)
+
+    def test_a_pairing_holds_until_its_last_second(self):
+        token = sv.new_pairing("sid", "https://10.0.0.2:8443/")["url"].split("t=")[1]
+        self.assertEqual(len(token), 32)
+        self.now += sv.PAIR_TTL
+        sv.new_pairing("sid", "https://10.0.0.2:8443/")
+        self.assertEqual(sv.spend_pairing(token), "sid")
+
+    def test_a_right_is_asked_again_once_its_time_is_up(self):
+        client = SimpleNamespace(session_id="sid", sees_others=unittest.mock.Mock(return_value=True))
+        sv.sees_others(client)
+        self.now += sv.SEES_TTL
+        sv.sees_others(client)
+        self.assertEqual(client.sees_others.call_count, 2)
+
+
 class FakeTLS:
     pass
 
@@ -143,6 +192,9 @@ class HandlerTest(unittest.TestCase):
         headers = {}
         for key, value in (line.decode().split(": ", 1) for line in head.split(b"\r\n")[1:]):
             headers[key] = f"{headers[key]}\n{value}" if key in headers else value
+        self.assertEqual(headers["Content-Length"], str(len(payload)))
+        if headers["Content-Type"].startswith("application/json"):
+            self.assertEqual(payload, json.dumps(json.loads(payload), ensure_ascii=False).encode())
         return status, headers, payload
 
     def get(self, path, **kw):
@@ -227,7 +279,8 @@ class HandlerTest(unittest.TestCase):
         with patch.object(sv, "new_client") as client, patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch, \
                 patch.object(sv.team, "requests_to_approve", return_value=[{"id": 552}]) as requests:
             client.return_value.sees_others.return_value = False
-            self.assertEqual(self.get("/api/data?employee=9")[0], 403)
+            self.assertEqual(self.get("/api/data?employee=9")[:3:2], (403, {"error": sv.NOT_TEAM}))
+            client.assert_called_with("sid")
             fetch.assert_not_called()
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = False
@@ -245,6 +298,7 @@ class HandlerTest(unittest.TestCase):
                 patch.object(sv.discord, "own_request", return_value=(200, {"url": "L"})) as own:
             self.assertEqual(self.get("/api/request?date=2026-10-19&employee=9")[:3:2], (200, {"url": "L"}))
             own.assert_called_once_with(client.return_value, "2026-10-19")
+            client.assert_called_once_with("sid")
 
     def test_the_update_check_needs_a_session_and_forces_a_check_only_when_fresh(self):
         self.assertEqual(self.get("/api/update", cookie=None)[0], 401)
@@ -286,6 +340,7 @@ class HandlerTest(unittest.TestCase):
             sv._rights.clear()
             self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (200, {"ok": True}))
             save.assert_called_once_with(client.return_value, {"id": 1})
+            client.assert_called_with("sid")
             self.assertEqual(self.post("/api/team/delete", {"id": 31512})[:3:2], (200, {"ok": True}))
             delete.assert_called_once_with(client.return_value, 31512)
             self.assertEqual(self.post("/api/team/approve", {"id": 552})[:3:2], (409, {"error": "no"}))
@@ -329,8 +384,10 @@ class HandlerTest(unittest.TestCase):
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = True
             sv._rights.clear()
-            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[2], {"ok": 1, "can_edit": True, "can_message": False})
+            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[:3:2],
+                             (200, {"ok": 1, "can_edit": True, "can_message": False}))
             fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
+            client.assert_called_with("sid")
             c.write_private(sv.discord.TOKEN_FILE, "tok")
             self.assertIs(self.get("/api/team?week=2026-09-24")[2]["can_message"], True)
             self.get("/api/team")
@@ -341,34 +398,46 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.get("/api/team?year=dos")[0], 400)
         with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_year", return_value={"year": 2025}) as fetch:
             client.return_value.sees_others.return_value = True
-            self.assertEqual(self.get("/api/team?year=2025&fresh")[2], {"year": 2025, "can_message": True})
+            self.assertEqual(self.get("/api/team?year=2025&fresh")[:3:2], (200, {"year": 2025, "can_message": True}))
             fetch.assert_called_with(client.return_value, 2025, True)
         with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_fixes", return_value={"employees": []}) as fixes:
             client.return_value.sees_others.return_value = True
-            self.assertEqual(self.get("/api/team?fixes")[2], {"employees": []})
+            self.assertEqual(self.get("/api/team?fixes")[:3:2], (200, {"employees": []}))
             fixes.assert_called_with(client.return_value, False)
 
     def test_foreign_host_or_origin_is_refused(self):
-        self.assertEqual(self.get("/", host="evil.com")[0], 403)
+        self.assertEqual(self.get("/", host="evil.com")[:3:2], (403, {"error": "origen no permitido"}))
         self.assertEqual(self.post("/api/state", {}, origin="https://evil.example")[0], 403)
         self.assertEqual(self.post("/api/state", {}, origin="http://localhost:8931")[0], 200)
-        self.assertEqual(self.get("/nada")[0], 404)
+        self.assertEqual(self.get("/nada")[:3:2], (404, {"error": "not found"}))
+        self.assertEqual(self.post("/api/nada", {})[:3:2], (404, {"error": "not found"}))
+        self.assertEqual(self.get("/api/data?employee=x")[:3:2], (400, {"error": "Empleado no válido: x"}))
+        for period in ("week=nope", "month=2026-13", "year=dos"):
+            self.assertEqual(self.get(f"/api/team?{period}")[:3:2],
+                             (400, {"error": f"Periodo no válido: {period.split('=')[1]}"}))
 
     def test_version_state_and_data(self):
-        self.assertIn("version", self.get("/api/version", cookie=None)[2])
+        self.assertEqual(self.get("/api/version", cookie=None)[:3:2], (200, {"version": sv.process.source_version()}))
         self.assertEqual(self.get("/api/state")[2]["lunch_minutes"], st.LUNCH_DEFAULT)
+        st.write_state(3, break_minutes=st.BREAK_DEFAULT + 1)
         with patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch:
             status, _, payload = self.get("/api/data?fresh")
             self.assertEqual(status, 200)
             self.assertIs(payload["can_edit"], False)
-            self.assertEqual(payload["state"]["break_minutes"], st.BREAK_DEFAULT)
+            self.assertEqual(payload["sessions"], [])
+            self.assertEqual(payload["state"]["break_minutes"], st.BREAK_DEFAULT + 1)
             self.assertEqual(payload["phone"], {"off": "sin red"})
             self.assertEqual((fetch.call_args.args[0].session_id, fetch.call_args.kwargs), ("sid", {"fresh": True}))
             self.get("/api/data")
             self.assertEqual(fetch.call_args.kwargs, {"fresh": False})
+            with patch.object(sv, "edits_punches", return_value=True) as edits:
+                self.assertIs(self.get("/api/data")[2]["can_edit"], False)
+                fetch.return_value = {"sessions": [], "team": True}
+                self.assertIs(self.get("/api/data")[2]["can_edit"], True)
+            self.assertEqual(edits.call_args.args[0].session_id, "sid")
 
     def test_config_shows_the_server_only_to_loopback(self):
-        self.assertEqual(self.get("/api/config", cookie=None)[2], dict(CONFIG, configured=True, local=True))
+        self.assertEqual(self.get("/api/config", cookie=None)[:3:2], (200, dict(CONFIG, configured=True, local=True)))
         self.assertEqual(self.get("/api/config", cookie=None, ip="10.0.0.9")[2], {"configured": True, "local": False})
         os.remove(c.CONFIG_FILE)
         self.assertEqual(self.get("/api/config", cookie=None)[2], {"url": "", "db": "", "user": "", "configured": False, "local": True})
@@ -391,10 +460,11 @@ class HandlerTest(unittest.TestCase):
         self.assertNotIn("sid", sv._sessions)
 
     def test_api_needs_a_session_everywhere(self):
+        unauthorized = (401, {"error": "no autorizado"})
         for ip in ("127.0.0.1", "10.0.0.9"):
-            self.assertEqual(self.get("/api/state", ip=ip, cookie=None)[0], 401)
-            self.assertEqual(self.get("/api/data", ip=ip, cookie=None)[0], 401)
-            self.assertEqual(self.post("/api/state", {}, ip=ip, cookie=None)[0], 401)
+            for path in ("/api/state", "/api/request", "/api/update", "/api/data", "/api/team"):
+                self.assertEqual(self.get(path, ip=ip, cookie=None)[:3:2], unauthorized, path)
+            self.assertEqual(self.post("/api/state", {}, ip=ip, cookie=None)[:3:2], unauthorized)
         with patch.object(sv, "new_client") as client:
             client.return_value.session_info.side_effect = SessionExpired("no")
             self.assertEqual(self.get("/api/state", cookie="unknown")[0], 401)
@@ -420,8 +490,9 @@ class HandlerTest(unittest.TestCase):
         sleep.assert_called_once_with(sv.LOGIN_PENALTY)
         odoo.assert_called_once_with("https://odoo.example", "db", device="")
         self.assertEqual(c.read_config()["user"], "u")
-        status, headers, _, odoo, _ = self.login({"user": "ana", "password": "pw"}, tls=True)
-        self.assertEqual(status, 200)
+        status, headers, payload, odoo, _ = self.login({"user": "ana", "password": "pw"}, tls=True)
+        self.assertEqual((status, payload), (200, {"ok": True}))
+        self.assertEqual(sv._sessions["fresh"], odoo.return_value.uid)
         odoo.return_value.login.assert_called_once_with("ana", "pw", "")
         self.assertEqual(odoo.return_value.user_agent, "TestBrowser/1")
         self.assertEqual(headers["Set-Cookie"].count("\n"), 0)
@@ -478,7 +549,8 @@ class HandlerTest(unittest.TestCase):
 
     def test_pairing_hands_the_laptop_session_to_the_phone(self):
         self.assertEqual(self.post("/api/pair", {}, cookie=None)[0], 401)
-        self.assertEqual(self.post("/api/pair", {}, ip="10.0.0.9")[0], 403)
+        self.assertEqual(self.post("/api/pair", {}, ip="10.0.0.9")[:3:2],
+                         (403, {"error": "Solo se empareja desde el propio ordenador"}))
         self.assertEqual(self.post("/api/pair", {})[::2], (409, {"error": "sin red"}))
         with patch.object(lan, "_local_only", ""), patch.object(lan, "lan_ip", return_value="10.0.0.2"), \
                 patch.object(lan, "bonjour_name", return_value="mac.local"):
@@ -507,7 +579,7 @@ class HandlerTest(unittest.TestCase):
         sv._pairings["theirs"] = ("other", time.monotonic() + 60)
         with patch.object(lan, "_local_only", ""), patch.object(lan, "lan_ip", return_value="10.0.0.2"):
             token = self.post("/api/pair", {})[2]["url"].split("t=")[1]
-        self.assertEqual(self.post("/api/pair", {"revoke": True})[2], {"ok": True})
+        self.assertEqual(self.post("/api/pair", {"revoke": True})[:3:2], (200, {"ok": True}))
         self.assertEqual(list(sv._pairings), ["theirs"])
         self.assertEqual(self.request("GET", f"/pair?t={token}", ip="10.0.0.9", cookie=None)[1]["Location"], "/login")
 
@@ -557,13 +629,17 @@ class HandlerTest(unittest.TestCase):
     def test_login_lockout(self):
         for _ in range(sv.LOGIN_TRIES):
             self.login({"password": "no"})
-        status, _, payload, odoo, _ = self.login({"password": "pw"})
-        self.assertEqual(status, 429)
-        self.assertIn("Espera", payload["error"])
+        with patch.object(sv, "login_wait", return_value=12.5):
+            status, _, payload, odoo, _ = self.login({"password": "pw"})
+        self.assertEqual((status, payload), (429, {"error": "Demasiados intentos. Espera 13 s"}))
         odoo.assert_not_called()
+        self.login({"password": "no"}, ip="::1")
+        self.assertEqual(self.login({"password": "pw"}, ip="::1")[0], 200)
+        self.assertNotIn("::1", sv._login_fails)
+        self.assertGreater(sv.login_wait("127.0.0.1"), 0)
 
     def test_unreadable_body(self):
-        self.assertEqual(self.post("/api/state", b"{rota")[0], 400)
+        self.assertEqual(self.post("/api/state", b"{rota")[:3:2], (400, {"error": "Cuerpo de la petición ilegible"}))
         self.assertEqual(self.post("/api/state", b"")[0], 200)
 
     def test_state_writes(self):

@@ -5,9 +5,10 @@ Hand-written so the project stays dependency-free: no qrencode, no venv, no netw
 block per version, so no interleaving. Do not "fix" it to match a reference library byte for byte: it pads
 with 0xEC/0x11 right after the terminator where segno emits an extra 0x00, and both are valid, since a
 decoder reads the byte-mode length and ignores the rest. Verify it by decoding instead, e.g. Apple's Vision
-(VNDetectBarcodesRequest) from a throwaway swift script, which is how versions 1-5 were checked. Text
-longer than 106 bytes raises ValueError, which the dashboard turns into "no QR, URL as text" rather than a
-broken /api/data.
+(VNDetectBarcodesRequest) from a throwaway swift script, which is how versions 1-5 were checked. The tests
+pin the modules of two texts Vision read back: a change that moves any is decoded again before the fixture
+is updated. Text longer than 106 bytes raises ValueError, which the dashboard turns into "no QR, URL as
+text" rather than a broken /api/data.
 """
 
 SPEC = ((1, 19, 7), (2, 34, 10), (3, 55, 15), (4, 80, 20), (5, 108, 26))

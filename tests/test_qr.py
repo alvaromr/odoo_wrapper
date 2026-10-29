@@ -17,6 +17,58 @@ FINDER = [
     [1, 0, 0, 0, 0, 0, 1],
     [1, 1, 1, 1, 1, 1, 1],
 ]
+DECODED_BY_VISION = {
+    "hola": [
+        "#######...#.#.#######",
+        "#.....#.....#.#.....#",
+        "#.###.#.#.#...#.###.#",
+        "#.###.#.....#.#.###.#",
+        "#.###.#..#.##.#.###.#",
+        "#.....#..###..#.....#",
+        "#######.#.#.#.#######",
+        "........#.#..........",
+        "###.#####.#.###...#..",
+        "##.#...#...#.#.#..###",
+        "###..##....#.###.#.##",
+        "###.....##.###.##..#.",
+        "##..#.###..#.###.....",
+        "........#.....#...###",
+        "#######.#.#.#...#.###",
+        "#.....#.#.#...#....#.",
+        "#.###.#.#.#.#.#.#..##",
+        "#.###.#..###.#.#.#.#.",
+        "#.###.#.##.#.###.##.#",
+        "#.....#.#..###.###.#.",
+        "#######.#.##.###..###",
+    ],
+    "https://192.168.1.20:8443/": [
+        "#######...#..####.#######",
+        "#.....#..#....###.#.....#",
+        "#.###.#.#..#..#.#.#.###.#",
+        "#.###.#..#..#..##.#.###.#",
+        "#.###.#..#..#..##.#.###.#",
+        "#.....#...###..#..#.....#",
+        "#######.#.#.#.#.#.#######",
+        "........#..#.#..#........",
+        "###.#####...#######...#..",
+        ".#.......#.####...##....#",
+        "#..#####..###.#.#..##.###",
+        "###.##...##.##.#...#...#.",
+        "#....###..######..##.#.##",
+        ".####..#####..#...##.#..#",
+        "#.#...##.#...##.#.##..###",
+        ".##..#...#..##..###.#..#.",
+        "#....#####.####.######...",
+        "........#.#...#.#...##.##",
+        "#######.#.....###.#.##.##",
+        "#.....#.###..#.##...##.##",
+        "#.###.#.###..##.######...",
+        "#.###.#..##..##..#.####..",
+        "#.###.#.###.#...#...#...#",
+        "#.....#.##.###..#.#.##.#.",
+        "#######.#....##.#..#...##",
+    ],
+}
 
 
 class VersionTest(unittest.TestCase):
@@ -26,8 +78,13 @@ class VersionTest(unittest.TestCase):
             self.assertEqual(len(qr.matrix("x" * length)), version * 4 + 17, length)
 
     def test_too_long_is_refused(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             qr.codewords(b"x" * 107)
+        self.assertEqual(str(caught.exception), "texto demasiado largo para un QR versión 5")
+
+    def test_a_short_text_is_mode_length_bytes_terminator_and_padding(self):
+        data = [0x40, 0x46, 0x86, 0xF6, 0xC6, 0x10] + [0xEC, 0x11] * 6 + [0xEC]
+        self.assertEqual(qr.codewords(b"hola"), (1, data + qr.ec_codewords(data, 7)))
 
     def test_codewords_fill_the_whole_block(self):
         for _, total, ec in qr.SPEC:
@@ -78,6 +135,10 @@ class MatrixTest(unittest.TestCase):
         grid = qr.matrix("x" * 70)
         self.assertTrue(all(isinstance(cell, bool) for row in grid for cell in row))
 
+    def test_texts_a_decoder_read_back_keep_their_exact_modules(self):
+        for text, rows in DECODED_BY_VISION.items():
+            self.assertEqual(qr.matrix(text), [[cell == "#" for cell in row] for row in rows], text)
+
     def test_different_texts_differ_and_the_same_text_repeats(self):
         self.assertEqual(qr.matrix("uno"), qr.matrix("uno"))
         self.assertNotEqual(qr.matrix("uno"), qr.matrix("dos"))
@@ -93,9 +154,15 @@ class FieldTest(unittest.TestCase):
         self.assertEqual(len(qr.generator(7)), 8)
         self.assertEqual(qr.generator(0), [1])
 
+    def test_generator_polynomials_match_the_standard(self):
+        self.assertEqual([qr.LOG[c] for c in qr.generator(7)], [0, 87, 229, 146, 149, 238, 102, 21])
+        self.assertEqual([qr.LOG[c] for c in qr.generator(10)], [0, 251, 67, 46, 61, 118, 70, 64, 94, 32, 45])
+
     def test_error_correction_of_a_known_block(self):
         self.assertEqual(qr.ec_codewords([0] * 19, 7), [0] * 7)
         self.assertEqual(len(qr.ec_codewords([1, 2, 3], 10)), 10)
+        standard_example = [32, 91, 11, 120, 209, 114, 220, 77, 67, 64, 236, 17, 236, 17, 236, 17]
+        self.assertEqual(qr.ec_codewords(standard_example, 10), [196, 35, 39, 119, 235, 215, 231, 226, 93, 23])
 
 
 class SvgTest(unittest.TestCase):
