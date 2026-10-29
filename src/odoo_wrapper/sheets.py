@@ -89,7 +89,8 @@ class Sheets:
     def _call(self, cells, verb="", rows=None, **query):
         if not self.token:
             self._authorize()
-        url = f"{API}/{self.id}/values/{urllib.parse.quote(cells, safe='')}{verb}?{urllib.parse.urlencode(query)}"
+        quoted = urllib.parse.quote(cells, safe="")  # pragma: no mutate - letters are never quoted: safe="XXXX" is ""
+        url = f"{API}/{self.id}/values/{quoted}{verb}?{urllib.parse.urlencode(query)}"
         headers = {"Authorization": f"Bearer {self.token}",  # pragma: no mutate - names ignore case
                    "Content-Type": "application/json"}  # pragma: no mutate - as above
         data = json.dumps({"values": rows}).encode() if rows else None

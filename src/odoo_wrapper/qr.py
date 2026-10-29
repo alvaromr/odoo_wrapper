@@ -63,8 +63,8 @@ def skeleton(version):
     size = version * 4 + 17
     mod: list = [[None] * size for _ in range(size)]
     for r0, c0 in ((0, 0), (0, size - 7), (size - 7, 0)):
-        for r in range(-1, 8):
-            for c in range(-1, 8):
+        for r in range(-1, 8):  # pragma: no mutate - row 8 holds format and timing cells, written later
+            for c in range(-1, 8):  # pragma: no mutate - as above, for column 8
                 if 0 <= r0 + r < size and 0 <= c0 + c < size:
                     ring = max(abs(r - 3), abs(c - 3))
                     mod[r0 + r][c0 + c] = ring != 2 and ring <= 3
@@ -82,7 +82,8 @@ def skeleton(version):
 def format_cells(size):
     cells = [(8, i) for i in range(6)] + [(8, 7), (8, 8), (7, 8)]
     cells += [(i, 8) for i in reversed(range(6))]
-    mirror = [(size - 1 - i, 8) for i in range(7)] + [(8, size - 8 + i) for i in range(8)]
+    mirror = [(size - 1 - i, 8) for i in range(7)]
+    mirror += [(8, size - 8 + i) for i in range(8)]  # pragma: no mutate - zip with the 15 bits drops any extra cell
     return cells, mirror
 
 

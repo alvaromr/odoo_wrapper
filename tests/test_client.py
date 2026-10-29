@@ -175,6 +175,7 @@ class RpcTest(unittest.TestCase):
         odoo = c.OdooClient("https://odoX/", "db", "sid", device="dev")
         self.assertEqual((odoo.url, odoo.device, odoo.uid, odoo.employee_id, odoo.employee_name, odoo.calendar_id),
                          ("https://odoX", "dev", None, None, None, None))
+        self.assertEqual(c.OdooClient("https://odoX", "db").session_id, "")
 
     def test_call_kw_shape(self):
         odoo = client(kw([1]))

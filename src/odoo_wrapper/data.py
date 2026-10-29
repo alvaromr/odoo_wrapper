@@ -208,7 +208,7 @@ def cached(key, fresh, build, ttl=DATA_TTL):
     return payload
 
 
-def fetch_data(client, fresh=False, employee=None):
+def fetch_data(client, fresh, employee=None):
     ttl = VIEW_TTL if employee else DATA_TTL
     return cached((client.session_id, employee), fresh, lambda: build_data(client, employee), ttl)
 

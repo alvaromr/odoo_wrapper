@@ -173,9 +173,11 @@ class WatchTest(unittest.TestCase):
 
         with patch.object(pr, "stamps", side_effect=stamp_values), patch.object(time, "sleep", side_effect=sleep), \
                 patch.object(pr, "NET_INTERVAL", interval), patch.object(os, "execve", side_effect=StopLoop) as execv, \
+                patch.object(subprocess, "Popen") as popen, patch.object(os, "_exit", side_effect=StopLoop), \
                 redirect_stdout(io.StringIO()) as out:
             with self.assertRaises(StopLoop):
                 pr.watch_sources(Mock(side_effect=identities))
+        popen.assert_not_called()
         return execv, out.getvalue()
 
     def test_a_changed_source_restarts_without_reopening_the_browser(self):
@@ -193,6 +195,10 @@ class WatchTest(unittest.TestCase):
             execv, out = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1", "mac|2"], 0)
         self.assertIn(" Cambio de red: reiniciando…\n", out)
         execv.assert_called_once()
+
+    def test_the_launch_command_runs_the_bootstrap_with_its_arguments(self):
+        self.assertEqual(pr.launch_command(["--open"]), [sys.executable, "-c", pr.BOOTSTRAP, "--open"])
+        self.assertEqual(pr.launch_command(executable="/py"), ["/py", "-c", pr.BOOTSTRAP])
 
     def test_a_vanished_source_restarts(self):
         execv, out = self.watch([{"a.py": 1, "b.py": 1}, {"b.py": 1}], ["", ""], 30)
@@ -220,8 +226,10 @@ class WatchTest(unittest.TestCase):
         execv.assert_called_once()
 
     def test_a_restart_into_a_new_install_runs_its_interpreter_and_package(self):
-        with patch.object(os, "execve", side_effect=StopLoop) as execve, self.assertRaises(StopLoop):
+        with patch.object(os, "execve", side_effect=StopLoop) as execve, patch.object(subprocess, "Popen") as popen, \
+                patch.object(os, "_exit", side_effect=StopLoop), self.assertRaises(StopLoop):
             pr.restart(["--host", "0.0.0.0"], installed="/tools/odoo-wrapper/bin/python")
+        popen.assert_not_called()
         command = ["/tools/odoo-wrapper/bin/python", "-c", pr.INSTALLED_BOOTSTRAP, "--host", "0.0.0.0"]
         self.assertEqual(execve.call_args.args[:2], (command[0], command))
         self.assertEqual(execve.call_args.args[2][pr.UPDATED_ENV], "1")

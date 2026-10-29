@@ -160,12 +160,19 @@ read best on one line; the code keeps to 120 columns. mypy checks the bodies of 
 which is all the package has; annotate only what it cannot infer.
 
 Mutation testing runs now and then rather than on every commit: it takes minutes, and its working copy,
-`mutants/`, is ignored by git. mutmut 3.3 needs pytest 8.3, and skips the one test that starts a subprocess:
+`mutants/`, is ignored by git. mutmut 3.3 needs pytest 8.3, and skips the one test that starts a subprocess.
+On macOS the run also needs `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`: without it the forked child of every
+mutant crashes, and mutmut reports them all as segfault.
 
 ```bash
-uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 run     # config in pyproject.toml, [tool.mutmut]
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 run  # pyproject.toml
 uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 results  # the mutants no test killed
 ```
+
+A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
+that takes the wrong branch would otherwise start a real dashboard and end the test with exit code 0, which
+mutmut counts as a survivor. mutmut 3.3 also reports a few mutants whose code is identical to the original;
+those need nothing.
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
 original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences

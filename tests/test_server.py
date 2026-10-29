@@ -34,7 +34,7 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(sv.session_cookie(self.cookie("abc-DEF_09")), "abc-DEF_09")
         every = "".join(sorted(sv.SESSION_CHARS))
         self.assertEqual(sv.session_cookie(self.cookie(every)), every)
-        for value in ("", "a b", "a;b", 'a"b', "ñ", None):
+        for value in ("", "a b", "a;b", 'a"b', "ñ", "a.b", None):
             self.assertEqual(sv.session_cookie(self.cookie(value)), "", value)
 
     def test_nothing_is_valid_without_a_configuration(self):
