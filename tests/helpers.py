@@ -69,7 +69,11 @@ def kw(rows):
 
 
 class ScriptedClient:
-    """Odoo client stand-in for the server side: answers call_kw per model and records every punch."""
+    """Odoo client stand-in for the server side: answers call_kw per model and records every punch.
+
+    calls keeps (model, args, kwargs) for the tests that look for one argument; queries keeps each whole call,
+    method included, for the tests that pin the exact queries sent to Odoo.
+    """
 
     def __init__(self, rows=None, open_att=None, reasons=(NORMAL, REST), team=False):
         self.rows = rows or {}
@@ -77,7 +81,7 @@ class ScriptedClient:
         self.open_att = open_att
         self.reasons = reasons
         self.employee_id, self.employee_name, self.calendar_id = 7, "Ana", 4
-        self.punches, self.calls, self.labelled = [], [], {}
+        self.punches, self.calls, self.queries, self.labelled = [], [], [], {}
         self.session_id, self.uid = "sid", 3
 
     def session_info(self):
@@ -88,6 +92,7 @@ class ScriptedClient:
 
     def call_kw(self, model, method, args, kwargs=None):
         self.calls.append((model, args, kwargs))
+        self.queries.append((model, method, args, kwargs))
         rows = self.rows.get(model, [])
         return rows(args, kwargs) if callable(rows) else rows
 
