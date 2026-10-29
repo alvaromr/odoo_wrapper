@@ -469,3 +469,64 @@ class FetchTeamTest(unittest.TestCase):
         self.assertEqual(tm.fetch_team(client, MONDAY, fresh=True), 3)
         self.assertEqual(tm.fetch_team(client, MONDAY, False, 5, MONDAY, MONDAY + timedelta(weeks=5)), 4)
         self.assertEqual(tm.fetch_team(client, MONDAY, False, 5, MONDAY, MONDAY + timedelta(weeks=5)), 4)
+
+
+def row_day(when, hours=0.0, target=8.0, flags=()):
+    return {"date": when.isoformat(), "hours": hours, "target": target, "flags": list(flags)}
+
+
+class RowRulesTest(unittest.TestCase):
+    """The day, week and month rows at the edges of each rule, where a flipped comparison would hide."""
+
+    def test_a_day_rounds_to_hundredths_and_flags_at_the_edges(self):
+        day = MONDAY
+        session = {"in": f"{day}T08:00:00", "out": f"{day}T09:00:00", "hours": 1.2345}
+        row = tm.day_row(day, 7.4567, None, [session], [], day + timedelta(days=1))
+        self.assertEqual((row["hours"], row["target"], row["flags"]), (1.23, 7.46, []))
+        self.assertEqual(tm.day_row(day, 0.5, None, [], [], day + timedelta(days=1))["flags"], ["empty"])
+        self.assertEqual(tm.day_row(day, 0, None, [], [], day + timedelta(days=1))["flags"], [])
+        exactly_long = dict(session, hours=tm.LONG_DAY)
+        self.assertEqual(tm.day_row(day, 8, None, [exactly_long], [], day)["flags"], [])
+
+    def test_a_week_is_judged_once_it_is_over_and_flagged_at_the_edges_of_its_margins(self):
+        days = [row_day(MONDAY + timedelta(days=i), hours) for i, hours in enumerate((8.0, 8.0, 8.0, 8.0, 8.0))]
+        target = 40.0
+
+        def flags(total, today=MONDAY + timedelta(days=7)):
+            week = [dict(d, hours=total / 5) for d in days]
+            return tm.week_row(MONDAY, week, True, today)["flags"]
+
+        self.assertEqual(flags(target - tm.UNDER_MARGIN), ["under"])
+        self.assertEqual(flags(target - tm.UNDER_MARGIN / 2), [])
+        self.assertEqual(flags(target + tm.OVER_MARGIN), [])
+        self.assertEqual(flags(target + tm.OVER_MARGIN + 0.01), ["over"])
+        self.assertEqual(flags(0, MONDAY + timedelta(days=6)), [])
+
+    def test_a_week_sums_only_the_days_before_today_rounded_and_says_when_it_holds_a_long_day(self):
+        days = [row_day(MONDAY, 1.2345, 2.3456), row_day(MONDAY + timedelta(days=1), 4.0, 1.1111, ["long"])]
+        row = tm.week_row(MONDAY, days, True, MONDAY + timedelta(days=1))
+        self.assertEqual((row["hours"], row["target"], row["balance"], row["due"], row["suspect"]),
+                         (5.23, 3.46, -1.11, 2.35, True))
+        open_only = [row_day(MONDAY, 1, 1, ["open"])]
+        self.assertFalse(tm.week_row(MONDAY, open_only, True, MONDAY)["suspect"])
+        self.assertEqual([tm.week_row(MONDAY, days, None, MONDAY)[k] for k in ("target", "balance", "due")],
+                         [None, None, None])
+
+    def test_a_month_takes_the_weeks_whose_thursday_falls_in_it_and_counts_their_flags(self):
+        july = [{"monday": "2025-07-28", "flags": ["under", "over"]}, {"monday": "2025-07-21", "flags": ["under"]},
+                {"monday": "2025-06-30", "flags": ["over"]}, {"monday": "2025-06-23", "flags": ["under"]}]
+        employee = {"days": [], "weeks": july, "target": 0}
+        row = tm.month_row("2025-07", employee, "2025-07-15")
+        self.assertEqual((row["under"], row["over"]), (2, 2))
+        september = {"days": [], "weeks": [{"monday": "2025-09-01", "flags": ["under"]}], "target": 0}
+        self.assertEqual(tm.month_row("2025-09", september, "2025-09-15")["under"], 1)
+        self.assertEqual(tm.month_row("2025-08", september, "2025-09-15")["under"], 0)
+
+    def test_a_month_sums_its_days_before_today_rounded_and_says_when_it_holds_a_long_day(self):
+        days = [row_day(date(2025, 7, 1), 1.2345, 2.3456), row_day(date(2025, 7, 2), 4.0, 1.1111, ["open"]),
+                row_day(date(2025, 8, 1), 9.0, 9.0, ["long"])]
+        row = tm.month_row("2025-07", {"days": days, "weeks": [], "target": 0}, "2025-07-02")
+        self.assertEqual((row["hours"], row["target"], row["balance"], row["due"], row["suspect"]),
+                         (5.23, 3.46, -1.11, 2.35, False))
+        days[1]["flags"] = ["long"]
+        self.assertTrue(tm.month_row("2025-07", {"days": days, "weeks": [], "target": 0}, "2025-07-02")["suspect"])
