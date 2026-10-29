@@ -57,6 +57,7 @@ import sys
 import time
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from itertools import groupby
 
 from . import discord, team
 from .client import (
@@ -155,7 +156,7 @@ def status(client):
         if last:
             print(f"Último check-out: {local_time(last[0]['check_out']).strftime('%H:%M:%S')}")
 
-    local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0)
     today_start = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     today_records = client.call_kw(
         "hr.attendance",
@@ -181,8 +182,8 @@ def toggle(client):
     open_att = client.open_attendance()
     normal, _ = client.sign_in_reasons()
     result = client.punch(None if open_att else (normal and normal["id"]))
-    state = result.get("attendance_state", "")
-    att = result.get("attendance", {})
+    state = result.get("attendance_state")
+    att = result.get("attendance")
     hours_today = result.get("hours_today", 0)
 
     if state == "checked_in":
@@ -277,31 +278,21 @@ def history(client, days=7):
         print(f"No hay registros en los últimos {days} días")
         return
 
-    current_date = None
-    daily_total = 0
-    for r in records:
-        ci_local = local_time(r["check_in"])
-        date_str = ci_local.strftime("%Y-%m-%d (%a)")
-
-        if current_date and current_date != date_str:
-            print(f"  {'':>23} TOTAL: {daily_total:.2f}h")
-            daily_total = 0
-
-        if current_date != date_str:
-            print(f"\n{date_str}")
-            current_date = date_str
-
-        ci_str = ci_local.strftime("%H:%M")
-        if r["check_out"]:
-            co_str = local_time(r["check_out"]).strftime("%H:%M")
-            print(f"  {ci_str} - {co_str}  ({r['worked_hours']:.2f}h)")
-            daily_total += r["worked_hours"]
-        else:
-            elapsed = (datetime.now(timezone.utc) - ci_local).total_seconds() / 3600
-            print(f"  {ci_str} - ...    ({elapsed:.2f}h en curso)")
-            daily_total += elapsed
-
-    print(f"  {'':>23} TOTAL: {daily_total:.2f}h")
+    for date_str, day in groupby(records, key=lambda r: local_time(r["check_in"]).strftime("%Y-%m-%d (%a)")):
+        print(f"\n{date_str}")
+        daily_total = 0
+        for r in day:
+            ci_local = local_time(r["check_in"])
+            ci_str = ci_local.strftime("%H:%M")
+            if r["check_out"]:
+                co_str = local_time(r["check_out"]).strftime("%H:%M")
+                print(f"  {ci_str} - {co_str}  ({r['worked_hours']:.2f}h)")
+                daily_total += r["worked_hours"]
+            else:
+                elapsed = (datetime.now(timezone.utc) - ci_local).total_seconds() / 3600
+                print(f"  {ci_str} - ...    ({elapsed:.2f}h en curso)")
+                daily_total += elapsed
+        print(f"  {'':>23} TOTAL: {daily_total:.2f}h")
 
 
 def save_sheet(url):
@@ -326,7 +317,7 @@ def sheet(url=None):
 
 def ledger():
     try:
-        return dict(json.loads(read_private(WRITTEN_FILE) or "{}"))
+        return dict(json.loads(read_private(WRITTEN_FILE)))
     except (ValueError, TypeError):
         return {}
 
@@ -365,7 +356,8 @@ def notices(client, today):
         save_sheet(ask("Dirección de la hoja de avisos"))
     sheets = Sheets(saved_sheet())
     current = today.replace(day=1)
-    previous = (current - timedelta(days=1)).replace(day=1)
+    before = current - timedelta(days=1)  # pragma: no mutate - any day of the month before would do
+    previous = before.replace(day=1)
     closed = {name for row in sheets.get(f"{TOTALS_TAB}!D4:D") for name in row}
     if MONTHS[previous.month - 1] not in closed:
         add_notices(client, sheets, previous)

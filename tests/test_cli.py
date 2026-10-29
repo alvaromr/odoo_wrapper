@@ -25,13 +25,15 @@ class CommandTest(unittest.TestCase):
             getattr(cli, command)(odoo, *args)
         return out.getvalue()
 
+    def hms(self, stamp):
+        return cli.local_time(stamp).strftime("%H:%M:%S")
+
     def test_status_while_checked_in(self):
-        odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(90)}]), kw([NORMAL]),
-                      kw([{"check_in": utc(90), "check_out": False, "worked_hours": 0}]))
-        out = self.run_cmd(odoo, "status")
-        self.assertIn("FICHADO (entrada)", out)
-        self.assertIn("(1.5h)", out)
-        self.assertIn("Horas hoy: 1.50h", out)
+        start = utc(90)
+        odoo = client(self.EMP, kw([{"id": 1, "check_in": start}]), kw([NORMAL]),
+                      kw([{"check_in": start, "check_out": False, "worked_hours": 0}]))
+        self.assertEqual(self.run_cmd(odoo, "status"),
+                         f"Estado: FICHADO (entrada)\nCheck-in: {self.hms(start)} (1.5h)\nHoras hoy: 1.50h\n")
 
     def test_status_on_a_break(self):
         odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(10)}]), kw([NORMAL, REST]), kw([{"attendance_reason_ids": [3]}]),
@@ -39,12 +41,10 @@ class CommandTest(unittest.TestCase):
         self.assertIn("FICHADO (descanso)", self.run_cmd(odoo, "status"))
 
     def test_status_after_checking_out(self):
-        odoo = client(self.EMP, kw([]), kw([{"check_in": utc(120), "check_out": utc(60), "worked_hours": 1.0}]),
-                      kw([{"check_in": utc(120), "check_out": utc(60), "worked_hours": 1.0}]))
-        out = self.run_cmd(odoo, "status")
-        self.assertIn("NO FICHADO", out)
-        self.assertIn("Último check-out", out)
-        self.assertIn("Horas hoy: 1.00h", out)
+        done = {"check_in": utc(120), "check_out": utc(60), "worked_hours": 1.0}
+        odoo = client(self.EMP, kw([]), kw([done]), kw([done]))
+        self.assertEqual(self.run_cmd(odoo, "status"), "Estado: NO FICHADO (salida)\n"
+                                                      f"Último check-out: {self.hms(done['check_out'])}\nHoras hoy: 1.00h\n")
 
     def test_status_adds_every_session_of_today_and_counts_a_long_open_one_to_the_minute(self):
         odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(200 * 60)}]), kw([NORMAL]),
@@ -105,17 +105,16 @@ class CommandTest(unittest.TestCase):
         ])
 
     def test_toggle_in_and_out(self):
-        reasons = kw([NORMAL])
+        reasons, now = kw([NORMAL]), utc(0)
         odoo = client(self.EMP, kw([]), reasons,
-                      {"result": {"attendance_state": "checked_in", "attendance": {"check_in": utc(0)}, "hours_today": 2}})
-        self.assertIn("CHECK-IN registrado", self.run_cmd(odoo, "toggle"))
+                      {"result": {"attendance_state": "checked_in", "attendance": {"check_in": now}, "hours_today": 2}})
+        self.assertEqual(self.run_cmd(odoo, "toggle"), f"CHECK-IN registrado a las {self.hms(now)}\nHoras hoy: 2.00h\n")
         self.assertEqual(odoo.opener.calls[-1][1], {"attendance_reason_id": 5})
         odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(60)}]), reasons,
-                      {"result": {"attendance_state": "checked_out", "attendance": {"check_out": utc(0)},
+                      {"result": {"attendance_state": "checked_out", "attendance": {"check_out": now},
                                   "hours_today": 2, "last_attendance_worked_hours": 1}})
-        out = self.run_cmd(odoo, "toggle")
-        self.assertIn("CHECK-OUT registrado", out)
-        self.assertIn("(1.00h esta sesión)", out)
+        self.assertEqual(self.run_cmd(odoo, "toggle"),
+                         f"CHECK-OUT registrado a las {self.hms(now)} (1.00h esta sesión)\nHoras hoy: 2.00h\n")
         self.assertEqual(odoo.opener.calls[-1][1], {})
 
     def test_toggle_with_an_unknown_state_still_reports_hours(self):
@@ -123,50 +122,50 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(self.run_cmd(odoo, "toggle").strip(), "Horas hoy: 3.00h")
 
     def test_check_in(self):
-        odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(30)}]))
-        self.assertIn("Ya estás fichado", self.run_cmd(odoo, "check_in"))
-        odoo = client(self.EMP, kw([]), kw([NORMAL]),
-                      {"result": {"attendance": {"check_in": utc(0)}, "hours_today": 0.5}})
-        out = self.run_cmd(odoo, "check_in")
-        self.assertIn("CHECK-IN registrado", out)
-        self.assertIn("Horas hoy: 0.50h", out)
+        start, now = utc(30), utc(0)
+        odoo = client(self.EMP, kw([{"id": 1, "check_in": start}]))
+        self.assertEqual(self.run_cmd(odoo, "check_in"),
+                         f"Ya estás fichado desde las {self.hms(start)}. Usa 'checkout' para salir.\n")
+        odoo = client(self.EMP, kw([]), kw([NORMAL]), {"result": {"attendance": {"check_in": now}, "hours_today": 0.5}})
+        self.assertEqual(self.run_cmd(odoo, "check_in"), f"CHECK-IN registrado a las {self.hms(now)}\nHoras hoy: 0.50h\n")
         self.assertEqual(odoo.opener.calls[-1][1], {"attendance_reason_id": 5})
 
     def test_check_out(self):
-        self.assertIn("No hay fichaje abierto", self.run_cmd(client(self.EMP, kw([])), "check_out"))
+        self.assertEqual(self.run_cmd(client(self.EMP, kw([])), "check_out"),
+                         "No hay fichaje abierto. Usa 'checkin' para entrar.\n")
+        now = utc(0)
         odoo = client(self.EMP, kw([{"id": 1, "check_in": utc(30)}]),
-                      {"result": {"attendance": {"check_out": utc(0)}, "hours_today": 4, "last_attendance_worked_hours": 0.5}})
-        out = self.run_cmd(odoo, "check_out")
-        self.assertIn("CHECK-OUT registrado", out)
-        self.assertIn("(0.50h esta sesión)", out)
-        self.assertIn("Horas hoy: 4.00h", out)
+                      {"result": {"attendance": {"check_out": now}, "hours_today": 4, "last_attendance_worked_hours": 0.5}})
+        self.assertEqual(self.run_cmd(odoo, "check_out"),
+                         f"CHECK-OUT registrado a las {self.hms(now)} (0.50h esta sesión)\nHoras hoy: 4.00h\n")
 
     def test_break(self):
         open_att = kw([{"id": 1, "check_in": utc(30)}])
-        self.assertIn("no tiene el motivo Descanso", self.run_cmd(client(self.EMP, open_att, kw([NORMAL])), "take_break"))
-        self.assertIn("No hay fichaje abierto", self.run_cmd(client(self.EMP, kw([]), kw([NORMAL, REST])), "take_break"))
+        self.assertEqual(self.run_cmd(client(self.EMP, open_att, kw([NORMAL])), "take_break"),
+                         "Este Odoo no tiene el motivo Descanso; no se puede fichar un descanso.\n")
+        self.assertEqual(self.run_cmd(client(self.EMP, kw([]), kw([NORMAL, REST])), "take_break"),
+                         "No hay fichaje abierto. Usa 'checkin' para entrar.\n")
         odoo = client(self.EMP, open_att, kw([NORMAL, REST]), kw([{"attendance_reason_ids": [3]}]))
-        self.assertIn("Ya estás en descanso", self.run_cmd(odoo, "take_break"))
+        self.assertEqual(self.run_cmd(odoo, "take_break"), "Ya estás en descanso. Usa 'resume' para volver.\n")
+        now = utc(0)
         odoo = client(self.EMP, open_att, kw([NORMAL, REST]), kw([{"attendance_reason_ids": [5]}]),
-                      {"result": {"attendance": {"check_out": utc(0)}}},
-                      {"result": {"attendance": {"check_in": utc(0)}, "hours_today": 3}})
-        out = self.run_cmd(odoo, "take_break")
-        self.assertIn("DESCANSO iniciado", out)
-        self.assertIn("Horas hoy: 3.00h", out)
+                      {"result": {"attendance": {"check_out": now}}},
+                      {"result": {"attendance": {"check_in": now}, "hours_today": 3}})
+        self.assertEqual(self.run_cmd(odoo, "take_break"), f"DESCANSO iniciado a las {self.hms(now)}\nHoras hoy: 3.00h\n")
         self.assertEqual([call[1] for call in odoo.opener.calls[-2:]], [{}, {"attendance_reason_id": 3}])
 
     def test_resume(self):
         open_att = kw([{"id": 1, "check_in": utc(10)}])
-        self.assertIn("No hay un descanso abierto", self.run_cmd(client(self.EMP, kw([]), kw([NORMAL, REST])), "resume"))
+        none_open = "No hay un descanso abierto. Usa 'break' para salir a descanso.\n"
+        self.assertEqual(self.run_cmd(client(self.EMP, kw([]), kw([NORMAL, REST])), "resume"), none_open)
         odoo = client(self.EMP, open_att, kw([NORMAL, REST]), kw([{"attendance_reason_ids": [5]}]))
-        self.assertIn("No hay un descanso abierto", self.run_cmd(odoo, "resume"))
+        self.assertEqual(self.run_cmd(odoo, "resume"), none_open)
+        now = utc(0)
         odoo = client(self.EMP, open_att, kw([NORMAL, REST]), kw([{"attendance_reason_ids": [3]}]),
-                      {"result": {"attendance": {"check_out": utc(0)}, "last_attendance_worked_hours": 0.25}},
-                      {"result": {"attendance": {"check_in": utc(0)}, "hours_today": 3.25}})
-        out = self.run_cmd(odoo, "resume")
-        self.assertIn("VUELTA del descanso", out)
-        self.assertIn("(0.25h de descanso)", out)
-        self.assertIn("Horas hoy: 3.25h", out)
+                      {"result": {"attendance": {"check_out": now}, "last_attendance_worked_hours": 0.25}},
+                      {"result": {"attendance": {"check_in": now}, "hours_today": 3.25}})
+        self.assertEqual(self.run_cmd(odoo, "resume"),
+                         f"VUELTA del descanso a las {self.hms(now)} (0.25h de descanso)\nHoras hoy: 3.25h\n")
         self.assertEqual([call[1] for call in odoo.opener.calls[-2:]], [{}, {"attendance_reason_id": 5}])
 
     def test_history_groups_by_day_and_counts_the_open_session(self):
@@ -275,6 +274,15 @@ class NoticesTest(unittest.TestCase):
             self.opened, self.build = opened, build
             cli.notices("odoo", today)
         return out.getvalue()
+
+    def test_the_first_day_of_the_month_counts_and_a_short_row_of_the_sheet_is_padded(self):
+        payload = {"start": "2026-10-01", "stop": "2026-11-01", "generated_at": self.NOW,
+                   "employees": [{"name": "Íñigo", "days": [day("2026-10-01", ["empty"])]}]}
+        sheets = FakeSheets()
+        with patch.object(cli.team, "build_team", return_value=payload), redirect_stdout(io.StringIO()):
+            cli.add_notices("odoo", sheets, date(2026, 10, 1))
+        self.assertEqual(sheets.appended, [("Avisos 2026!B4:E", [["Íñigo", "Octubre", "01/10/2026", "Incidencia"]])])
+        self.assertEqual(cli.sheet_rows(FakeSheets(**{"Avisos 2026": [["Bea"]]}), date(2026, 10, 1)), [["Bea", "", "", ""]])
 
     def test_the_previous_month_is_closed_and_the_current_one_brought_up_to_yesterday(self):
         sheets = FakeSheets()
@@ -388,7 +396,7 @@ class MainTest(unittest.TestCase):
         return caught.exception.code, out.getvalue(), err.getvalue()
 
     def test_usage(self):
-        for argv in ((), ("-h",), ("help",)):
+        for argv in ((), ("-h",), ("--help",), ("help",)):
             code, out, _ = self.run_main(*argv)
             self.assertEqual(code, 0)
             self.assertIn("Uso: odoo", out)
@@ -472,7 +480,7 @@ class MainTest(unittest.TestCase):
         self.assertIn("odoo login", err)
         c.save_config(**CONFIG)
         _, _, err = self.run_main("status")
-        self.assertIn("No hay sesión", err)
+        self.assertIn("ERROR: No hay sesión de Odoo guardada", err)
         c.write_private(cli.CLI_SESSION_FILE, "sid")
         with patch.dict(cli.COMMANDS, {"status": lambda client: (_ for _ in ()).throw(c.SessionExpired("caducada"))}):
             _, _, err = self.run_main("status", stdin=io.StringIO())
@@ -578,6 +586,15 @@ class MainTest(unittest.TestCase):
             cli.cli_login()
         self.assertEqual(ask.call_args.args[0], "Usuario [u]: ")
         odoo.return_value.login.assert_called_once_with("u", "p")
+
+    def test_a_blank_user_is_sent_as_blank(self):
+        temp_state(self)
+        answers = iter(["https://odoo.example/", "db", ""])
+        with patch.object(cli, "OdooClient") as odoo, patch("builtins.input", side_effect=lambda _: next(answers)), \
+                patch.object(cli.getpass, "getpass", return_value="p"), redirect_stdout(io.StringIO()):
+            odoo.return_value.session_id, odoo.return_value.device = "fresh", ""
+            cli.cli_login()
+        odoo.return_value.login.assert_called_once_with("", "p")
 
     def test_a_failed_login_saves_nothing(self):
         temp_state(self)
