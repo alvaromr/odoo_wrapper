@@ -194,6 +194,7 @@ class InstallTest(unittest.TestCase):
 
     def test_the_development_install_updates_with_git_and_one_without_uv_by_hand(self):
         self.assertEqual(up.how(), "auto")
+        up.find.assert_called_with("uv")
         self.with_receipt(EDITABLE_RECEIPT)
         self.assertEqual(up.how(), "git")
         os.remove(os.path.join(self.prefix, up.RECEIPT))
@@ -261,7 +262,8 @@ class InstallTest(unittest.TestCase):
             up._installing.release()
         with self.uv_answers(subprocess.CalledProcessError(2, "uv")):
             os.remove(os.path.join(self.prefix, up.RECEIPT))
-            self.assertEqual(up.install([], 8931)[0], 502)
+            self.assertEqual(up.install([], 8931),
+                             (502, {"error": "uv no responde: Command 'uv' returned non-zero exit status 2."}))
         self.assertTrue(up._installing.acquire(blocking=False))
         up._installing.release()
 
@@ -272,8 +274,10 @@ class InstallTest(unittest.TestCase):
             self.assertEqual(up.install(["--host", "0.0.0.0"], 8931), (202, {"ok": True, "skills": ""}))
         helper = popen.call_args.args[0]
         self.assertEqual(helper[:2], ["C:\\py\\python.exe", "-c"])
-        self.assertIn("from odoo_wrapper.updates import finish", helper[2])
+        self.assertEqual(helper[2], f"import json, sys; sys.path.insert(0, {os.path.dirname(up.process.HERE)!r}); "
+                                    "from odoo_wrapper.updates import finish; finish(json.loads(sys.argv[1]))")
         plan = json.loads(helper[3])
+        self.assertEqual(plan["old"], up.process.launch_command(["--host", "0.0.0.0"]))
         self.assertEqual((plan["port"], plan["env"]["UV_TOOL_DIR"], plan["new"][1:]),
                          (8931, self.tools, ["-c", up.process.INSTALLED_BOOTSTRAP, "--host", "0.0.0.0"]))
         self.assertTrue(plan["new"][0].endswith("pythonw.exe"))

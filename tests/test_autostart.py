@@ -56,20 +56,22 @@ class MacTest(AutostartCase):
         with open(path, "rb") as f:
             self.assertEqual(plistlib.load(f), {"Label": au.LABEL, "ProgramArguments": au.command(), "RunAtLoad": True})
         session = f"gui/{os.getuid()}"
-        self.assertEqual([c.args[0] for c in self.run_.call_args_list],
-                         [["launchctl", "bootout", f"{session}/{au.LABEL}"], ["launchctl", "bootstrap", session, path]])
+        self.assertEqual([(c.args, c.kwargs) for c in self.run_.call_args_list],
+                         [((["launchctl", "bootout", f"{session}/{au.LABEL}"],), {"capture_output": True}),
+                          ((["launchctl", "bootstrap", session, path],), {"capture_output": True})])
 
     def test_a_job_still_being_booted_out_is_waited_for_and_a_lasting_refusal_is_an_error(self):
         refused, loaded = SimpleNamespace(returncode=5), SimpleNamespace(returncode=0)
         self.run_.side_effect = [loaded, refused, refused, loaded]
         with patch.object(au.time, "sleep") as sleep:
             self.on("darwin")
-        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(sleep.call_args_list, [((au.BOOTSTRAP_PAUSE,),)] * 2)
         self.assertEqual(self.run_.call_count, 4)
         self.run_.side_effect = [loaded] + [refused] * (au.BOOTSTRAP_TRIES - 1) + [subprocess.CalledProcessError(5, "launchctl")]
         with patch.object(au.time, "sleep"), self.assertRaises(subprocess.CalledProcessError):
             self.on("darwin")
         self.assertEqual(self.run_.call_args.kwargs, {"capture_output": True, "check": True})
+        self.assertEqual(self.run_.call_args.args[0], ["launchctl", "bootstrap", f"gui/{os.getuid()}", au.launch_agent()])
 
     def test_off_removes_it_and_tolerates_its_absence(self):
         self.on("darwin")
@@ -93,10 +95,12 @@ class MacTest(AutostartCase):
 class LinuxTest(AutostartCase):
     def test_on_writes_a_user_unit_and_restarts_it(self):
         self.on("linux")
-        with open(os.path.join(self.home, ".config", "systemd", "user", au.UNIT)) as f:
+        self.assertEqual(au.unit_file(), os.path.join(self.home, ".config", "systemd", "user", au.UNIT))
+        with open(au.unit_file()) as f:
             unit = f.read()
-        self.assertIn(f'ExecStart="{sys.executable}" "-c" ', unit)
-        self.assertIn("WantedBy=default.target", unit)
+        exec_start = " ".join(f'"{arg.translate(au.SYSTEMD_ESCAPES)}"' for arg in au.command())
+        self.assertEqual(unit, f"[Unit]\nDescription=Odoo dashboard\n\n[Service]\nExecStart={exec_start}\n\n"
+                               "[Install]\nWantedBy=default.target\n")
         self.assertEqual([c.args[0][2:] for c in self.run_.call_args_list], [["daemon-reload"], ["enable", au.UNIT], ["restart", au.UNIT]])
         self.assertTrue(all(c.kwargs["check"] for c in self.run_.call_args_list))
 
@@ -118,7 +122,7 @@ class LinuxTest(AutostartCase):
         self.run_.reset_mock()
         self.off("linux")
         self.assertEqual(self.run_.call_args.args[0], ["systemctl", "--user", "disable", au.UNIT])
-        self.assertFalse(self.run_.call_args.kwargs["check"])
+        self.assertIs(self.run_.call_args.kwargs["check"], False)
         self.assertFalse(os.path.exists(au.unit_file()))
 
     def test_follow_rewrites_an_existing_unit_and_only_reloads_systemd(self):
@@ -149,7 +153,8 @@ class WindowsTest(AutostartCase):
         key = self.winreg.OpenKey.return_value.__enter__.return_value
         self.winreg.SetValueEx.assert_called_once_with(key, au.RUN_VALUE, 0, 1, subprocess.list2cmdline(au.command()))
         self.assertEqual(self.popen.call_args.args[0], au.command())
-        self.assertEqual(self.popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertEqual(self.popen.call_args.kwargs, {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                                                       "stderr": subprocess.DEVNULL})
 
     def test_off_deletes_the_value_and_tolerates_its_absence(self):
         self.off("win32")
@@ -167,6 +172,7 @@ class WindowsTest(AutostartCase):
             au.follow()
         self.winreg.OpenKey.assert_called_with("HKCU", au.RUN_KEY, 0, 3)
         key = self.winreg.OpenKey.return_value.__enter__.return_value
+        self.winreg.QueryValueEx.assert_called_with(key, au.RUN_VALUE)
         self.winreg.SetValueEx.assert_called_once_with(key, au.RUN_VALUE, 0, 1, subprocess.list2cmdline(au.command()))
         self.popen.assert_not_called()
 

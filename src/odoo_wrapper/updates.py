@@ -92,7 +92,7 @@ def numbers(version):
 
 def latest():
     request = urllib.request.Request(LATEST, headers={
-        "Accept": "application/vnd.github+json", "User-Agent": USER_AGENT,
+        "Accept": "application/vnd.github+json", "User-Agent": USER_AGENT,  # pragma: no mutate - names ignore case
     })
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         release = json.load(response)
@@ -146,7 +146,7 @@ def update_skills():
 
 def receipt():
     try:
-        with open(os.path.join(sys.prefix, RECEIPT), encoding="utf-8") as f:
+        with open(os.path.join(sys.prefix, RECEIPT), encoding="utf-8") as f:  # pragma: no mutate - UTF-8 here too
             return f.read()
     except FileNotFoundError:
         return ""
@@ -187,11 +187,13 @@ def run_uv(command, env, installed):
 def install(args, port):
     if how() != "auto":
         return 409, {"error": "Esta instalación no se actualiza desde aquí: pídeselo a tu agente"}
-    if not _installing.acquire(blocking=False):
+    free = _installing.acquire(blocking=False)  # pragma: no mutate - None does not block either
+    if not free:
         return 409, {"error": "Ya se está instalando una actualización"}
     uv, folders = find("uv"), placement(receipt())
     env = {**os.environ, **folders}
-    command = [uv, "tool", "install", "--force", "--python", "{}.{}".format(*sys.version_info[:2]), SOURCE]
+    python = "{}.{}".format(*sys.version_info[:2])  # pragma: no mutate - format reads only the first two
+    command = [uv, "tool", "install", "--force", "--python", python, SOURCE]
     try:
         tools = folders.get("UV_TOOL_DIR") or subprocess.run(
             [uv, "tool", "dir"], env=env, capture_output=True, text=True, check=True, timeout=TIMEOUT).stdout.strip()
@@ -220,7 +222,8 @@ def hand_over(command, folders, tools, args, port, skills):
             "old": process.launch_command(args)}
     helper = (f"import json, sys; sys.path.insert(0, {os.path.dirname(process.HERE)!r}); "
               "from odoo_wrapper.updates import finish; finish(json.loads(sys.argv[1]))")
-    detach([getattr(sys, "_base_executable", sys.executable), "-c", helper, json.dumps(plan)], os.environ)
+    base = getattr(sys, "_base_executable", sys.executable)  # pragma: no mutate - CPython always sets it
+    detach([base, "-c", helper, json.dumps(plan)], os.environ)
     say("Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")
     threading.Timer(RESTART_DELAY, os._exit, [0]).start()
     return 202, {"ok": True, "skills": skills}

@@ -20,12 +20,14 @@ class PortTest(unittest.TestCase):
         sock = Mock()
         sock.__enter__ = lambda s: s
         sock.__exit__ = lambda s, *a: None
-        with patch.object(socket, "socket", return_value=sock):
+        with patch.object(socket, "socket", return_value=sock), patch.object(time, "sleep") as sleep:
             sock.connect_ex.return_value = 0
             self.assertTrue(pr.port_taken(8931))
             sock.connect_ex.return_value = 61
             self.assertFalse(pr.port_taken(8931))
         sock.settimeout.assert_called_with(0.3)
+        self.assertEqual(sock.connect_ex.call_args.args, (("127.0.0.1", 8931),))
+        sleep.assert_not_called()
 
     def test_port_taken_probes_the_given_host(self):
         sock = Mock()
@@ -93,6 +95,10 @@ class OutputTest(unittest.TestCase):
         with redirect_stdout(out):
             pr.say("hola")
         self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d hola\n$")
+        stream = Mock()
+        with patch.object(sys, "stdout", stream):
+            pr.say("hola")
+        stream.flush.assert_called_once_with()
 
     def test_no_streams_at_all_take_the_log(self):
         home = temp_state(self)
@@ -100,7 +106,14 @@ class OutputTest(unittest.TestCase):
             pr.own_the_output()
             self.assertIs(sys.stdout, sys.stderr)
             self.assertEqual(sys.stdout.name, os.path.join(home, "dashboard.log"))
+            self.assertTrue(sys.stdout.line_buffering)
             sys.stdout.close()
+        private = os.path.join(home, "new")
+        with patch.object(sys, "stdout", None), patch.object(sys, "stderr", None), \
+                patch.object(pr, "STATE_DIR", private), patch.object(pr, "LOG_FILE", os.path.join(private, "x.log")):
+            pr.own_the_output()
+            sys.stdout.close()
+        self.assertEqual(oct(os.stat(private).st_mode & 0o777), "0o700")
         dup2.assert_not_called()
 
     @unittest.skipIf("MUTANT_UNDER_TEST" in os.environ, "mutmut runs a copy of the package no subprocess can import")
@@ -152,7 +165,8 @@ class WatchTest(unittest.TestCase):
     def watch(self, stamp_values, identities, interval):
         calls = {"sleep": 0}
 
-        def sleep(_):
+        def sleep(seconds):
+            self.assertEqual(seconds, pr.WATCH_INTERVAL)
             calls["sleep"] += 1
             if calls["sleep"] >= len(stamp_values):
                 raise StopLoop
@@ -169,6 +183,16 @@ class WatchTest(unittest.TestCase):
             execv, out = self.watch([{"a.py": 1}, {"a.py": 2}], ["", ""], 30)
         self.assertIn("Cambio en a.py", out)
         execv.assert_called_once_with(sys.executable, pr.launch_command(["--host", "0.0.0.0"]), dict(os.environ))
+
+    def test_every_changed_source_is_named(self):
+        _, out = self.watch([{"a.py": 1, "b.py": 1}, {}], ["", ""], 30)
+        self.assertIn(" Cambio en a.py, b.py: reiniciando…\n", out)
+
+    def test_the_network_is_checked_once_its_interval_has_passed(self):
+        with patch.object(time, "monotonic", return_value=5.0):
+            execv, out = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1", "mac|2"], 0)
+        self.assertIn(" Cambio de red: reiniciando…\n", out)
+        execv.assert_called_once()
 
     def test_a_vanished_source_restarts(self):
         execv, out = self.watch([{"a.py": 1, "b.py": 1}, {"b.py": 1}], ["", ""], 30)
