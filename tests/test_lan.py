@@ -32,8 +32,9 @@ class NetworkTest(unittest.TestCase):
         sock.close.assert_called_once()
 
     def test_bonjour_name_from_scutil(self):
-        with patch.object(subprocess, "run", return_value=SimpleNamespace(stdout="mac\n")):
+        with patch.object(subprocess, "run", return_value=SimpleNamespace(stdout="mac\n")) as run:
             self.assertEqual(lan.bonjour_name(), "mac.local")
+        run.assert_called_once_with(["scutil", "--get", "LocalHostName"], capture_output=True, text=True)
         with patch.object(subprocess, "run", return_value=SimpleNamespace(stdout="ya.local")):
             self.assertEqual(lan.bonjour_name(), "ya.local")
 
@@ -72,15 +73,19 @@ class CertTest(unittest.TestCase):
                 f.write("pem")
 
     def test_generates_once_per_identity(self):
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):
+        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()) as out:
             cert, key = lan.ensure_cert()
             again = lan.ensure_cert()
         self.assertEqual(run.call_count, 1)
+        self.assertIn(" Certificado creado para DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1\n", out.getvalue())
         self.assertTrue(cert.startswith(self.home) and key.startswith(self.home))
         self.assertIn("mac.local-10.0.0.2", cert)
         self.assertIn("mac.local-10.0.0.2", key)
         self.assertEqual(again, (cert, key))
-        self.assertIn("subjectAltName=DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1", run.call_args[0][0])
+        names = "DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1"
+        run.assert_called_once_with(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
+                                     "-subj", "/CN=mac.local", "-addext", f"subjectAltName={names}",
+                                     "-keyout", key, "-out", cert], check=True, capture_output=True)
         self.assertEqual(oct(os.stat(key).st_mode & 0o777), "0o600")
         os.remove(key)
         with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):
@@ -124,6 +129,12 @@ class CertTest(unittest.TestCase):
         with patch.object(lan, "bonjour_name", return_value="Ana’s Mac.local"), \
                 patch.object(subprocess, "run", side_effect=self.openssl), redirect_stdout(io.StringIO()):
             cert, key = lan.ensure_cert()
+        self.assertEqual(os.path.basename(cert), "cert-Ana_s_Mac.local-10.0.0.2.pem")
+        private = os.path.join(self.home, "new")
+        with patch.object(lan, "STATE_DIR", private), patch.object(subprocess, "run", side_effect=self.openssl), \
+                redirect_stdout(io.StringIO()):
+            lan.ensure_cert()
+        self.assertEqual(oct(os.stat(private).st_mode & 0o777), "0o700")
         allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
         self.assertTrue(set(os.path.basename(cert)) <= allowed, cert)
         self.assertTrue(set(os.path.basename(key)) <= allowed, key)
@@ -156,6 +167,7 @@ class SameSiteNamesTest(unittest.TestCase):
             "[::1]]:8443": "::1",
             "evil.com:80:8931": "evil.com",
             "mac.local": "mac.local",
+            "http://": "",
             "": "",
             None: "",
         }

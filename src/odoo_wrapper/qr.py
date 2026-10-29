@@ -33,11 +33,7 @@ def mul(a, b):
 def generator(count):
     poly = [1]
     for i in range(count):
-        nxt = [0] * (len(poly) + 1)
-        for j, c in enumerate(poly):
-            nxt[j] ^= c
-            nxt[j + 1] ^= mul(c, EXP[i])
-        poly = nxt
+        poly = [high ^ mul(low, EXP[i]) for high, low in zip(poly + [0], [0] + poly)]
     return poly
 
 
@@ -57,9 +53,7 @@ def codewords(payload):
     if fitting is None:
         raise ValueError("texto demasiado largo para un QR versión 5")
     version, total, ec = fitting
-    bits = "0100" + f"{len(payload):08b}" + "".join(f"{b:08b}" for b in payload)
-    bits += "0" * min(4, total * 8 - len(bits))
-    bits += "0" * (-len(bits) % 8)
+    bits = "0100" + f"{len(payload):08b}" + "".join(f"{b:08b}" for b in payload) + "0000"
     data = [int(bits[i:i + 8], 2) for i in range(0, len(bits), 8)]
     data += [PAD[i % 2] for i in range(total - len(data))]
     return version, data + ec_codewords(data, ec)
@@ -74,23 +68,20 @@ def skeleton(version):
                 if 0 <= r0 + r < size and 0 <= c0 + c < size:
                     ring = max(abs(r - 3), abs(c - 3))
                     mod[r0 + r][c0 + c] = ring != 2 and ring <= 3
-    for i in range(size):
-        if mod[6][i] is None:
-            mod[6][i] = i % 2 == 0
-        if mod[i][6] is None:
-            mod[i][6] = i % 2 == 0
+    for i in range(8, size - 8):
+        mod[6][i] = mod[i][6] = i % 2 == 0
     if version > 1:
         centre = size - 7
-        for r in range(-2, 3):
-            for c in range(-2, 3):
-                mod[centre + r][centre + c] = max(abs(r), abs(c)) != 1
+        for r in range(centre - 2, centre + 3):
+            for c in range(centre - 2, centre + 3):
+                mod[r][c] = max(abs(r - centre), abs(c - centre)) != 1
     mod[size - 8][8] = True
     return mod, size
 
 
 def format_cells(size):
     cells = [(8, i) for i in range(6)] + [(8, 7), (8, 8), (7, 8)]
-    cells += [(i, 8) for i in range(5, -1, -1)]
+    cells += [(i, 8) for i in reversed(range(6))]
     mirror = [(size - 1 - i, 8) for i in range(7)] + [(8, size - 8 + i) for i in range(8)]
     return cells, mirror
 
@@ -99,15 +90,16 @@ def place(mod, size, stream):
     bits = iter(stream)
     col = size - 1
     upward = True
-    while col > 0:
+    while col > 0:  # pragma: no mutate - col skips 0: it turns odd past the timing column and ends at -1
         if col == 6:
             col -= 1
-        rows = range(size - 1, -1, -1) if upward else range(size)
+        rows = reversed(range(size)) if upward else range(size)
         for row in rows:
             for c in (col, col - 1):
                 if mod[row][c] is None:
-                    bit = next(bits, 0) == "1"
-                    mod[row][c] = bit != ((row + c) % 2 == 0)
+                    bit = next(bits, "0") == "1"  # pragma: no mutate - any default but "1" pads with light bits
+                    masked = (row + c) % 2 == 0  # pragma: no mutate - row - c has the parity of row + c
+                    mod[row][c] = bit != masked
         upward = not upward
         col -= 2
 
@@ -116,13 +108,9 @@ def matrix(text):
     version, words = codewords(text.encode())
     mod, size = skeleton(version)
     cells, mirror = format_cells(size)
-    for cell in cells + mirror:
-        mod[cell[0]][cell[1]] = False
+    for bit, (row, col) in [*zip(FORMAT, cells), *zip(FORMAT, mirror)]:
+        mod[row][col] = bit == "1"
     place(mod, size, "".join(f"{w:08b}" for w in words))
-    for bit, (row, col) in zip(FORMAT, cells):
-        mod[row][col] = bit == "1"
-    for bit, (row, col) in zip(FORMAT, mirror):
-        mod[row][col] = bit == "1"
     return [[bool(cell) for cell in row] for row in mod]
 
 

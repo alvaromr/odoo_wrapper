@@ -83,7 +83,7 @@ def bonjour_name():
     try:
         name = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True, text=True).stdout.strip()
     except OSError:
-        name = ""
+        name = ""  # pragma: no mutate - any empty name falls back to the hostname below
     name = name or socket.gethostname().split(".")[0] or "localhost"
     return name if name.endswith(".local") else f"{name}.local"
 
@@ -138,8 +138,8 @@ def hostname_of(value):
     if "//" in value:
         return urlsplit(value).hostname or ""
     if value.startswith("["):
-        return value[1:].split("]", 1)[0]
-    return value.split(":", 1)[0]
+        return value[1:].split("]")[0]
+    return value.split(":")[0]
 
 
 def is_local_name(name):

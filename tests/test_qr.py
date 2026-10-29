@@ -172,6 +172,7 @@ class SvgTest(unittest.TestCase):
         self.assertIn(f'viewBox="0 0 {size} {size}"', out)
         self.assertIn('d="M6 6h2v2h-2z M8 6h2v2h-2z ', out)
         self.assertTrue(out.startswith("<svg") and out.endswith("</svg>"))
+        self.assertIn('viewBox="0 0 116 116"', qr.svg("hola"))
 
     def test_paints_one_square_per_dark_module(self):
         grid = qr.matrix("hola")
