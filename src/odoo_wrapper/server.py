@@ -54,10 +54,11 @@ Same-site guard
   /api/attendance (needs no preflight with text/plain and would clock the user in or out). Every response
   carries X-Frame-Options: DENY so no page can frame the dashboard and click its buttons through an overlay.
 - Every response also carries CONTENT_POLICY: scripts only from this server's own files (no inline script,
-  hence js/login.js), requests only to itself, nothing framed or framing; and X-Content-Type-Options:
-  nosniff, so a JSON answer is never run as a script. Styles may be inline: each page keeps its own <style>
-  block and the scripts set element styles. The page builds nothing from user text with innerHTML (only
-  the QR's SVG, which qr.py writes), so the policy is a second wall, not the only one.
+  hence js/login.js), styles too (no <style> block nor style attribute: each page has its own .css next to
+  style.css, served like it), requests only to itself, nothing framed or framing; and
+  X-Content-Type-Options: nosniff, so a JSON answer is never run as a script. The scripts still set element
+  styles through el.style, which the policy does not govern. The page builds nothing from user text with
+  innerHTML (only the QR's SVG, which qr.py writes), so the policy is a second wall, not the only one.
 
 Assets
 - /manifest.json and /icon.svg make the page installable, so the phone can add it to the home screen and
@@ -120,7 +121,6 @@ LOGIN_TEMPLATE = f"{process.TEMPLATES}/login.html"
 TEAM_TEMPLATE = f"{process.TEMPLATES}/team.html"
 PAGES = {"/": TEMPLATE, "/index.html": TEMPLATE, "/empleado": TEMPLATE, "/gestion": TEAM_TEMPLATE,
          "/login": LOGIN_TEMPLATE}
-STYLESHEET = f"{process.TEMPLATES}/style.css"
 SCRIPTS = f"{process.TEMPLATES}/js"
 MANIFEST = f"{process.TEMPLATES}/manifest.json"
 ICON = f"{process.TEMPLATES}/icon.svg"
@@ -134,7 +134,7 @@ LOGIN_LOCK = 30
 LOGIN_LOCK_MAX = 900
 PAIR_TTL = 120
 SEES_TTL = 1800
-CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; "
+CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
                   "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
@@ -302,8 +302,8 @@ class Handler(BaseHTTPRequestHandler):
             page = PAGES[self.path] if session_cookie(self.headers) else LOGIN_TEMPLATE
             with open(page, "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
-        elif self.path == "/style.css":
-            with open(STYLESHEET, "rb") as f:
+        elif self.path.endswith(".css") and self.path[1:] in os.listdir(process.TEMPLATES):
+            with open(os.path.join(process.TEMPLATES, self.path[1:]), "rb") as f:
                 self._send(200, f.read(), "text/css; charset=utf-8")
         elif self.path == "/manifest.json":
             with open(MANIFEST, "rb") as f:

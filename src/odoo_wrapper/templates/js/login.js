@@ -39,7 +39,7 @@ setInterval(tick, 10000);
 field("eye").addEventListener("click", () => {
   const shown = field("pass").type === "password";
   field("pass").type = shown ? "text" : "password";
-  field("eye-slash").style.display = shown ? "" : "none";
+  field("eye-slash").classList.toggle("hidden", !shown);
   field("eye").setAttribute("aria-pressed", String(shown));
   field("eye").setAttribute("aria-label", shown ? "Ocultar contraseña" : "Mostrar contraseña");
   field("pass").focus();

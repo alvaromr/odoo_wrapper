@@ -865,10 +865,11 @@ test("the login page asks only for what Odoo still needs, and for the code when 
   assert.deepEqual([known.field("user").value, known.focused], ["ana", ["pass"]]);
   known.field("pass").type = "password";
   known.field("eye").listeners.click[0]();
-  assert.deepEqual([known.field("pass").type, known.field("eye").getAttribute("aria-label")],
-    ["text", "Ocultar contraseña"]);
+  assert.deepEqual([known.field("pass").type, known.field("eye").getAttribute("aria-label"),
+    known.field("eye-slash").classList.contains("hidden")], ["text", "Ocultar contraseña", false]);
   known.field("eye").listeners.click[0]();
-  assert.deepEqual([known.field("pass").type, known.field("eye-slash").style.display], ["password", "none"]);
+  assert.deepEqual([known.field("pass").type, known.field("eye-slash").classList.contains("hidden")],
+    ["password", true]);
   known.field("pass").value = "secreta";
   await known.submit();
   assert.deepEqual([known.field("code").hidden, known.field("code").required, known.field("submit").disabled],

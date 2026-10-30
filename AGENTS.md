@@ -31,12 +31,13 @@ src/odoo_wrapper/
                      «Actualizar ahora»: installing it with uv and restarting into it
   qr.py              hand-written QR encoder
   templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
-                     (design tokens), manifest.json and icon.svg (installable page), and js/: the pages
+                     (design tokens) and each page's own .css, manifest.json and icon.svg (installable page),
+                     and js/: the pages
                      as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
                      week, ui, api, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
-                     loaded from every page's <head>. Served at /style.css and /js/<name>
+                     loaded from every page's <head>. Served at /<name>.css and /js/<name>
 tests/               unittest + node tests and check.py, the gate; see below
 .githooks/           pre-commit: runs the gate before each commit
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a

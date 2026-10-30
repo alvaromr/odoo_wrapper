@@ -207,7 +207,9 @@ class HandlerTest(unittest.TestCase):
 
     def test_pages_and_assets(self):
         for path, marker, ctype in (("/", b"<html", "text/html"), ("/index.html", b"<html", "text/html"),
-                                    ("/style.css", b":root", "text/css"), ("/js/app.js", b"function", "text/javascript"),
+                                    ("/style.css", b":root", "text/css"), ("/dashboard.css", b".hero", "text/css"),
+                                    ("/team.css", b".fix-grid", "text/css"), ("/login.css", b".clock", "text/css"),
+                                    ("/js/app.js", b"function", "text/javascript"),
                                     ("/js/render.js", b"function renderHero", "text/javascript"),
                                     ("/manifest.json", b'"start_url"', "application/manifest+json"),
                                     ("/icon.svg", b"<svg", "image/svg+xml")):
@@ -219,10 +221,20 @@ class HandlerTest(unittest.TestCase):
             self.assertEqual(headers["X-Frame-Options"], "DENY")
             self.assertEqual(headers["Cache-Control"], "no-store")
             self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
-            self.assertIn("script-src 'self';", headers["Content-Security-Policy"])
-            self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
-        for path in ("/js/nada.js", "/js/../server.py", "/js/", "/app.js"):
+            self.assertEqual(headers["Content-Security-Policy"],
+                             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+                             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; "
+                             "object-src 'none'")
+        for path in ("/js/nada.js", "/js/../server.py", "/js/", "/app.js", "/nada.css", "/js/style.css",
+                     "/../templates/style.css", "/dashboard.html"):
             self.assertEqual(self.get(path)[0], 404, path)
+
+    def test_no_page_carries_a_style_the_policy_would_refuse(self):
+        for name in sv.PAGES.values():
+            with open(name, encoding="utf-8") as f:
+                page = f.read()
+            self.assertNotIn("<style", page, name)
+            self.assertNotIn(" style=", page, name)
 
     def test_the_page_is_installable(self):
         manifest = json.loads(self.get("/manifest.json")[2])
