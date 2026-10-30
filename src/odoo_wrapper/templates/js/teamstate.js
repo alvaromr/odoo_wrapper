@@ -9,7 +9,10 @@
 import { isoDay } from "./format.js";
 
 export const FlagText = {
-  open: "Sin cerrar", empty: "Sin fichar", long: "Jornada muy larga", under: "Bajo objetivo",
+  open: "Sin cerrar",
+  empty: "Sin fichar",
+  long: "Jornada muy larga",
+  under: "Bajo objetivo",
   over: "Demasiadas horas",
 };
 
@@ -18,11 +21,24 @@ export const FixKinds = ["open", "long", "empty"];
 export const thisDay = () => isoDay(new Date());
 
 export const team = {
-  data: null, fixes: null, view: "week", week: null, month: thisDay().slice(0, 7), year: thisDay().slice(0, 4),
-  filter: "issues", display: "table", search: "", fixDay: 10, fixKinds: new Set(FixKinds),
+  data: null,
+  fixes: null,
+  view: "week",
+  week: null,
+  month: thisDay().slice(0, 7),
+  year: thisDay().slice(0, 4),
+  filter: "issues",
+  display: "table",
+  search: "",
+  fixDay: 10,
+  fixKinds: new Set(FixKinds),
 };
 
-const folded = text => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+const folded = (text) =>
+  text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 
 export function named(e, search) {
   return folded(e.name).includes(folded(search.trim()));

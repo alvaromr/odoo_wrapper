@@ -233,7 +233,7 @@ class HandlerTest(unittest.TestCase):
             ("/team.css", b".fix-grid", "text/css"),
             ("/login.css", b".clock", "text/css"),
             ("/js/app.js", b"function", "text/javascript"),
-            ("/js/render.js", b"function renderHero", "text/javascript"),
+            ("/js/hero.js", b"function renderHero", "text/javascript"),
             ("/manifest.json", b'"start_url"', "application/manifest+json"),
             ("/icon.svg", b"<svg", "image/svg+xml"),
         ):

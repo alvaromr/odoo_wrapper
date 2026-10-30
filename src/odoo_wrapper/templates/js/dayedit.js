@@ -44,9 +44,10 @@
  *   only «Cerrar» or Escape, and neither while a write is on its way (holdDialog): its answer reopens the day,
  *   which reopened a dialog already closed.
  */
+
+import { dayKey, fmtDate, fmtDay, fmtDelta, fmtHM, fmtTime, fmtYear, parseDay } from "./format.js";
+import { api, el, hideTip, tipRow, warned } from "./shared.js";
 import { DayNames } from "./store.js";
-import { fmtHM, fmtDelta, fmtDay, fmtDate, fmtYear, fmtTime, dayKey, parseDay } from "./format.js";
-import { el, api, hideTip, tipRow, warned } from "./shared.js";
 
 export const RequestText = { new: "Borrador", pending: "Pendiente", approved: "Aprobada", refused: "Rechazada" };
 
@@ -56,14 +57,14 @@ export function sessionSpan(s) {
 
 export function whyDay(kind, day, limits) {
   if (kind === "open") {
-    return day.sessions.filter(s => !s.out).map(s => `Entrada a las ${fmtTime(new Date(s.in))} sin salida`);
+    return day.sessions.filter((s) => !s.out).map((s) => `Entrada a las ${fmtTime(new Date(s.in))} sin salida`);
   }
   if (kind === "empty") return [`Jornada prevista de ${fmtHM(day.target)} sin fichajes ni ausencia`];
   return [`${fmtHM(day.hours)} fichadas en el día, más de ${fmtHM(limits.long_day)}`];
 }
 
 export function balanced(day) {
-  return day.target > 0 && day.sessions.length > 0 && day.sessions.every(s => s.out);
+  return day.target > 0 && day.sessions.length > 0 && day.sessions.every((s) => s.out);
 }
 
 export function dayLabel(iso, year = false) {
@@ -82,7 +83,7 @@ export function sessionRow(s, limits, open) {
 }
 
 export function dayDetails(day, limits, { employee = null, title = true, sessions = true } = {}) {
-  return tip => {
+  return (tip) => {
     if (title) tip.appendChild(el("div", "t-title", dayLabel(day.date)));
     if (sessions) {
       if (!day.sessions.length) tip.appendChild(el("div", "t-note", "Sin fichajes"));
@@ -92,7 +93,7 @@ export function dayDetails(day, limits, { employee = null, title = true, session
       tip.appendChild(el("div", "t-sep"));
       tip.appendChild(tipRow(`Frente a ${fmtHM(day.target)} previstas`, fmtDelta(day.hours - day.target)));
     }
-    const notes = day.flags.flatMap(kind => whyDay(kind, day, limits));
+    const notes = day.flags.flatMap((kind) => whyDay(kind, day, limits));
     if (notes.length) tip.appendChild(el("div", "t-sep"));
     for (const text of notes) tip.appendChild(el("div", "t-note warn", text));
     for (const r of day.requests) {
@@ -100,8 +101,8 @@ export function dayDetails(day, limits, { employee = null, title = true, session
       tip.appendChild(el("div", `t-note ${r.status}`, requestLine(r)));
       if (r.reason) tip.appendChild(el("div", "t-note", r.reason));
       if (employee && r.can_approve) {
-        const approve = () => api("/api/team/approve", { id: r.id })
-          .then(() => refreshDay(employee, day.date, "Solicitud aprobada."));
+        const approve = () =>
+          api("/api/team/approve", { id: r.id }).then(() => refreshDay(employee, day.date, "Solicitud aprobada."));
         tip.appendChild(confirmButton("Aprobar solicitud", "No se pudo aprobar", approve));
       }
     }
@@ -128,9 +129,11 @@ export function openDay(employee, day, { limits, can_edit: canEdit, reasons, can
 
 export function noticeText(day, limits) {
   const date = parseDay(day.date).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
-  const why = day.flags.flatMap(kind => whyDay(kind, day, limits)).map(t => t[0].toLowerCase() + t.slice(1));
-  return `Tienes un error en el fichaje del ${date.replace(",", "")}: ${why.join("; ")}.\n`
-    + "Por favor, haz una solicitud de cambio de fichaje en Odoo.";
+  const why = day.flags.flatMap((kind) => whyDay(kind, day, limits)).map((t) => t[0].toLowerCase() + t.slice(1));
+  return (
+    `Tienes un error en el fichaje del ${date.replace(",", "")}: ${why.join("; ")}.\n` +
+    "Por favor, haz una solicitud de cambio de fichaje en Odoo."
+  );
 }
 
 export function noticeBox(employee, day, limits, canMessage) {
@@ -151,9 +154,17 @@ export function noticeBox(employee, day, limits, canMessage) {
   }
   const copy = el("button", sends ? "btn ghost small" : "btn small", "Copiar");
   copy.type = "button";
-  copy.addEventListener("click", () => Promise.resolve().then(() => navigator.clipboard.writeText(text.value)).then(
-    () => say("Mensaje copiado."),
-    () => { text.select(); say("No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C."); }));
+  copy.addEventListener("click", () =>
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(text.value))
+      .then(
+        () => say("Mensaje copiado."),
+        () => {
+          text.select();
+          say("No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C.");
+        },
+      ),
+  );
   actions.appendChild(copy);
   const fold = el("button", "btn ghost small", "Cancelar");
   fold.type = "button";
@@ -180,7 +191,10 @@ export function confirmButton(label, failure, work) {
   let armed = null;
   button.addEventListener("click", async () => {
     if (!armed) {
-      armed = setTimeout(() => { armed = null; button.textContent = label; }, 4000);
+      armed = setTimeout(() => {
+        armed = null;
+        button.textContent = label;
+      }, 4000);
       button.textContent = "¿Confirmar?";
       return;
     }
@@ -213,7 +227,7 @@ export function reasonField(s, reasons) {
   const own = s ? { id: s.reason_id ?? "", name: s.reason ?? "sin motivo" } : reasons[0];
   const select = el("select");
   select.setAttribute("aria-label", "Motivo");
-  for (const r of reasons.some(r => r.id === own.id) ? reasons : [own, ...reasons]) {
+  for (const r of reasons.some((r) => r.id === own.id) ? reasons : [own, ...reasons]) {
     const option = el("option", "", r.name);
     option.value = r.id;
     select.appendChild(option);
@@ -223,24 +237,33 @@ export function reasonField(s, reasons) {
 }
 
 export function punchChanges(date, entries) {
-  const at = time => new Date(`${date}T${time}`).toISOString();
-  const kept = entries.filter(e => !e.gone).flatMap(({ s, start, end, reason }) => {
-    const [was, until] = s ? [fmtTime(new Date(s.in)), s.out ? fmtTime(new Date(s.out)) : ""] : ["", ""];
-    const another = Boolean(reason) && reason.value !== String(s?.reason_id ?? "");
-    if (start.value === was && end.value === until && !(s && another)) return [];
-    if (!start.value || !end.value) throw new Error("cada fichaje necesita entrada y salida");
-    return [{ ...(s ? { id: s.id } : {}), check_in: start.value === was ? s.in : at(start.value),
-      check_out: end.value === until ? s.out : at(end.value), ...(another ? { reason: Number(reason.value) } : {}) }];
-  });
-  return [...entries.filter(e => e.gone).map(e => ({ id: e.s.id, gone: true })), ...kept];
+  const at = (time) => new Date(`${date}T${time}`).toISOString();
+  const kept = entries
+    .filter((e) => !e.gone)
+    .flatMap(({ s, start, end, reason }) => {
+      const [was, until] = s ? [fmtTime(new Date(s.in)), s.out ? fmtTime(new Date(s.out)) : ""] : ["", ""];
+      const another = Boolean(reason) && reason.value !== String(s?.reason_id ?? "");
+      if (start.value === was && end.value === until && !(s && another)) return [];
+      if (!start.value || !end.value) throw new Error("cada fichaje necesita entrada y salida");
+      return [
+        {
+          ...(s ? { id: s.id } : {}),
+          check_in: start.value === was ? s.in : at(start.value),
+          check_out: end.value === until ? s.out : at(end.value),
+          ...(another ? { reason: Number(reason.value) } : {}),
+        },
+      ];
+    });
+  return [...entries.filter((e) => e.gone).map((e) => ({ id: e.s.id, gone: true })), ...kept];
 }
 
 export function punchEditor(employee, day, limits, reasons) {
   const box = el("div", "editor");
   const entries = [];
   const addRow = (s, before) => {
-    const row = el("div", "edit-row" + (s && wrongSession(s, limits) ? " warn" : ""));
-    const start = timeField(s?.in, "Entrada"), end = timeField(s?.out, "Salida");
+    const row = el("div", `edit-row${s && wrongSession(s, limits) ? " warn" : ""}`);
+    const start = timeField(s?.in, "Entrada"),
+      end = timeField(s?.out, "Salida");
     const reason = reasons.length ? reasonField(s, reasons) : null;
     row.append(start, "–", end);
     if (s?.out && dayKey(new Date(s.out)) !== dayKey(new Date(s.in))) {
@@ -252,7 +275,7 @@ export function punchEditor(employee, day, limits, reasons) {
     if (s) {
       const drop = el("button", "btn ghost small", "✕");
       drop.type = "button";
-      const mark = gone => {
+      const mark = (gone) => {
         entry.gone = gone;
         row.classList.toggle("gone", gone);
         for (const field of [start, end, reason].filter(Boolean)) field.disabled = gone;
@@ -274,27 +297,33 @@ export function punchEditor(employee, day, limits, reasons) {
     entries.push(entry);
   };
   const actions = el("div", "edit-actions");
-  actions.append(confirmButton("Guardar cambios", "No se pudo guardar", async () => {
-    const changes = punchChanges(day.date, entries).map(c => c.id ? c : { ...c, employee: employee.id });
-    if (!changes.length) return say("No hay cambios que guardar.");
-    const lost = [];
-    let sent = 0, done = "Guardado.";
-    try {
-      for (const change of changes) {
-        const answer = await api(change.gone ? "/api/team/delete" : "/api/team/attendance", change);
-        if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
-        sent += 1;
+  actions.append(
+    confirmButton("Guardar cambios", "No se pudo guardar", async () => {
+      const changes = punchChanges(day.date, entries).map((c) => (c.id ? c : { ...c, employee: employee.id }));
+      if (!changes.length) return say("No hay cambios que guardar.");
+      const lost = [];
+      let sent = 0,
+        done = "Guardado.";
+      try {
+        for (const change of changes) {
+          const answer = await api(change.gone ? "/api/team/delete" : "/api/team/attendance", change);
+          if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
+          sent += 1;
+        }
+      } catch (e) {
+        if (!sent) throw e;
+        done = `Guardado solo en parte; no se pudo el resto: ${e.message}.`;
       }
-    } catch (e) {
-      if (!sent) throw e;
-      done = `Guardado solo en parte; no se pudo el resto: ${e.message}.`;
-    }
-    const warnings = lost.map(d => `La salida original, ${fmtDate(d)} a las ${fmtTime(d)}, `
-      + "era probablemente la entrada de ese día: añádela allí.");
-    await refreshDay(employee.id, day.date, [done, ...warnings].join(" "));
-  }));
+      const warnings = lost.map(
+        (d) =>
+          `La salida original, ${fmtDate(d)} a las ${fmtTime(d)}, ` +
+          "era probablemente la entrada de ese día: añádela allí.",
+      );
+      await refreshDay(employee.id, day.date, [done, ...warnings].join(" "));
+    }),
+  );
   box.appendChild(actions);
-  (day.sessions.length ? day.sessions : [null]).forEach(s => addRow(s, actions));
+  for (const s of day.sessions.length ? day.sessions : [null]) addRow(s, actions);
   return box;
 }
 
@@ -308,13 +337,18 @@ export function wireDayDialog() {
   const dialog = el("dialog", "dialog");
   dialog.id = "dayDialog";
   dialog.setAttribute("aria-labelledby", "dayDialogTitle");
-  const title = el("h2"), body = el("div"), note = el("p", "dialog-note"), actions = el("div", "dialog-actions");
+  const title = el("h2"),
+    body = el("div"),
+    note = el("p", "dialog-note"),
+    actions = el("div", "dialog-actions");
   const close = el("button", "btn ghost", "Cerrar");
   [title.id, body.id, note.id, close.id] = ["dayDialogTitle", "dayDialogBody", "dayDialogNote", "dayDialogClose"];
   close.type = "button";
   note.setAttribute("role", "status");
   close.addEventListener("click", () => dialog.close());
-  dialog.addEventListener("cancel", e => { if (close.disabled) e.preventDefault(); });
+  dialog.addEventListener("cancel", (e) => {
+    if (close.disabled) e.preventDefault();
+  });
   actions.appendChild(close);
   dialog.append(title, body, note, actions);
   document.body.appendChild(dialog);
@@ -326,8 +360,8 @@ export function onDaySaved(reload) {
 
 export async function openDayOf(employeeId, date) {
   const week = await api(`/api/team?week=${date}`);
-  const employee = week.employees.find(e => e.id === employeeId);
-  const day = employee?.days.find(d => d.date === date);
+  const employee = week.employees.find((e) => e.id === employeeId);
+  const day = employee?.days.find((d) => d.date === date);
   if (day) openDay(employee, day, week);
 }
 

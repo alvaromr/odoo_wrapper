@@ -23,10 +23,13 @@
  *   unlogged gap that never counts; lunchHours is the lunch the day allows for. The estimated leave time adds
  *   it only until the day has a gap: once lunch is taken, its actual length is what it is.
  */
-import { store, MonthNames } from "./store.js";
-import { fmtHM, dayKey, isoDay, fmtDay, fmtYear } from "./format.js";
 
-export function lunchFrom(date) { return store.lunchFrom[(date.getDay() + 6) % 7]; }
+import { dayKey, fmtDay, fmtHM, fmtYear, isoDay } from "./format.js";
+import { MonthNames, store } from "./store.js";
+
+export function lunchFrom(date) {
+  return store.lunchFrom[(date.getDay() + 6) % 7];
+}
 
 export function lunchOpen(at = new Date()) {
   const minute = at.getHours() * 60 + at.getMinutes();
@@ -55,21 +58,24 @@ export function missed(d) {
 
 export function punchErrors() {
   const open = store.data.sessions
-    .filter(s => !s.out && new Date(s.in) < store.today)
-    .map(s => ({ kind: "open", in: new Date(s.in) }));
+    .filter((s) => !s.out && new Date(s.in) < store.today)
+    .map((s) => ({ kind: "open", in: new Date(s.in) }));
   const days = Array.from({ length: store.data.weeks }, (_, k) => buildWeek(k).days).flat();
-  const long = days.filter(d => d.sessions.every(s => s.out) && longDay(d))
-    .map(d => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
-  const empty = days.filter(missed).map(d => ({ kind: "empty", in: d.date, expected: d.expected }));
+  const long = days
+    .filter((d) => d.sessions.every((s) => s.out) && longDay(d))
+    .map((d) => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
+  const empty = days.filter(missed).map((d) => ({ kind: "empty", in: d.date, expected: d.expected }));
   return [...open, ...long, ...empty].sort((a, b) => b.in - a.in);
 }
 
 export function weekOffsetOf(date) {
-  const monday = d => new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7);
+  const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
   return Math.round((monday(store.today) - monday(date)) / (7 * 864e5));
 }
 
-export function targetLabel(w) { return fmtHM(w.target); }
+export function targetLabel(w) {
+  return fmtHM(w.target);
+}
 
 export function setClock(date) {
   store.now = date;
@@ -103,7 +109,11 @@ export function buildWeek(offset) {
     const leaves = auto ? [] : store.leaveMap.get(isoDay(date)) || [];
     const scheduled = store.contractHours.get(isoDay(date)) ?? store.expected[i];
     return {
-      date, auto, vacation: !!auto, leaves, scheduled,
+      date,
+      auto,
+      vacation: !!auto,
+      leaves,
+      scheduled,
       expected: auto || early ? 0 : Math.max(scheduled - leaves.reduce((a, l) => a + l.hours, 0), 0),
       hours: rec.hours,
       rest: rec.rest,
@@ -115,21 +125,28 @@ export function buildWeek(offset) {
   const target = days.reduce((a, d) => a + d.expected, 0);
   const sunday = days[6].date;
   return {
-    monday, sunday, days, total, rest, target,
+    monday,
+    sunday,
+    days,
+    total,
+    rest,
+    target,
     delta: total - target,
     current: monday <= store.today && store.today <= sunday,
     complete: sunday < store.today,
     allVacation: target <= 0,
     suspect: days.some(longDay),
     missedDays: days.filter(missed).length,
-    openDays: days.filter(d => d.sessions.some(unclosed)).length,
-    get error() { return this.suspect || this.missedDays > 0 || this.openDays > 0; },
+    openDays: days.filter((d) => d.sessions.some(unclosed)).length,
+    get error() {
+      return this.suspect || this.missedDays > 0 || this.openDays > 0;
+    },
   };
 }
 
 export function weeksSince(months) {
   const start = new Date(store.today.getFullYear(), store.today.getMonth() - months, store.today.getDate());
-  const monday = d => new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7);
+  const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
   return Math.round((monday(store.today) - monday(start)) / (7 * 864e5)) + 1;
 }
 
@@ -138,7 +155,8 @@ export function buildWeeks(nWeeks) {
 }
 
 export function weekRangeLabel(w) {
-  const a = w.monday, b = w.sunday;
+  const a = w.monday,
+    b = w.sunday;
   return a.getMonth() === b.getMonth()
     ? `${a.getDate()}–${b.getDate()} ${MonthNames[b.getMonth()]}${fmtYear(b)}`
     : `${fmtDay(a)}${a.getFullYear() === b.getFullYear() ? "" : fmtYear(a)} – ${fmtDay(b)}${fmtYear(b)}`;

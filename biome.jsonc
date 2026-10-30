@@ -1,0 +1,31 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": ["src/odoo_wrapper/templates/**/*.js", "src/odoo_wrapper/templates/*.css", "tests/*.mjs", "*.json"]
+  },
+  "formatter": { "indentStyle": "space", "lineWidth": 120 },
+  "javascript": { "formatter": { "quoteStyle": "double" } },
+  "linter": { "rules": { "recommended": true } },
+  "overrides": [
+    {
+      "includes": ["src/odoo_wrapper/templates/*.css"],
+      "linter": {
+        "rules": {
+          // The sheets follow the page's sections, and the pairs this flags never match one element with the
+          // same specificity, so specificity, not order, already decides between them.
+          "style": { "noDescendingSpecificity": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["tests/*.mjs"],
+      "linter": {
+        "rules": {
+          // The DOM stand-ins keep the browser's signatures, used or not, and record each call with `(x ||= []).push`.
+          "correctness": { "noUnusedFunctionParameters": "off" },
+          "suspicious": { "noAssignInExpressions": "off" }
+        }
+      }
+    }
+  ]
+}

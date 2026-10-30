@@ -12,15 +12,17 @@
  *   network could be a long time.
  * - On localhost the page also polls /api/version and reloads itself when a source file changes.
  */
-import { store, LOOPBACK, TickMs } from "./store.js";
-import { busy, wireSettings } from "./ui.js";
-import { setClock, indexSessions } from "./week.js";
+
+import { refreshNotifyNote, resetAlarms, stopFlash } from "./alarms.js";
+import { loadAndRender, loadFirst, refreshState, stale } from "./api.js";
+import { onDaySaved, wireDayDialog } from "./dayedit.js";
 import { isoDay } from "./format.js";
-import { renderHero, renderAll, setRangeMonths, punchText, openRequest } from "./render.js";
-import { stale, loadAndRender, loadFirst, refreshState } from "./api.js";
-import { wireLogout, wireMouseHistory, wireUpdates, warned } from "./shared.js";
-import { resetAlarms, refreshNotifyNote, stopFlash } from "./alarms.js";
-import { wireDayDialog, onDaySaved } from "./dayedit.js";
+import { punchText, renderHero } from "./hero.js";
+import { openRequest, renderAll, setRangeMonths } from "./render.js";
+import { warned, wireLogout, wireMouseHistory, wireUpdates } from "./shared.js";
+import { LOOPBACK, store, TickMs } from "./store.js";
+import { busy, wireSettings } from "./ui.js";
+import { indexSessions, setClock } from "./week.js";
 
 store.other = location.pathname === "/empleado" ? new URLSearchParams(location.search).get("id") : null;
 
@@ -74,7 +76,7 @@ function tick() {
     return;
   }
   refreshState();
-  if (!store.data.sessions.some(s => !s.out)) {
+  if (!store.data.sessions.some((s) => !s.out)) {
     if (store.punchEv) store.punchEl.textContent = punchText(store.punchEv);
     refreshNotifyNote();
     return;
@@ -87,14 +89,14 @@ function tick() {
 }
 setInterval(tick, TickMs);
 
-document.getElementById("rangeSeg").addEventListener("click", e => {
+document.getElementById("rangeSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
   setRangeMonths(btn.dataset.months === "all" ? 0 : Number(btn.dataset.months));
   for (const b of e.currentTarget.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
   renderAll();
 });
-document.getElementById("viewSeg").addEventListener("click", e => {
+document.getElementById("viewSeg").addEventListener("click", (e) => {
   const btn = e.target.closest("button");
   if (!btn) return;
   for (const b of e.currentTarget.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
@@ -102,9 +104,13 @@ document.getElementById("viewSeg").addEventListener("click", e => {
   document.getElementById("tableView").classList.toggle("hidden", btn.dataset.view !== "table");
 });
 
-document.getElementById("refreshBtn").addEventListener("click", async e => {
+document.getElementById("refreshBtn").addEventListener("click", async (e) => {
   e.target.disabled = true;
-  try { await loadAndRender(true); } finally { e.target.disabled = false; }
+  try {
+    await loadAndRender(true);
+  } finally {
+    e.target.disabled = false;
+  }
 });
 
 const requestBtn = document.getElementById("requestBtn");

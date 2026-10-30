@@ -17,14 +17,15 @@
  * - busy() treats an open tooltip (shared.js), an armed button or a focused duration field as "do not
  *   repaint now".
  */
-import { store, LunchMax } from "./store.js";
-import { el, api, tipOpen, attachTip, hideTip, showUpdate } from "./shared.js";
-import { saveState, loadAndRender } from "./api.js";
+
 import { checkAlarms } from "./alarms.js";
+import { loadAndRender, saveState } from "./api.js";
+import { api, attachTip, el, hideTip, showUpdate, tipOpen } from "./shared.js";
+import { LunchMax, store } from "./store.js";
 
 function restSpans(sessions) {
   let before = 0;
-  return sessions.flatMap(s => {
+  return sessions.flatMap((s) => {
     const span = s.rest ? [{ from: before, to: before + s.hours }] : [];
     before += s.hours;
     return span;
@@ -34,8 +35,8 @@ function restSpans(sessions) {
 export function fillBar(bar, sessions, total) {
   for (const span of restSpans(sessions)) {
     const seg = el("div", "rest");
-    seg.style.left = span.from / total * 100 + "%";
-    seg.style.width = (span.to - span.from) / total * 100 + "%";
+    seg.style.left = `${(span.from / total) * 100}%`;
+    seg.style.width = `${((span.to - span.from) / total) * 100}%`;
     bar.appendChild(seg);
   }
   return bar;
@@ -43,27 +44,33 @@ export function fillBar(bar, sessions, total) {
 
 /* ---------- estado ocupado ---------- */
 export function busy() {
-  return tipOpen()
-    || Boolean(document.querySelector(".btn.arm, .actions .btn:disabled, .lunch-input:focus"));
+  return tipOpen() || Boolean(document.querySelector(".btn.arm, .actions .btn:disabled, .lunch-input:focus"));
 }
-
 
 /* ---------- ajustes ---------- */
 const SettingsTips = {
-  lunch: "Lo que sueles tardar en comer. Los días con comida en tu calendario de Odoo se suma a la hora "
-    + "estimada de salida hasta tu primera ausencia del día; tras «Salir a comer», el aviso «Comida terminada» "
-    + "suena pasado este tiempo.",
-  rest: "Lo que dura un descanso. El aviso «Descanso terminado» suena pasado este tiempo desde que empieza; "
-    + "con 0 no suena.",
-  window: "Horas entre las que aparece el botón «Salir a comer», solo los días con comida en tu calendario de "
-    + "Odoo y mientras no lo hayas usado ese día. Ficha una salida normal y además pone en marcha el aviso de "
-    + "fin de comida.",
+  lunch:
+    "Lo que sueles tardar en comer. Los días con comida en tu calendario de Odoo se suma a la hora " +
+    "estimada de salida hasta tu primera ausencia del día; tras «Salir a comer», el aviso «Comida terminada» " +
+    "suena pasado este tiempo.",
+  rest:
+    "Lo que dura un descanso. El aviso «Descanso terminado» suena pasado este tiempo desde que empieza; " +
+    "con 0 no suena.",
+  window:
+    "Horas entre las que aparece el botón «Salir a comer», solo los días con comida en tu calendario de " +
+    "Odoo y mientras no lo hayas usado ese día. Ficha una salida normal y además pone en marcha el aviso de " +
+    "fin de comida.",
   theme: "Colores de la página en este navegador. «Sistema» sigue el modo claro u oscuro del dispositivo.",
-  updates: "El panel busca versiones nuevas en GitHub cada pocas horas y avisa arriba cuando hay una. Este botón "
-    + "lo comprueba ahora.",
+  updates:
+    "El panel busca versiones nuevas en GitHub cada pocas horas y avisa arriba cuando hay una. Este botón " +
+    "lo comprueba ahora.",
 };
 
-const Themes = [["", "Sistema"], ["light", "Claro"], ["dark", "Oscuro"]];
+const Themes = [
+  ["", "Sistema"],
+  ["light", "Claro"],
+  ["dark", "Oscuro"],
+];
 
 function themeField() {
   const seg = el("div", "seg");
@@ -75,14 +82,18 @@ function themeField() {
     b.dataset.theme = theme;
     return b;
   });
-  const press = () => buttons.forEach(b => b.setAttribute("aria-pressed",
-    String(b.dataset.theme === (document.documentElement.dataset.theme || ""))));
+  const press = () => {
+    for (const b of buttons) {
+      b.setAttribute("aria-pressed", String(b.dataset.theme === (document.documentElement.dataset.theme || "")));
+    }
+  };
   for (const b of buttons) {
     const { theme } = b.dataset;
     b.addEventListener("click", () => {
       const kept = window.chooseTheme(theme);
       press();
-      document.getElementById("settingsNote").textContent = kept ? ""
+      document.getElementById("settingsNote").textContent = kept
+        ? ""
         : "Este navegador no deja guardar el tema: vuelve al del sistema al recargar la página.";
     });
     seg.appendChild(b);
@@ -99,11 +110,13 @@ function updatesField() {
     b.disabled = true;
     try {
       const answer = showUpdate(await api("/api/update?fresh"));
-      note.textContent = answer.error
-        || (answer.available ? "Hay una versión nueva: el aviso de arriba dice cómo instalarla."
+      note.textContent =
+        answer.error ||
+        (answer.available
+          ? "Hay una versión nueva: el aviso de arriba dice cómo instalarla."
           : `Tienes la última versión, la ${answer.current}.`);
     } catch (e) {
-      note.textContent = "No se pudo buscar actualizaciones: " + e.message;
+      note.textContent = `No se pudo buscar actualizaciones: ${e.message}`;
     } finally {
       b.disabled = false;
     }
@@ -131,8 +144,8 @@ export function minutesField(label, key) {
 
 const WindowBackwards = "No se ha guardado: el botón tiene que aparecer antes de la hora en que desaparece.";
 
-const twoDigits = n => String(n).padStart(2, "0");
-const clockText = minutes => `${twoDigits(Math.floor(minutes / 60))}:${twoDigits(minutes % 60)}`;
+const twoDigits = (n) => String(n).padStart(2, "0");
+const clockText = (minutes) => `${twoDigits(Math.floor(minutes / 60))}:${twoDigits(minutes % 60)}`;
 
 function clockField(label, key) {
   const input = el("input", "clock-input");
@@ -154,7 +167,7 @@ function settingRow(label, tip, ...controls) {
   const row = el("div", "setting");
   row.tabIndex = 0;
   row.append(el("span", "setting-name", label), ...controls);
-  attachTip(row, t => t.appendChild(el("div", "t-note", tip)));
+  attachTip(row, (t) => t.appendChild(el("div", "t-note", tip)));
   return row;
 }
 
@@ -162,8 +175,11 @@ export function wireSettings() {
   const dialog = el("dialog", "dialog");
   dialog.id = "settingsDialog";
   dialog.setAttribute("aria-labelledby", "settingsTitle");
-  const title = el("h2", null, "Ajustes"), body = el("div", "settings"), note = el("p", "dialog-note");
-  const actions = el("div", "dialog-actions"), close = el("button", "btn ghost", "Cerrar");
+  const title = el("h2", null, "Ajustes"),
+    body = el("div", "settings"),
+    note = el("p", "dialog-note");
+  const actions = el("div", "dialog-actions"),
+    close = el("button", "btn ghost", "Cerrar");
   [title.id, body.id, note.id] = ["settingsTitle", "settingsBody", "settingsNote"];
   note.setAttribute("role", "status");
   close.type = "button";
@@ -182,10 +198,20 @@ export function openSettings() {
   if (store.data.breaks) {
     rows.push(settingRow("Descanso", SettingsTips.rest, minutesField("Descanso", "break_minutes")));
   }
-  rows.push(settingRow("Botón «Salir a comer»", SettingsTips.window,
-    "de", clockField("Aparece a las", "lunch_button_from"), "a", clockField("Desaparece a las", "lunch_button_to")));
-  rows.push(settingRow("Tema", SettingsTips.theme, themeField()),
-    settingRow("Actualizaciones", SettingsTips.updates, updatesField()));
+  rows.push(
+    settingRow(
+      "Botón «Salir a comer»",
+      SettingsTips.window,
+      "de",
+      clockField("Aparece a las", "lunch_button_from"),
+      "a",
+      clockField("Desaparece a las", "lunch_button_to"),
+    ),
+  );
+  rows.push(
+    settingRow("Tema", SettingsTips.theme, themeField()),
+    settingRow("Actualizaciones", SettingsTips.updates, updatesField()),
+  );
   document.getElementById("settingsBody").replaceChildren(...rows);
   document.getElementById("settingsNote").textContent = "";
   const dialog = document.getElementById("settingsDialog");
@@ -197,9 +223,17 @@ function icon(shapes) {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
   for (const [k, v] of Object.entries({
-    viewBox: "0 0 24 24", width: 15, height: 15, fill: "none", stroke: "currentColor",
-    "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true",
-  })) svg.setAttribute(k, v);
+    viewBox: "0 0 24 24",
+    width: 15,
+    height: 15,
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": 2,
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  }))
+    svg.setAttribute(k, v);
   for (const d of shapes) {
     const path = document.createElementNS(NS, "path");
     path.setAttribute("d", d);
@@ -218,21 +252,30 @@ export function bellIcon(muted) {
 
 export function gearIcon() {
   return icon([
-    "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38"
-      + "a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38"
-      + "a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2"
-      + "v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73"
-      + "l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73"
-      + "l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+    "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38" +
+      "a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38" +
+      "a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2" +
+      "v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73" +
+      "l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73" +
+      "l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
     "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   ]);
 }
 
 export function qrIcon() {
   return icon([
-    "M3 3h5v5H3z", "M16 3h5v5h-5z", "M3 16h5v5H3z",
-    "M21 16h-3a2 2 0 0 0-2 2v3", "M21 21v.01", "M12 7v3a2 2 0 0 1-2 2H7",
-    "M3 12h.01", "M12 3h.01", "M12 16v.01", "M16 12h1", "M21 12v.01", "M12 21v-1",
+    "M3 3h5v5H3z",
+    "M16 3h5v5h-5z",
+    "M3 16h5v5H3z",
+    "M21 16h-3a2 2 0 0 0-2 2v3",
+    "M21 21v.01",
+    "M12 7v3a2 2 0 0 1-2 2H7",
+    "M3 12h.01",
+    "M12 3h.01",
+    "M12 16v.01",
+    "M16 12h1",
+    "M21 12v.01",
+    "M12 21v-1",
   ]);
 }
 
@@ -266,10 +309,10 @@ export function actionButton(cls, label, action, errBox) {
       checkAlarms();
     } catch (e) {
       if (punched) {
-        errBox.textContent = "Fichado, pero no se pudo recargar: " + e.message;
+        errBox.textContent = `Fichado, pero no se pudo recargar: ${e.message}`;
         return;
       }
-      errBox.textContent = "Error: " + e.message;
+      errBox.textContent = `Error: ${e.message}`;
       b.disabled = false;
       b.textContent = label;
       b.classList.remove("arm");

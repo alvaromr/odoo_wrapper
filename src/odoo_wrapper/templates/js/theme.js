@@ -10,12 +10,12 @@
  */
 const ThemeKey = "theme";
 
-window.chooseTheme = choice => {
+window.chooseTheme = (choice) => {
   document.documentElement.dataset.theme = choice;
   try {
     localStorage.setItem(ThemeKey, choice);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 };

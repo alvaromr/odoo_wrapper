@@ -34,7 +34,7 @@ src/odoo_wrapper/
                      (design tokens) and each page's own .css, manifest.json and icon.svg (installable page),
                      and js/: the pages
                      as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
-                     week, ui, api, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
+                     week, ui, api, hero, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
@@ -100,9 +100,10 @@ Read the header of a module before touching it.
 ## Code style
 
 - Functional over imperative where it reads better; no inline comments — the code should not need them. The
-  why lives in each module's header (docstring or top comment block), nowhere else. The one exception is the
-  `# pragma: no mutate - <reason>` of an equivalent mutant, `// Stryker disable next-line` in the JS (see How to
-  verify changes).
+  why lives in each module's header (docstring or top comment block), nowhere else. The exceptions are the
+  comments that tell a tool to let one line be, each with its reason: `# pragma: no mutate - <reason>` of an
+  equivalent mutant, `// Stryker disable next-line` in the JS (see How to verify changes), and
+  `biome-ignore <rule>: <reason>`; a rule switched off for a whole file says why in `biome.jsonc`.
 - Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
@@ -148,7 +149,7 @@ A tag is never moved or reused; a broken release is fixed by the next one.
 
 ## How to verify changes
 
-Start with the gate, one command that needs uv and Node ≥ 22 and installs nothing in the repo but its own
+Start with the gate, one command that needs uv, pnpm and Node ≥ 22 and installs nothing in the repo but its own
 pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
@@ -161,7 +162,8 @@ secret anywhere under the repo, a size cap for source files and every module nam
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
 `node --test tests/app.test.mjs` (the page's logic). `ruff format` lays out every Python file, tests included,
-in 120 columns (`pyproject.toml`); run it rather than wrapping by hand. mypy checks the bodies of functions without annotations,
+in 120 columns (`pyproject.toml`), and Biome the page's JS and CSS and the JS tests (`biome.jsonc`), which it
+also lints; run them rather than wrapping by hand. mypy checks the bodies of functions without annotations,
 which is all the package has; annotate only what it cannot infer.
 
 Mutation testing runs now and then rather than on every commit: it takes minutes, and its working copy,

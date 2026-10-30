@@ -8,15 +8,17 @@
  * it says where the token is found, and «Enviar prueba» sends them, and only them, a test message to see it
  * work end to end. No side effects on import.
  */
-import { el, api } from "./shared.js";
+import { api, el } from "./shared.js";
 import { team } from "./teamstate.js";
 
-export const BotHelp = "Está en discord.com/developers/applications: tu aplicación → Bot → «Restablecer token». "
-  + "Discord solo lo enseña una vez.";
+export const BotHelp =
+  "Está en discord.com/developers/applications: tu aplicación → Bot → «Restablecer token». " +
+  "Discord solo lo enseña una vez.";
 
 export function botStatus() {
   if (!team.data) return "Comprobando si hay un token guardado…";
-  return team.data.can_message ? "Hay un token guardado: los avisos de fichajes se envían por privado."
+  return team.data.can_message
+    ? "Hay un token guardado: los avisos de fichajes se envían por privado."
     : "No hay token guardado: los avisos de fichajes solo se pueden copiar.";
 }
 
@@ -29,8 +31,12 @@ export function wireDiscord(button) {
   const dialog = el("dialog", "dialog");
   dialog.id = "discordDialog";
   dialog.setAttribute("aria-labelledby", "discordTitle");
-  const title = el("h2", null, "Bot de Discord"), status = el("p", "t-note"), note = el("p", "dialog-note");
-  const input = el("input"), save = el("button", "btn small", "Guardar"), close = el("button", "btn ghost", "Cerrar");
+  const title = el("h2", null, "Bot de Discord"),
+    status = el("p", "t-note"),
+    note = el("p", "dialog-note");
+  const input = el("input"),
+    save = el("button", "btn small", "Guardar"),
+    close = el("button", "btn ghost", "Cerrar");
   [title.id, status.id] = ["discordTitle", "discordStatus"];
   input.type = "password";
   input.autocomplete = "off";
@@ -66,7 +72,8 @@ export function wireDiscord(button) {
     }
   });
   close.addEventListener("click", () => dialog.close());
-  const row = el("div", "edit-row"), actions = el("div", "dialog-actions");
+  const row = el("div", "edit-row"),
+    actions = el("div", "dialog-actions");
   row.append(input, save);
   actions.append(test, close);
   dialog.append(title, status, el("p", "t-note", BotHelp), row, note, actions);

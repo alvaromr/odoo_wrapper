@@ -4,12 +4,14 @@
 `python3 tests/check.py` runs Ruff (format and lint), mypy (types), the Python suite on the oldest Python the
 package supports (MIN_PYTHON, read from .python-version, which pyproject.toml's requires-python must match; Ruff
 takes its target from requires-python itself), the same suite measuring every line and branch on COVERAGE_PYTHON
-(branches need 3.14), and the page's suite with its coverage under Node NODE_MIN or newer. Every step runs even
+(branches need 3.14), Biome over the page's JS and CSS and the JS tests (format, lint and import order, as
+biome.jsonc sets), and the page's suite with its coverage under Node NODE_MIN or newer. Every step runs even
 after one fails, so a single run lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it
 before each commit, and the gate installs that hook itself (git's core.hooksPath) the first time it runs in a
 clone, so no clone goes without it.
 
-The tools come from uv at the versions pinned here: uvx for Ruff and mypy, `uv run` for each Python. Nothing is
+The tools come at the versions pinned here: uvx for Ruff and mypy, `uv run` for each Python, `pnpm dlx` for
+Biome. Nothing is
 installed in the repo and nothing reaches the package, whose only requirement is still Python's standard
 library (AGENTS.md, rule 1). Mutation testing is not part of it: it takes minutes (AGENTS.md says how to run it).
 """
@@ -22,6 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = ".githooks"
 RUFF = "ruff@0.14.3"
 MYPY = "mypy@1.18.2"
+BIOME = "@biomejs/biome@2.5.15"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
     MIN_PYTHON = pinned.read().strip()
 COVERAGE_PYTHON = "3.14"
@@ -42,6 +45,7 @@ STEPS = [
         ["uv", "run", "--no-project", "--python", MIN_PYTHON, "-m", "unittest", "discover", "-s", "tests", "-q"],
     ),
     ("Python coverage", ["uv", "run", "--no-project", "--python", COVERAGE_PYTHON, "tests/report_coverage.py"]),
+    ("Biome", ["pnpm", "dlx", BIOME, "ci"]),
     ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/app.test.mjs"]),
 ]
 

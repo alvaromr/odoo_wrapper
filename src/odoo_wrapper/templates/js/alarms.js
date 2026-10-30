@@ -22,13 +22,15 @@
  *   calls stopFlash(), and a punch runs the dispatcher at once. It used to stop only when the tab regained
  *   focus, so clocking back in while already looking at the page left the title blinking.
  */
-import { store, AlarmGrace, NotifyEveryMs } from "./store.js";
+
 import { fmtTime } from "./format.js";
+import { AlarmGrace, NotifyEveryMs, store } from "./store.js";
 import { buildWeek, indexSessions } from "./week.js";
 
 const BaseTitle = document.title;
 const AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let NotifiedAt = 0, FlashTimer = null;
+let NotifiedAt = 0,
+  FlashTimer = null;
 export const LastRing = { lunch: 0, rest: 0 };
 
 export function resetAlarms() {
@@ -55,7 +57,8 @@ function beep() {
   if (!audioReady()) return;
   const t0 = AudioCtx.currentTime;
   for (const offset of [0, 0.3, 0.6]) {
-    const osc = AudioCtx.createOscillator(), gain = AudioCtx.createGain();
+    const osc = AudioCtx.createOscillator(),
+      gain = AudioCtx.createGain();
     osc.type = "sine";
     osc.frequency.value = 880;
     gain.gain.setValueAtTime(0.0001, t0 + offset);
@@ -70,7 +73,10 @@ function beep() {
 function flashTitle(text) {
   if (FlashTimer) return;
   let on = false;
-  FlashTimer = setInterval(() => { document.title = (on = !on) ? text : BaseTitle; }, 900);
+  FlashTimer = setInterval(() => {
+    on = !on;
+    document.title = on ? text : BaseTitle;
+  }, 900);
 }
 
 export function stopFlash() {
@@ -87,18 +93,16 @@ export function notifyStatus(open, day, dayRemaining) {
   if (!open) {
     const due = lunchDueAt();
     if (!due) return "Sin fichaje abierto";
-    return (due > Date.now()
-      ? `Comida hasta las ${fmtTime(due)}`
-      : `Comida vencida a las ${fmtTime(due)}`) + silent;
+    return (due > Date.now() ? `Comida hasta las ${fmtTime(due)}` : `Comida vencida a las ${fmtTime(due)}`) + silent;
   }
   if (open.rest) {
     const due = breakDueAt(open);
     if (!due) return "En descanso · sin aviso configurado";
-    return (due > Date.now()
-      ? `Descanso hasta las ${fmtTime(due)}`
-      : `Descanso vencido a las ${fmtTime(due)}`) + silent;
+    return (
+      (due > Date.now() ? `Descanso hasta las ${fmtTime(due)}` : `Descanso vencido a las ${fmtTime(due)}`) + silent
+    );
   }
-  if (dayRemaining > 0) return "Sonará al cumplir la jornada" + silent;
+  if (dayRemaining > 0) return `Sonará al cumplir la jornada${silent}`;
   const left = Math.max(NotifiedAt + NotifyEveryMs - Date.now(), 0);
   return `Avisando cada ${Math.round(NotifyEveryMs / 60000)} min · siguiente ${left < 60000 ? "en menos de 1 min" : `en ${Math.round(left / 60000)} min`}`;
 }
@@ -108,7 +112,7 @@ function lunchDueAt() {
 }
 
 function breakDueAt(open) {
-  return open && open.rest && store.state.break_minutes > 0
+  return open?.rest && store.state.break_minutes > 0
     ? new Date(new Date(open.in).getTime() + store.state.break_minutes * 60000)
     : null;
 }
@@ -127,11 +131,11 @@ export function checkAlarms() {
   if (store.state.muted) return stopFlash();
   store.now = new Date();
   indexSessions();
-  const day = buildWeek(0).days.find(d => d.date.getTime() === store.today.getTime());
+  const day = buildWeek(0).days.find((d) => d.date.getTime() === store.today.getTime());
   if (!day || day.expected <= 0) return stopFlash();
-  const open = store.data.sessions.find(s => !s.out);
+  const open = store.data.sessions.find((s) => !s.out);
 
-  if (open && open.rest) {
+  if (open?.rest) {
     LastRing.lunch = 0;
     return ringWhenDue(breakDueAt(open), "rest", "☕ Descanso terminado");
   }

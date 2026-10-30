@@ -11,13 +11,15 @@
  *   see it in their next /api/state poll and reload, so clocking in on the phone updates the laptop by
  *   itself. State writes render optimistically and roll back if the request fails.
  */
-import { store, NoSchedule, DataMaxAge, RetryAfter } from "./store.js";
-import { api, warned } from "./shared.js";
-import { busy } from "./ui.js";
-import { setClock, indexSessions } from "./week.js";
-import { fmtDay, fmtTime } from "./format.js";
-import { renderHero, renderAll } from "./render.js";
+
 import { LastRing } from "./alarms.js";
+import { fmtDay, fmtTime } from "./format.js";
+import { renderHero } from "./hero.js";
+import { renderAll } from "./render.js";
+import { api, warned } from "./shared.js";
+import { DataMaxAge, NoSchedule, RetryAfter, store } from "./store.js";
+import { busy } from "./ui.js";
+import { indexSessions, setClock } from "./week.js";
 
 export function stale() {
   return Date.now() - store.loadedAt > DataMaxAge && Date.now() - store.triedAt > RetryAfter;
@@ -34,7 +36,7 @@ export async function saveState(changes) {
       body: JSON.stringify(changes),
     });
     store.state = res.ok ? await res.json() : previous;
-  } catch (e) {
+  } catch {
     store.state = previous;
   }
   renderHero();
@@ -50,7 +52,7 @@ export async function refreshState() {
       await loadAndRender();
       return;
     }
-    if (Object.keys(next).every(k => next[k] === store.state[k])) return;
+    if (Object.keys(next).every((k) => next[k] === store.state[k])) return;
     if (next.lunch !== store.state.lunch) LastRing.lunch = 0;
     store.state = next;
     renderHero();
@@ -62,7 +64,7 @@ export async function refreshState() {
 export async function loadAndRender(fresh) {
   store.triedAt = Date.now();
   const query = [store.other ? `employee=${store.other}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
-  const data = await api("/api/data" + (query ? `?${query}` : ""));
+  const data = await api(`/api/data${query ? `?${query}` : ""}`);
   store.data = data;
   store.loadedAt = Date.now();
   store.state = data.state || store.state;
@@ -73,8 +75,9 @@ export async function loadAndRender(fresh) {
   store.contractHours = new Map(Object.entries(data.contract_hours || {}));
   store.since = data.since || "";
   const absences = data.absences || [];
-  store.absMap = new Map(absences.filter(a => !a.hours).map(a => [a.date, a.type]));
-  store.leaveMap = absences.filter(a => a.hours)
+  store.absMap = new Map(absences.filter((a) => !a.hours).map((a) => [a.date, a.type]));
+  store.leaveMap = absences
+    .filter((a) => a.hours)
     .reduce((m, a) => m.set(a.date, [...(m.get(a.date) || []), a]), new Map());
   setClock(new Date(store.data.generated_at));
   indexSessions();
@@ -90,7 +93,7 @@ export async function loadAndRender(fresh) {
 }
 
 export function loadFirst() {
-  loadAndRender().catch(e => {
-    document.getElementById("loadmsg").textContent = "Error cargando datos de Odoo: " + e.message;
+  loadAndRender().catch((e) => {
+    document.getElementById("loadmsg").textContent = `Error cargando datos de Odoo: ${e.message}`;
   });
 }

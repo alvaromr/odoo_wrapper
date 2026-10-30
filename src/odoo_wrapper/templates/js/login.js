@@ -12,7 +12,7 @@ const form = document.getElementById("login");
 const err = document.getElementById("err");
 const submit = document.getElementById("submit");
 const clock = document.getElementById("clock");
-const field = id => document.getElementById(id);
+const field = (id) => document.getElementById(id);
 
 const tick = () => {
   const d = new Date();
@@ -25,7 +25,8 @@ setInterval(tick, 10000);
   const cfg = await (await fetch("/api/config")).json();
   field("user").value = cfg.user || "";
   if (!cfg.local) {
-    field("hint").textContent = "Aquí no se inicia sesión. En el ordenador, abre http://localhost:8931/ y pulsa «Emparejar móvil»: escanea el código que aparece y entrarás sin contraseña.";
+    field("hint").textContent =
+      "Aquí no se inicia sesión. En el ordenador, abre http://localhost:8931/ y pulsa «Emparejar móvil»: escanea el código que aparece y entrarás sin contraseña.";
     for (const el of [field("user"), field("secret"), submit]) el.hidden = true;
     return;
   }
@@ -45,7 +46,7 @@ field("eye").addEventListener("click", () => {
   field("pass").focus();
 });
 
-form.addEventListener("submit", async e => {
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
   err.textContent = "";
   submit.disabled = true;
@@ -54,8 +55,11 @@ form.addEventListener("submit", async e => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        url: field("url").value, db: field("db").value,
-        user: field("user").value, password: field("pass").value, code: field("code").value,
+        url: field("url").value,
+        db: field("db").value,
+        user: field("user").value,
+        password: field("pass").value,
+        code: field("code").value,
       }),
     });
     if (res.ok) {
@@ -64,7 +68,8 @@ form.addEventListener("submit", async e => {
     }
     const answer = await res.json();
     if (answer.totp) {
-      field("hint").textContent = "Introduce el código de tu aplicación de verificación. Este navegador quedará como dispositivo de confianza 90 días.";
+      field("hint").textContent =
+        "Introduce el código de tu aplicación de verificación. Este navegador quedará como dispositivo de confianza 90 días.";
       field("code").hidden = false;
       field("code").required = true;
       submit.disabled = false;

@@ -24,19 +24,20 @@
  *   many it hides. They filter this card only, never the table or the charts; the name search filters it
  *   too (teamstate.js).
  */
+
+import { dayLabel, openDayOf, sessionRow, whyDay, wrongSession } from "./dayedit.js";
+import { fmtDate, fmtDay, fmtHM, fmtTime, parseDay, plural, shiftDays } from "./format.js";
+import { api, el, panScroll } from "./shared.js";
 import { DayNames } from "./store.js";
-import { fmtHM, fmtDay, fmtDate, fmtTime, parseDay, shiftDays, plural } from "./format.js";
-import { el, api, panScroll } from "./shared.js";
-import { dayLabel, sessionRow, whyDay, wrongSession, openDayOf } from "./dayedit.js";
-import { stripAxis, sessionStrip } from "./teamcharts.js";
-import { team, FixKinds, FlagText, named } from "./teamstate.js";
+import { sessionStrip, stripAxis } from "./teamcharts.js";
+import { FixKinds, FlagText, named, team } from "./teamstate.js";
 
 export const FixZoom = { min: 2, max: 96, step: 1.5 };
 const FixPadDays = 7;
 let fixPan;
 
 export function fixTip(name, item) {
-  return tip => {
+  return (tip) => {
     tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date, true)}`));
     tip.appendChild(el("div", "t-note warn", FlagText[item.kind]));
     for (const s of item.sessions) tip.appendChild(sessionRow(s, team.fixes.limits, "abierta"));
@@ -46,39 +47,49 @@ export function fixTip(name, item) {
 }
 
 export function fixRows(fixes, kinds = team.fixKinds) {
-  const count = (r, kind) => r.items.filter(i => i.kind === kind).length;
-  return fixes.employees.filter(e => named(e, team.search))
-    .map(r => ({ ...r, items: r.items.filter(i => kinds.has(i.kind)) })).filter(r => r.items.length)
-    .sort((a, b) => count(b, "open") - count(a, "open") || b.items.length - a.items.length
-      || a.name.localeCompare(b.name, "es"));
+  const count = (r, kind) => r.items.filter((i) => i.kind === kind).length;
+  return fixes.employees
+    .filter((e) => named(e, team.search))
+    .map((r) => ({ ...r, items: r.items.filter((i) => kinds.has(i.kind)) }))
+    .filter((r) => r.items.length)
+    .sort(
+      (a, b) =>
+        count(b, "open") - count(a, "open") || b.items.length - a.items.length || a.name.localeCompare(b.name, "es"),
+    );
 }
 
 export function toBlame(sessions, limits) {
-  const wrong = sessions.filter(s => wrongSession(s, limits));
+  const wrong = sessions.filter((s) => wrongSession(s, limits));
   return wrong.length ? wrong : sessions;
 }
 
 export function fixMarks(row, now = new Date()) {
   const limits = team.fixes.limits;
-  return row.items.flatMap(item => {
+  return row.items.flatMap((item) => {
     const tip = fixTip(row.name, item);
     const open = () => openFixDay(row.id, item.date);
     if (item.kind === "empty") {
       const start = parseDay(item.date);
       return [{ start, end: parseDay(shiftDays(item.date, 1)), cls: "missing", tip, open }];
     }
-    const sessions = item.kind === "open" ? item.sessions.filter(s => !s.out) : toBlame(item.sessions, limits);
-    return sessions.map(s => ({ start: new Date(s.in), end: s.out ? new Date(s.out) : now,
-      cls: item.kind === "open" ? "error" : "error late", tip, open }));
+    const sessions = item.kind === "open" ? item.sessions.filter((s) => !s.out) : toBlame(item.sessions, limits);
+    return sessions.map((s) => ({
+      start: new Date(s.in),
+      end: s.out ? new Date(s.out) : now,
+      cls: item.kind === "open" ? "error" : "error late",
+      tip,
+      open,
+    }));
   });
 }
 
 export function fixSpan(rows, now = new Date()) {
-  const items = rows.flatMap(r => r.items);
-  const starts = items.flatMap(i => i.sessions.length ? i.sessions.map(s => new Date(s.in)) : [parseDay(i.date)]);
-  const ends = items.flatMap(i => i.sessions.length ? i.sessions.map(s => s.out ? new Date(s.out) : now)
-    : [parseDay(shiftDays(i.date, 1))]);
-  const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const items = rows.flatMap((r) => r.items);
+  const starts = items.flatMap((i) => (i.sessions.length ? i.sessions.map((s) => new Date(s.in)) : [parseDay(i.date)]));
+  const ends = items.flatMap((i) =>
+    i.sessions.length ? i.sessions.map((s) => (s.out ? new Date(s.out) : now)) : [parseDay(shiftDays(i.date, 1))],
+  );
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const first = midnight(starts.length ? new Date(Math.min(...starts)) : now);
   const last = new Date(Math.max(...ends, first));
   const end = +last === +midnight(last) ? last : new Date(midnight(last).setDate(last.getDate() + 1));
@@ -103,15 +114,18 @@ export function renderFixes() {
   const rows = fixRows(team.fixes);
   const limits = team.fixes.limits;
   document.getElementById("openCard").classList.toggle("hidden", !team.fixes.employees.length);
-  note.textContent = `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)} y días con jornada `
-    + "prevista sin fichar, de todo el historial de cada persona y sea cual sea el periodo que estés viendo. "
-    + "Una fila por persona."
-    + (rows.length ? "" : team.search.trim()
-      ? ` Nadie cuyo nombre contenga «${team.search.trim()}» con los tipos elegidos.`
-      : " Nadie con los tipos elegidos.");
+  note.textContent =
+    `Entradas sin cerrar, jornadas de más de ${fmtHM(limits.long_day)} y días con jornada ` +
+    "prevista sin fichar, de todo el historial de cada persona y sea cual sea el periodo que estés viendo. " +
+    "Una fila por persona." +
+    (rows.length
+      ? ""
+      : team.search.trim()
+        ? ` Nadie cuyo nombre contenga «${team.search.trim()}» con los tipos elegidos.`
+        : " Nadie con los tipos elegidos.");
   for (const button of document.getElementById("fixKinds").querySelectorAll("button")) {
     const kind = button.dataset.kind;
-    button.textContent = `${FlagText[kind]} (${all.filter(r => r.items.some(i => i.kind === kind)).length})`;
+    button.textContent = `${FlagText[kind]} (${all.filter((r) => r.items.some((i) => i.kind === kind)).length})`;
     button.setAttribute("aria-pressed", String(team.fixKinds.has(kind)));
   }
   const { from, to, days } = fixSpan(rows);
@@ -119,7 +133,7 @@ export function renderFixes() {
   const step = tickStep(team.fixDay);
   const ticks = [];
   const first = new Date(from);
-  if (step >= 7) first.setDate(first.getDate() + (8 - first.getDay()) % 7);
+  if (step >= 7) first.setDate(first.getDate() + ((8 - first.getDay()) % 7));
   for (const d = first; d <= to; d.setDate(d.getDate() + step)) {
     ticks.push({ at: new Date(d), label: step === 1 ? `${DayNames[(d.getDay() + 6) % 7]} ${d.getDate()}` : fmtDay(d) });
   }
@@ -131,11 +145,11 @@ export function renderFixes() {
     const link = el("a", "fix-name", row.name);
     link.href = `/empleado?id=${row.id}`;
     const chips = el("div", "chips");
-    for (const item of row.items.filter(i => i.kind === "open")) {
-      const since = new Date(item.sessions.find(s => !s.out).in);
+    for (const item of row.items.filter((i) => i.kind === "open")) {
+      const since = new Date(item.sessions.find((s) => !s.out).in);
       chips.appendChild(el("span", "chip warn", `Abierta desde el ${fmtDate(since)} ${fmtTime(since)}`));
     }
-    const of = kind => row.items.filter(i => i.kind === kind);
+    const of = (kind) => row.items.filter((i) => i.kind === kind);
     const long = of("long");
     if (long.length) {
       const total = fmtHM(long.reduce((sum, i) => sum + i.hours, 0));
@@ -154,31 +168,31 @@ export async function loadFixes(fresh) {
     team.fixes = await api(`/api/team?fixes${fresh ? "&fresh" : ""}`);
     renderFixes();
   } catch (e) {
-    document.getElementById("fixesNote").textContent = "No se pudieron cargar los fichajes por corregir: " + e.message;
+    document.getElementById("fixesNote").textContent = `No se pudieron cargar los fichajes por corregir: ${e.message}`;
   }
 }
 
 function openFixDay(employeeId, date) {
   if (fixPan.consume()) return;
-  return openDayOf(employeeId, date).catch(e => {
-    document.getElementById("fixesNote").textContent = "No se pudo abrir ese día: " + e.message;
+  return openDayOf(employeeId, date).catch((e) => {
+    document.getElementById("fixesNote").textContent = `No se pudo abrir ese día: ${e.message}`;
   });
 }
 
 export function wireFixes(saveState) {
-  const zoomFixes = factor => {
+  const zoomFixes = (factor) => {
     team.fixDay = Math.min(FixZoom.max, Math.max(FixZoom.min, team.fixDay * factor));
     if (team.fixes) renderFixes();
   };
   document.getElementById("zoomIn").addEventListener("click", () => zoomFixes(FixZoom.step));
-  document.getElementById("wideBtn").addEventListener("click", e => {
+  document.getElementById("wideBtn").addEventListener("click", (e) => {
     const wide = document.getElementById("openCard").classList.toggle("wide");
     const label = wide ? "Volver al ancho normal" : "Ampliar a todo el ancho";
     e.currentTarget.setAttribute("aria-pressed", String(wide));
     e.currentTarget.setAttribute("aria-label", label);
     e.currentTarget.title = label;
   });
-  document.getElementById("fixKinds").addEventListener("click", e => {
+  document.getElementById("fixKinds").addEventListener("click", (e) => {
     const button = e.target.closest("button");
     if (!button) return;
     const kind = button.dataset.kind;

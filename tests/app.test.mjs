@@ -11,22 +11,22 @@
 // Under StrykerJS the context also gets __stryker__ with the mutant to switch on: its instrumented code looks for
 // it on the global object, which in a vm context is the sandbox, not node's.
 
-import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import vm from "node:vm";
+import test from "node:test";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 
 const TEMPLATES = new URL("../src/odoo_wrapper/templates/", import.meta.url);
 const JS_DIR = new URL("js/", TEMPLATES);
-const JS_FILES = fs.readdirSync(JS_DIR).filter(name => name.endsWith(".js"));
+const JS_FILES = fs.readdirSync(JS_DIR).filter((name) => name.endsWith(".js"));
 const IMPORT_RE = /^import\s*\{([^}]*)\}\s*from\s*"\.\/([^"]+)";?\s*$/gm;
 
 function readModule(name) {
   return fs.readFileSync(new URL(name, JS_DIR), "utf8");
 }
 
-const blank = text => text.replace(/[^\n]/g, " ");
+const blank = (text) => text.replace(/[^\n]/g, " ");
 
 function moduleBody(source) {
   return source.replace(IMPORT_RE, blank).replace(/^export\s/gm, blank);
@@ -42,21 +42,30 @@ function flatten(name, seen = new Set(), order = []) {
 }
 
 const THEME = { name: "theme.js", body: readModule("theme.js") };
-const SOURCES = Object.fromEntries(["app.js", "team.js", "login.js"].map(name => [name, [THEME, ...flatten(name)]]));
-const UP_TO_DATE = { available: false, current: "1.1.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
-  error: "" };
+const SOURCES = Object.fromEntries(["app.js", "team.js", "login.js"].map((name) => [name, [THEME, ...flatten(name)]]));
+const UP_TO_DATE = {
+  available: false,
+  current: "1.1.0",
+  latest: "1.1.0",
+  url: "https://github.com/r/releases/tag/v1.1.0",
+  error: "",
+};
 
 test("every imported name is exported by its module", () => {
   for (const file of JS_FILES) {
     const source = readModule(file);
     for (const m of source.matchAll(IMPORT_RE)) {
-      const names = m[1].split(",").map(s => s.trim()).filter(Boolean);
+      const names = m[1]
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
       const target = m[2];
       assert.notEqual(target, file, `${file} imports itself`);
       const targetSource = readModule(target);
       for (const name of names) {
         const exported = new RegExp(
-          `export (function|async function|const|let) ${name}\\b|export \\{[^}]*\\b${name}\\b`);
+          `export (function|async function|const|let) ${name}\\b|export \\{[^}]*\\b${name}\\b`,
+        );
         assert.match(targetSource, exported, `${target} does not export ${name} (imported by ${file})`);
       }
     }
@@ -64,23 +73,29 @@ test("every imported name is exported by its module", () => {
 });
 
 function parseSelector(selector) {
-  return selector.split(",").map(part => part.trim()).map(part => {
-    if (part.includes(":") || part.includes(" ")) return null;
-    const m = part.match(/^([a-zA-Z][a-zA-Z0-9]*)?((?:\.[a-zA-Z0-9_-]+)*)$/);
-    if (!m) return null;
-    return { tag: m[1] ? m[1].toUpperCase() : null, classes: m[2] ? m[2].slice(1).split(".") : [] };
-  });
+  return selector
+    .split(",")
+    .map((part) => part.trim())
+    .map((part) => {
+      if (part.includes(":") || part.includes(" ")) return null;
+      const m = part.match(/^([a-zA-Z][a-zA-Z0-9]*)?((?:\.[a-zA-Z0-9_-]+)*)$/);
+      if (!m) return null;
+      return { tag: m[1] ? m[1].toUpperCase() : null, classes: m[2] ? m[2].slice(1).split(".") : [] };
+    });
 }
 
 function matchesSelector(node, parts) {
-  return Boolean(node) && typeof node === "object" && node.tagName && parts.some(p => p
-    && (!p.tag || node.tagName === p.tag)
-    && p.classes.every(c => node.classList && node.classList.contains(c)));
+  return (
+    Boolean(node) &&
+    typeof node === "object" &&
+    node.tagName &&
+    parts.some((p) => p && (!p.tag || node.tagName === p.tag) && p.classes.every((c) => node.classList?.contains(c)))
+  );
 }
 
 function queryAll(root, selector, out = []) {
   const parts = parseSelector(selector);
-  (root.children || []).forEach(child => {
+  (root.children || []).forEach((child) => {
     if (typeof child === "string") return;
     if (matchesSelector(child, parts)) out.push(child);
     queryAll(child, selector, out);
@@ -93,40 +108,103 @@ const Parents = new WeakMap();
 function element(tag = "div") {
   const classes = new Set();
   const e = {
-    tagName: tag.toUpperCase(), children: [], attrs: {}, listeners: {}, dataset: {},
-    style: { setProperty(name, value) { this[name] = value; } },
-    textContent: "", innerHTML: "", title: "", hidden: false, disabled: false, open: false,
-    value: "", type: "", min: 0, max: 0, step: 0, scrollLeft: 0, scrollWidth: 0, clientWidth: 0,
-    get className() { return [...classes].join(" "); },
-    set className(v) { classes.clear(); v.split(/\s+/).filter(Boolean).forEach(c => classes.add(c)); },
-    classList: {
-      add: (...c) => c.forEach(x => classes.add(x)),
-      remove: (...c) => c.forEach(x => classes.delete(x)),
-      toggle: (c, force) => { const on = force === undefined ? !classes.has(c) : Boolean(force); on ? classes.add(c) : classes.delete(c); return on; },
-      contains: c => classes.has(c),
+    tagName: tag.toUpperCase(),
+    children: [],
+    attrs: {},
+    listeners: {},
+    dataset: {},
+    style: {
+      setProperty(name, value) {
+        this[name] = value;
+      },
     },
-    appendChild(c) { e.children.push(c); return c; },
-    append(...cs) { e.children.push(...cs); },
-    prepend(...cs) { e.children.unshift(...cs); },
-    insertBefore(c, ref) { e.children.splice(e.children.includes(ref) ? e.children.indexOf(ref) : e.children.length, 0, c); Parents.set(c, e); return c; },
-    get nextElementSibling() { const all = Parents.get(e)?.children || []; return all[all.indexOf(e) + 1] || null; },
-    replaceChildren(...cs) { e.children = cs; },
+    textContent: "",
+    innerHTML: "",
+    title: "",
+    hidden: false,
+    disabled: false,
+    open: false,
+    value: "",
+    type: "",
+    min: 0,
+    max: 0,
+    step: 0,
+    scrollLeft: 0,
+    scrollWidth: 0,
+    clientWidth: 0,
+    get className() {
+      return [...classes].join(" ");
+    },
+    set className(v) {
+      classes.clear();
+      for (const c of v.split(/\s+/).filter(Boolean)) classes.add(c);
+    },
+    classList: {
+      add: (...c) => {
+        for (const x of c) classes.add(x);
+      },
+      remove: (...c) => {
+        for (const x of c) classes.delete(x);
+      },
+      toggle: (c, force) => {
+        const on = force === undefined ? !classes.has(c) : Boolean(force);
+        on ? classes.add(c) : classes.delete(c);
+        return on;
+      },
+      contains: (c) => classes.has(c),
+    },
+    appendChild(c) {
+      e.children.push(c);
+      return c;
+    },
+    append(...cs) {
+      e.children.push(...cs);
+    },
+    prepend(...cs) {
+      e.children.unshift(...cs);
+    },
+    insertBefore(c, ref) {
+      e.children.splice(e.children.includes(ref) ? e.children.indexOf(ref) : e.children.length, 0, c);
+      Parents.set(c, e);
+      return c;
+    },
+    get nextElementSibling() {
+      const all = Parents.get(e)?.children || [];
+      return all[all.indexOf(e) + 1] || null;
+    },
+    replaceChildren(...cs) {
+      e.children = cs;
+    },
     remove() {},
-    setAttribute(k, v) { e.attrs[k] = String(v); },
-    getAttribute(k) { return k in e.attrs ? e.attrs[k] : null; },
-    removeAttribute(k) { delete e.attrs[k]; },
-    addEventListener(type, fn) { (e.listeners[type] ||= []).push(fn); },
-    querySelector: sel => queryAll(e, sel)[0] || null,
-    querySelectorAll: sel => queryAll(e, sel),
+    setAttribute(k, v) {
+      e.attrs[k] = String(v);
+    },
+    getAttribute(k) {
+      return k in e.attrs ? e.attrs[k] : null;
+    },
+    removeAttribute(k) {
+      delete e.attrs[k];
+    },
+    addEventListener(type, fn) {
+      (e.listeners[type] ||= []).push(fn);
+    },
+    querySelector: (sel) => queryAll(e, sel)[0] || null,
+    querySelectorAll: (sel) => queryAll(e, sel),
     closest: () => null,
     contains: () => false,
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
     focus() {},
     blur() {},
-    select() { e.selected = true; },
+    select() {
+      e.selected = true;
+    },
     scrollIntoView() {},
-    showModal() { e.open = true; },
-    close() { e.open = false; },
+    showModal() {
+      e.open = true;
+    },
+    close() {
+      e.open = false;
+    },
   };
   return e;
 }
@@ -134,11 +212,20 @@ function element(tag = "div") {
 function makeDocument() {
   const byId = new Map();
   return {
-    title: "Fichajes", hidden: false, visibilityState: "visible", listeners: {},
-    getElementById: id => byId.get(id) || byId.set(id, element("div")).get(id),
-    createElement: tag => {
+    title: "Fichajes",
+    hidden: false,
+    visibilityState: "visible",
+    listeners: {},
+    getElementById: (id) => byId.get(id) || byId.set(id, element("div")).get(id),
+    createElement: (tag) => {
       const e = element(tag);
-      Object.defineProperty(e, "id", { get: () => e._id, set: v => { e._id = v; byId.set(v, e); } });
+      Object.defineProperty(e, "id", {
+        get: () => e._id,
+        set: (v) => {
+          e._id = v;
+          byId.set(v, e);
+        },
+      });
       return e;
     },
     body: element("body"),
@@ -162,37 +249,72 @@ function makeDocument() {
       }
       return out;
     },
-    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
+    addEventListener(type, fn) {
+      (this.listeners[type] ||= []).push(fn);
+    },
   };
 }
 
 function memoryStorage(items = {}) {
-  return { getItem: key => (key in items ? items[key] : null), setItem: (key, value) => { items[key] = String(value); } };
+  return {
+    getItem: (key) => (key in items ? items[key] : null),
+    setItem: (key, value) => {
+      items[key] = String(value);
+    },
+  };
 }
 
-function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", storage = null, local = memoryStorage(),
-  globals = {} } = {}) {
+function load({
+  data = null,
+  fetchImpl = null,
+  entry = "app.js",
+  path = "/",
+  storage = null,
+  local = memoryStorage(),
+  globals = {},
+} = {}) {
   const document = makeDocument();
   const calls = { fetch: [], replace: [], reload: 0, timers: [] };
   const sandbox = {
-    document, window: fakeAudio().window, URLSearchParams, Date, innerWidth: 1280, innerHeight: 800,
+    document,
+    window: fakeAudio().window,
+    URLSearchParams,
+    Date,
+    innerWidth: 1280,
+    innerHeight: 800,
     console: { ...console, warn: (...args) => (calls.warnings ||= []).push(args.map(String).join(" ")) },
     addEventListener: (type, fn) => ((calls.window ||= {})[type] ||= []).push(fn),
-    history: { replaceState: (a, b, url) => { calls.hash = url; },
-      pushState: (a, b, url) => { (calls.pushed ||= []).push(url); calls.hash = url; },
-      go: n => (calls.went ||= []).push(n) },
+    history: {
+      replaceState: (a, b, url) => {
+        calls.hash = url;
+      },
+      pushState: (a, b, url) => {
+        (calls.pushed ||= []).push(url);
+        calls.hash = url;
+      },
+      go: (n) => (calls.went ||= []).push(n),
+    },
     ...(storage ? { sessionStorage: storage } : {}),
     localStorage: local,
-    location: { assign: url => (calls.assigned ||= []).push(url), hostname: "localhost", protocol: "http:", pathname: path.split(/[?#]/)[0],
+    location: {
+      assign: (url) => (calls.assigned ||= []).push(url),
+      hostname: "localhost",
+      protocol: "http:",
+      pathname: path.split(/[?#]/)[0],
       search: path.includes("?") ? path.slice(path.indexOf("?")).split("#")[0] : "",
-      hash: path.includes("#") ? path.slice(path.indexOf("#")) : "", replace: url => calls.replace.push(url), reload: () => calls.reload++ },
-    fetch: fetchImpl || (async (url, opts) => {
-      if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
-      calls.fetch.push([url, opts]);
-      if (url.includes("fixes")) return { ok: true, status: 200, json: async () => teamFixes() };
-      if (!data) throw new Error("sin datos");
-      return { ok: true, status: 200, json: async () => data };
-    }),
+      hash: path.includes("#") ? path.slice(path.indexOf("#")) : "",
+      replace: (url) => calls.replace.push(url),
+      reload: () => calls.reload++,
+    },
+    fetch:
+      fetchImpl ||
+      (async (url, opts) => {
+        if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
+        calls.fetch.push([url, opts]);
+        if (url.includes("fixes")) return { ok: true, status: 200, json: async () => teamFixes() };
+        if (!data) throw new Error("sin datos");
+        return { ok: true, status: 200, json: async () => data };
+      }),
     setInterval: (fn, ms) => calls.timers.push([fn, ms]),
     clearInterval: () => {},
     setTimeout: (fn, ms) => (calls.timeouts ||= []).push([fn, ms]),
@@ -201,24 +323,42 @@ function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", sto
     ...globals,
   };
   const ctx = vm.createContext(sandbox);
-  for (const { name, body } of SOURCES[entry]) vm.runInContext(body, ctx, { filename: fileURLToPath(new URL(name, JS_DIR)) });
-  const plain = value => value && typeof value === "object" && typeof value.then !== "function"
-    ? JSON.parse(JSON.stringify(value))
-    : value;
-  const run = code => plain(vm.runInContext(code, ctx));
+  for (const { name, body } of SOURCES[entry])
+    vm.runInContext(body, ctx, { filename: fileURLToPath(new URL(name, JS_DIR)) });
+  const plain = (value) =>
+    value && typeof value === "object" && typeof value.then !== "function" ? JSON.parse(JSON.stringify(value)) : value;
+  const run = (code) => plain(vm.runInContext(code, ctx));
   return { run, document, calls };
 }
 
 const at = (day, h, m = 0) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
 const session = (start, end, rest = false) => ({
-  in: start.toISOString(), out: end ? end.toISOString() : null,
-  hours: end ? (end - start) / 3.6e6 : null, rest, reason: rest ? "Descanso" : "Normal",
+  in: start.toISOString(),
+  out: end ? end.toISOString() : null,
+  hours: end ? (end - start) / 3.6e6 : null,
+  rest,
+  reason: rest ? "Descanso" : "Normal",
 });
 const payload = (sessions, extra = {}) => ({
-  employee: "Ana", breaks: true, phone: null, generated_at: new Date().toISOString(), weeks: 12,
-  sessions, absences: [], schedule: null, long_hours: 12,
-  state: { lunch: null, lunch_minutes: 30, break_minutes: 15, lunch_button_from: 810, lunch_button_to: 960,
-    muted: false, lunch_done: false, punched_at: null },
+  employee: "Ana",
+  breaks: true,
+  phone: null,
+  generated_at: new Date().toISOString(),
+  weeks: 12,
+  sessions,
+  absences: [],
+  schedule: null,
+  long_hours: 12,
+  state: {
+    lunch: null,
+    lunch_minutes: 30,
+    break_minutes: 15,
+    lunch_button_from: 810,
+    lunch_button_to: 960,
+    muted: false,
+    lunch_done: false,
+    punched_at: null,
+  },
   ...extra,
 });
 
@@ -231,11 +371,14 @@ class Clock extends RealDate {
     if (args.length) super(...args);
     else super(RealDate.now() + CLOCK_SHIFT);
   }
-  static now() { return RealDate.now() + CLOCK_SHIFT; }
+  static now() {
+    return RealDate.now() + CLOCK_SHIFT;
+  }
 }
 globalThis.Date = Clock;
 
-const SCHEDULE = "store.expected = [8.5, 8.5, 8.5, 8.5, 6, 0, 0]; store.lunchFrom = [13.5, 13.5, 13.5, 13.5, null, null, null]; store.weekTarget = 40;";
+const SCHEDULE =
+  "store.expected = [8.5, 8.5, 8.5, 8.5, 6, 0, 0]; store.lunchFrom = [13.5, 13.5, 13.5, 13.5, null, null, null]; store.weekTarget = 40;";
 
 function withData(sessions, extra) {
   const page = load();
@@ -292,12 +435,18 @@ test("the hero offers lunch inside its window until it is taken", async () => {
       if (args.length) super(...args);
       else super(two);
     }
-    static now() { return two.getTime(); }
+    static now() {
+      return two.getTime();
+    }
   }
   const schedule = { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] };
   const page = load({ data: payload([session(at(two, 9), null)], { schedule }), globals: { Date: AtTwo } });
   await page.run("loadAndRender()");
-  const buttons = () => page.document.getElementById("hero").querySelectorAll(".btn").map(b => b.textContent);
+  const buttons = () =>
+    page.document
+      .getElementById("hero")
+      .querySelectorAll(".btn")
+      .map((b) => b.textContent);
   assert.deepEqual(buttons(), ["Fichar salida", "Salir a comer", "Salir a descanso"]);
   page.run("store.state.lunch_done = true; renderHero()");
   assert.deepEqual(buttons(), ["Fichar salida", "Salir a descanso"]);
@@ -315,13 +464,17 @@ test("without a schedule nothing is expected and the page says so", async () => 
 
 test("a day whose contract asked for other hours expects those", async () => {
   const today = new Date();
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7 - 7);
-  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const tuesday = new Date(monday); tuesday.setDate(monday.getDate() + 1);
-  const page = load({ data: payload([], {
-    schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
-    contract_hours: { [iso(monday)]: 0, [iso(tuesday)]: 5 },
-  }) });
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) - 7);
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const tuesday = new Date(monday);
+  tuesday.setDate(monday.getDate() + 1);
+  const page = load({
+    data: payload([], {
+      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
+      contract_hours: { [iso(monday)]: 0, [iso(tuesday)]: 5 },
+    }),
+  });
   await page.run("loadAndRender()");
   assert.deepEqual(page.run("buildWeek(1).days.map(d => d.expected)"), [0, 5, 8, 8, 8, 0, 0]);
   assert.equal(page.run("buildWeek(1).target"), 29);
@@ -330,7 +483,10 @@ test("a day whose contract asked for other hours expects those", async () => {
 
 test("the range selector counts months back from today, as weeks", () => {
   const { run, document } = withData([]);
-  assert.deepEqual([1, 6, 12].map(m => run(`weeksSince(${m})`)), [6, 28, 53]);
+  assert.deepEqual(
+    [1, 6, 12].map((m) => run(`weeksSince(${m})`)),
+    [6, 28, 53],
+  );
   const seg = document.getElementById("rangeSeg");
   const button = document.createElement("button");
   button.dataset.months = "1";
@@ -370,19 +526,33 @@ test("absences and hour leaves lower the expected hours", () => {
   assert.equal(week.days[1].expected, 6);
   assert.equal(week.days[1].leaves[0].type, "Médico");
   assert.equal(week.target, 40 - 8.5 - 2.5);
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the string is code the page's context runs
   run("store.absMap = new Map([0, 1, 2, 3, 4].map(i => [`2026-09-1${4 + i}`, 'Vacaciones']))");
   assert.equal(run("buildWeek(0)").allVacation, true);
 });
 
 test("week labels span one or two months", () => {
   const { run } = load();
-  assert.equal(run(`weekRangeLabel({ monday: new Date(${new Date().getFullYear()}, 8, 14), sunday: new Date(${new Date().getFullYear()}, 8, 20) })`),
-    "14–20 sep");
+  assert.equal(
+    run(
+      `weekRangeLabel({ monday: new Date(${new Date().getFullYear()}, 8, 14), sunday: new Date(${new Date().getFullYear()}, 8, 20) })`,
+    ),
+    "14–20 sep",
+  );
   const thisYear = new Date().getFullYear();
-  assert.equal(run(`weekRangeLabel({ monday: new Date(${thisYear}, 8, 28), sunday: new Date(${thisYear}, 9, 4) })`), "28 sep – 4 oct");
+  assert.equal(
+    run(`weekRangeLabel({ monday: new Date(${thisYear}, 8, 28), sunday: new Date(${thisYear}, 9, 4) })`),
+    "28 sep – 4 oct",
+  );
   assert.equal(run("weekRangeLabel({ monday: new Date(2020, 8, 7), sunday: new Date(2020, 8, 13) })"), "7–13 sep 2020");
-  assert.equal(run("weekRangeLabel({ monday: new Date(2019, 11, 30), sunday: new Date(2020, 0, 5) })"), "30 dic 2019 – 5 ene 2020");
-  assert.equal(run("weekRangeLabel({ monday: new Date(2020, 8, 28), sunday: new Date(2020, 9, 4) })"), "28 sep – 4 oct 2020");
+  assert.equal(
+    run("weekRangeLabel({ monday: new Date(2019, 11, 30), sunday: new Date(2020, 0, 5) })"),
+    "30 dic 2019 – 5 ene 2020",
+  );
+  assert.equal(
+    run("weekRangeLabel({ monday: new Date(2020, 8, 28), sunday: new Date(2020, 9, 4) })"),
+    "28 sep – 4 oct 2020",
+  );
 });
 
 test("break spans sit where the break happened and gaps count only unlogged time", () => {
@@ -392,7 +562,8 @@ test("break spans sit where the break happened and gaps count only unlogged time
     [{ from: 2, to: 2.25 }],
   );
   const monday = new Date(2026, 8, 14);
-  const gap = leaves => run(`unloggedGap([
+  const gap = (leaves) =>
+    run(`unloggedGap([
     { in: new Date(${at(monday, 9).getTime()}), out: new Date(${at(monday, 12).getTime()}) },
     { in: new Date(${at(monday, 12, 30).getTime()}), out: null },
   ], ${JSON.stringify(leaves)})`);
@@ -404,10 +575,7 @@ test("break spans sit where the break happened and gaps count only unlogged time
 });
 
 test("the last punch is the newest event and says whether it is open", () => {
-  const { run } = withData([
-    session(at(TUESDAY, 9), at(TUESDAY, 12)),
-    session(at(TUESDAY, 13), null, true),
-  ]);
+  const { run } = withData([session(at(TUESDAY, 9), at(TUESDAY, 12)), session(at(TUESDAY, 13), null, true)]);
   const last = run("lastPunch()");
   assert.equal(last.open, true);
   assert.equal(last.rest, true);
@@ -421,7 +589,10 @@ test("the status line explains why it is or is not ringing", () => {
   assert.equal(run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`), "Sin fichaje abierto");
   assert.equal(run("notifyStatus(null, { expected: 0 }, 0)"), "Hoy sin jornada prevista");
   run("store.state = { ...store.state, lunch: new Date(Date.now() - 10 * 60000).toISOString() }");
-  assert.match(run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`), /^Comida hasta las \d\d:\d\d · toca la página para oírlo$/);
+  assert.match(
+    run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`),
+    /^Comida hasta las \d\d:\d\d · toca la página para oírlo$/,
+  );
   run("store.state = { ...store.state, lunch: new Date(Date.now() - 60 * 60000).toISOString() }");
   assert.match(run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`), /^Comida vencida/);
   const open = { in: new Date(Date.now() - 5 * 60000).toISOString(), rest: true };
@@ -435,7 +606,9 @@ test("the status line explains why it is or is not ringing", () => {
 function alarmsPage(sessions, state = {}) {
   const page = load();
   const data = payload(sessions, { state: { ...payload([]).state, ...state } });
-  page.run(`store.data = ${JSON.stringify(data)}; store.state = store.data.state; store.expected = [8, 8, 8, 8, 8, 8, 8]; store.lunchFrom = Array(7).fill(13.5);`);
+  page.run(
+    `store.data = ${JSON.stringify(data)}; store.state = store.data.state; store.expected = [8, 8, 8, 8, 8, 8, 8]; store.lunchFrom = Array(7).fill(13.5);`,
+  );
   page.run("setClock(new Date()); indexSessions();");
   return page;
 }
@@ -469,7 +642,9 @@ test("lunch rings only after the lunch button, within the grace period", () => {
   assert.equal(run("LastRing.lunch"), 0);
   run("store.state = { ...store.state, lunch: new Date(Date.now() - 40 * 60000).toISOString() }; checkAlarms()");
   assert.ok(run("LastRing.lunch") > 0);
-  run("LastRing.lunch = 0; store.state = { ...store.state, lunch: new Date(Date.now() - 4 * 3600000).toISOString() }; checkAlarms()");
+  run(
+    "LastRing.lunch = 0; store.state = { ...store.state, lunch: new Date(Date.now() - 4 * 3600000).toISOString() }; checkAlarms()",
+  );
   assert.equal(run("LastRing.lunch"), 0);
   assert.equal(run("FlashTimer"), null);
 });
@@ -520,23 +695,38 @@ test("loading renders the page from the server payload", async () => {
   assert.equal(phone.classList.contains("hidden"), false);
   assert.equal(phone.querySelectorAll(".qr").length, 0);
   const buttons = () => phone.querySelector(".seg").children;
-  assert.deepEqual(buttons().map(b => [b.textContent, b.getAttribute("aria-pressed")]), [["Por nombre", "true"], ["Por IP", "false"]]);
+  assert.deepEqual(
+    buttons().map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
+    [
+      ["Por nombre", "true"],
+      ["Por IP", "false"],
+    ],
+  );
   assert.equal(phone.querySelector(".url").textContent, "https://mac.local:8443/");
   assert.equal(phone.querySelector(".btn").textContent, "Emparejar móvil");
   buttons()[1].listeners.click[0]();
-  assert.deepEqual(buttons().map(b => b.getAttribute("aria-pressed")), ["false", "true"]);
+  assert.deepEqual(
+    buttons().map((b) => b.getAttribute("aria-pressed")),
+    ["false", "true"],
+  );
   assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/");
 });
 
 test("pairing shows a one-shot QR that expires", async () => {
   const data = payload([], { phone: { url: "https://10.0.0.2:8443/", name_url: "https://mac.local:8443/" } });
   const pairs = [];
-  let pairReply = { ok: true, status: 200, json: async () => ({ url: "https://10.0.0.2:8443/pair?t=tok", qr: "<svg/>", expires_in: 120 }) };
-  const page = load({ fetchImpl: async (url, opts) => {
-    if (url !== "/api/pair") return { ok: true, status: 200, json: async () => data };
-    pairs.push(JSON.parse(opts.body));
-    return pairReply;
-  } });
+  let pairReply = {
+    ok: true,
+    status: 200,
+    json: async () => ({ url: "https://10.0.0.2:8443/pair?t=tok", qr: "<svg/>", expires_in: 120 }),
+  };
+  const page = load({
+    fetchImpl: async (url, opts) => {
+      if (url !== "/api/pair") return { ok: true, status: 200, json: async () => data };
+      pairs.push(JSON.parse(opts.body));
+      return pairReply;
+    },
+  });
   await page.run("loadAndRender()");
   const { document, run, calls } = page;
   const phone = document.getElementById("phone");
@@ -575,17 +765,24 @@ test("without the Descanso reason the page offers no break", async () => {
     const page = load({ data: payload([session(at(today, 9), null)], { schedule, breaks }) });
     await page.run("loadAndRender()");
     const hero = page.document.getElementById("hero");
-    return hero.querySelectorAll(".btn").map(b => b.textContent);
+    return hero.querySelectorAll(".btn").map((b) => b.textContent);
   };
-  const withBreaks = await texts(true), without = await texts(false);
-  assert.deepEqual(withBreaks.filter(t => t.includes("escanso")), ["Salir a descanso"]);
-  assert.deepEqual(without.filter(t => t.includes("escanso")), []);
+  const withBreaks = await texts(true),
+    without = await texts(false);
+  assert.deepEqual(
+    withBreaks.filter((t) => t.includes("escanso")),
+    ["Salir a descanso"],
+  );
+  assert.deepEqual(
+    without.filter((t) => t.includes("escanso")),
+    [],
+  );
   assert.ok(without.includes("Fichar salida"));
 });
 
 test("a failed first load keeps retrying once a minute", async () => {
   const page = load();
-  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const loads = () => page.calls.fetch.filter(([url]) => url.startsWith("/api/data")).length;
   assert.equal(loads(), 1);
   assert.match(page.document.getElementById("loadmsg").textContent, /^Error cargando datos de Odoo: sin datos/);
@@ -609,67 +806,92 @@ test("a failed reload is retried once a minute, not every tick", () => {
 
 test("a session over the long limit is red, and one that ends the next day runs to midnight", async () => {
   const today = new Date();
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7 - 7);
-  const tuesday = new Date(monday); tuesday.setDate(monday.getDate() + 1);
-  const wednesday = new Date(monday); wednesday.setDate(monday.getDate() + 2);
-  const page = load({ data: payload([session(at(monday, 9), at(monday, 14)), session(at(tuesday, 15), at(wednesday, 9))], {
-    long_hours: 12, schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
-  }) });
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) - 7);
+  const tuesday = new Date(monday);
+  tuesday.setDate(monday.getDate() + 1);
+  const wednesday = new Date(monday);
+  wednesday.setDate(monday.getDate() + 2);
+  const page = load({
+    data: payload([session(at(monday, 9), at(monday, 14)), session(at(tuesday, 15), at(wednesday, 9))], {
+      long_hours: 12,
+      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
+    }),
+  });
   await page.run("loadAndRender()");
   const card = page.document.getElementById("weekCal");
   const rows = () => card.querySelectorAll(".tl-row");
   page.run("renderTimeline(document.getElementById('weekCal'), buildWeek(1))");
   const tl = rows().slice(-7);
-  const dayRow = date => tl.find(r => r.querySelectorAll(".dnum")[0]?.textContent === String(date.getDate()));
+  const dayRow = (date) => tl.find((r) => r.querySelectorAll(".dnum")[0]?.textContent === String(date.getDate()));
   const tuesdayRow = dayRow(tuesday);
   const block = tuesdayRow.querySelectorAll(".sess")[0];
   assert.equal(block.classList.contains("long"), true);
   assert.equal(block.textContent, "15:00 – 09:00 (+1)");
   assert.match(block.style.width, /100%/);
   assert.equal(tuesdayRow.querySelectorAll(".dvalue")[0].classList.contains("long"), true);
-  assert.deepEqual(hover(page, block).slice(-2), ["Termina al día siguiente",
-    "Jornada muy larga: 18h en el día, más de 12h, casi siempre una salida sin fichar"]);
+  assert.deepEqual(hover(page, block).slice(-2), [
+    "Termina al día siguiente",
+    "Jornada muy larga: 18h en el día, más de 12h, casi siempre una salida sin fichar",
+  ]);
   assert.equal(dayRow(monday).querySelectorAll(".sess")[0].classList.contains("long"), false);
   assert.equal(page.run("buildWeek(1).suspect"), true);
   page.run("calView = 'objetivo'; calOffset = 1; renderCalendar()");
-  const bars = card.querySelectorAll(".dayrow").map(r => r.querySelectorAll(".bar")[0]?.style.width);
+  const bars = card.querySelectorAll(".dayrow").map((r) => r.querySelectorAll(".bar")[0]?.style.width);
   assert.deepEqual(bars.slice(0, 2), ["50%", "100%"]);
   assert.equal(page.run("buildWeek(0).suspect"), false);
   page.run("renderTable(buildWeeks(2))");
   const table = page.document.getElementById("tableView");
-  assert.ok(table.querySelectorAll("td.warn").some(td => td.textContent === "fichaje por revisar"));
+  assert.ok(table.querySelectorAll("td.warn").some((td) => td.textContent === "fichaje por revisar"));
 });
 
 test("an attendance left open since an earlier day is not today's work", async () => {
   const today = new Date();
   const earlier = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 3, 8, 46);
-  const page = load({ data: payload([{ in: earlier.toISOString(), out: null, hours: null, rest: false, reason: "Normal" }], {
-    long_hours: 12, schedule: { hours: [8, 8, 8, 8, 8, 8, 8], lunch_from: [null, null, null, null, null, null, null] } }) });
+  const page = load({
+    data: payload([{ in: earlier.toISOString(), out: null, hours: null, rest: false, reason: "Normal" }], {
+      long_hours: 12,
+      schedule: { hours: [8, 8, 8, 8, 8, 8, 8], lunch_from: [null, null, null, null, null, null, null] },
+    }),
+  });
   await page.run("loadAndRender()");
   const hero = page.document.getElementById("hero");
-  const texts = node => [node.textContent, ...(node.children || []).filter(c => typeof c !== "string").flatMap(texts)];
-  assert.ok(!texts(hero).some(t => /^Salida estimada/.test(t)));
-  assert.ok(texts(hero).some(t => / · hay una entrada anterior sin cerrar$/.test(t)));
+  const texts = (node) => [
+    node.textContent,
+    ...(node.children || []).filter((c) => typeof c !== "string").flatMap(texts),
+  ];
+  assert.ok(!texts(hero).some((t) => /^Salida estimada/.test(t)));
+  assert.ok(texts(hero).some((t) => / · hay una entrada anterior sin cerrar$/.test(t)));
   const line = hero.querySelectorAll(".lastpunch")[0];
   assert.equal(line.classList.contains("stale"), true);
   assert.match(line.children[1].textContent, /^Entrada del \d+ \w+ a las 08:46 sin cerrar · hace /);
   page.run("renderTable(buildWeeks(2))");
   const table = page.document.getElementById("tableView");
-  assert.ok(table.querySelectorAll("td.warn").some(td => td.textContent === "fichaje por revisar"));
+  assert.ok(table.querySelectorAll("td.warn").some((td) => td.textContent === "fichaje por revisar"));
 });
 
 test("the banner lists this person's punch errors and opens their week", async () => {
   const today = new Date();
-  const back = n => { const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - n); return d; };
-  const page = load({ data: payload([
-    session(at(back(200), 9), at(back(199), 9)),
-    session(at(back(10), 16), at(back(9), 8, 30)),
-    session(at(back(3), 9), null),
-    session(at(back(1), 9), at(back(1), 17)),
-    session(at(back(20), 6), at(back(20), 10)),
-  ], { long_hours: 12, weeks: 40,
-    contract_hours: { [isoDate(back(5))]: 7.5 },
-    schedule: { hours: [0, 0, 0, 0, 0, 0, 0], lunch_from: [null, null, null, null, null, null, null] } }) });
+  const back = (n) => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+    return d;
+  };
+  const page = load({
+    data: payload(
+      [
+        session(at(back(200), 9), at(back(199), 9)),
+        session(at(back(10), 16), at(back(9), 8, 30)),
+        session(at(back(3), 9), null),
+        session(at(back(1), 9), at(back(1), 17)),
+        session(at(back(20), 6), at(back(20), 10)),
+      ],
+      {
+        long_hours: 12,
+        weeks: 40,
+        contract_hours: { [isoDate(back(5))]: 7.5 },
+        schedule: { hours: [0, 0, 0, 0, 0, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
+      },
+    ),
+  });
   await page.run("loadAndRender()");
   const box = page.document.getElementById("errorsBanner");
   assert.equal(box.classList.contains("hidden"), false);
@@ -681,13 +903,18 @@ test("the banner lists this person's punch errors and opens their week", async (
   details.listeners.toggle[0]();
   page.run("renderErrors()");
   assert.equal(box.children[0].open, true);
-  const items = box.children[0].children[2].children.map(li => li.children[0]);
-  assert.deepEqual(items.map(i => i.children[2].textContent),
-    ["Sin cerrar", "Sin fichar", "Jornada de 16h 30m", "Jornada de 24h"]);
+  const items = box.children[0].children[2].children.map((li) => li.children[0]);
+  assert.deepEqual(
+    items.map((i) => i.children[2].textContent),
+    ["Sin cerrar", "Sin fichar", "Jornada de 16h 30m", "Jornada de 24h"],
+  );
   assert.match(bannerLine(items[1]), / · Sin fichar con jornada prevista de 7h 30m$/);
   assert.match(bannerLine(items[0]), / · Sin cerrar entrada a las 09:00, sin salida$/);
   items[1].listeners.click[0]();
-  const values = page.document.getElementById("weekCal").querySelectorAll(".dvalue").filter(v => v.textContent === "sin fichar");
+  const values = page.document
+    .getElementById("weekCal")
+    .querySelectorAll(".dvalue")
+    .filter((v) => v.textContent === "sin fichar");
   assert.equal(values.length, 1);
   assert.equal(values[0].classList.contains("long"), true);
   items[2].listeners.click[0]();
@@ -696,24 +923,32 @@ test("the banner lists this person's punch errors and opens their week", async (
   assert.ok(page.run("calOffset") >= 1);
   page.run("renderKpis(buildWeeks(40))");
   const [averageTile, balanceTile, usualTile] = page.document.getElementById("kpis").children;
-  assert.deepEqual(usualTile.children.map(c => c.textContent), ["Horario habitual", "07:30 – 13:30", "entrada y salida medias · 2 días"]);
+  assert.deepEqual(
+    usualTile.children.map((c) => c.textContent),
+    ["Horario habitual", "07:30 – 13:30", "entrada y salida medias · 2 días"],
+  );
   for (const tile of [averageTile, balanceTile]) {
     assert.equal(tile.children[1].style.color, "var(--status-warning)");
-    assert.match(tile.children.at(-1).textContent, /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar o días sin fichar\)$/);
+    assert.match(
+      tile.children.at(-1).textContent,
+      /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar o días sin fichar\)$/,
+    );
   }
   const stale = page.run(`(() => { const w = buildWeek(weekOffsetOf(new Date(${back(3).getTime()})));
     const d = w.days.find(d => d.sessions.some(unclosed)); return [d.hours, w.openDays, w.error, dayError(d), dayValue(d).textContent]; })()`);
   assert.deepEqual(stale, [0, 1, true, true, "sin cerrar"]);
   page.run("store.weekTarget = 40; renderOverview(buildWeeks(40))");
   const has = (node, c) => (node.getAttribute("class") || "").split(" ").includes(c);
-  const cols = page.document.getElementById("overviewChart").children[0].children.filter(g => g.tagName === "G" && has(g, "col"));
-  const errors = cols.filter(g => has(g, "error"));
+  const cols = page.document
+    .getElementById("overviewChart")
+    .children[0].children.filter((g) => g.tagName === "G" && has(g, "col"));
+  const errors = cols.filter((g) => has(g, "error"));
   assert.ok(errors.length >= 2);
-  assert.ok(errors.every(g => g.children.filter(c => has(c, "err-mark")).length === 1));
-  assert.ok(cols.filter(g => !has(g, "error")).every(g => g.children.every(c => !has(c, "err-mark"))));
-  assert.ok(errors.some(g => hover(page, g).some(t => /sin fichar$/.test(t))));
-  assert.ok(errors.some(g => hover(page, g).includes("Incluye una jornada muy larga: suma no fiable")));
-  assert.ok(errors.some(g => hover(page, g).includes("1 día con una entrada sin cerrar")));
+  assert.ok(errors.every((g) => g.children.filter((c) => has(c, "err-mark")).length === 1));
+  assert.ok(cols.filter((g) => !has(g, "error")).every((g) => g.children.every((c) => !has(c, "err-mark"))));
+  assert.ok(errors.some((g) => hover(page, g).some((t) => /sin fichar$/.test(t))));
+  assert.ok(errors.some((g) => hover(page, g).includes("Incluye una jornada muy larga: suma no fiable")));
+  assert.ok(errors.some((g) => hover(page, g).includes("1 día con una entrada sin cerrar")));
   page.run("calOffset = 0");
   const oldest = cols[0];
   oldest.listeners.click[0]();
@@ -722,11 +957,15 @@ test("the banner lists this person's punch errors and opens their week", async (
   assert.equal(page.run("calOffset"), 1);
   cols.at(-2).listeners.keydown[0]({ key: "Tab" });
   assert.equal(page.run("calOffset"), 1);
-  page.run("const ws = buildWeeks(40); Object.defineProperty(ws[0], 'total', { value: 230 }); ws[0].suspect = true; renderOverview(ws)");
+  page.run(
+    "const ws = buildWeeks(40); Object.defineProperty(ws[0], 'total', { value: 230 }); ws[0].suspect = true; renderOverview(ws)",
+  );
   const chart = page.document.getElementById("overviewChart").children[0];
-  const ticks = chart.children.filter(c => has(c, "ticklabel")).map(t => Number(t.textContent));
+  const ticks = chart.children.filter((c) => has(c, "ticklabel")).map((t) => Number(t.textContent));
   assert.equal(Math.max(...ticks), 40);
-  const tallest = chart.children.filter(g => g.tagName === "G" && has(g, "col"))[0].children.find(c => has(c, "bar"));
+  const tallest = chart.children
+    .filter((g) => g.tagName === "G" && has(g, "col"))[0]
+    .children.find((c) => has(c, "bar"));
   assert.match(tallest.getAttribute("d"), / L [\d.]+ 14 Q /);
   page.run("store.data.sessions = []; store.contractHours = new Map(); indexSessions(); renderErrors()");
   assert.equal(box.classList.contains("hidden"), true);
@@ -734,13 +973,19 @@ test("the banner lists this person's punch errors and opens their week", async (
 
 test("a week holding a too long session never claims its target reached", async () => {
   const today = new Date();
-  const page = load({ data: payload([session(at(today, 0), at(today, 12, 30))], {
-    long_hours: 12, schedule: { hours: [1, 1, 1, 1, 1, 1, 1], lunch_from: [null, null, null, null, null, null, null] },
-  }) });
+  const page = load({
+    data: payload([session(at(today, 0), at(today, 12, 30))], {
+      long_hours: 12,
+      schedule: { hours: [1, 1, 1, 1, 1, 1, 1], lunch_from: [null, null, null, null, null, null, null] },
+    }),
+  });
   await page.run("loadAndRender()");
-  const texts = node => [node.textContent, ...(node.children || []).filter(c => typeof c !== "string").flatMap(texts)];
-  assert.ok(texts(page.document.getElementById("hero")).some(t => /hay un fichaje por revisar$/.test(t)));
-  assert.ok(!texts(page.document.getElementById("hero")).some(t => /objetivo alcanzado$/.test(t)));
+  const texts = (node) => [
+    node.textContent,
+    ...(node.children || []).filter((c) => typeof c !== "string").flatMap(texts),
+  ];
+  assert.ok(texts(page.document.getElementById("hero")).some((t) => /hay un fichaje por revisar$/.test(t)));
+  assert.ok(!texts(page.document.getElementById("hero")).some((t) => /objetivo alcanzado$/.test(t)));
   const badge = page.document.getElementById("weekCal").querySelectorAll(".badge")[0];
   assert.equal(badge.textContent, "⚠ en curso · fichaje por revisar");
   assert.equal(badge.classList.contains("warn"), true);
@@ -753,11 +998,21 @@ test("a week holding a too long session never claims its target reached", async 
 
 test("the week card switches between the timeline and the hours per day", async () => {
   const today = new Date();
-  const page = load({ data: payload([session(at(today, 9), at(today, 12))], { schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] } }) });
+  const page = load({
+    data: payload([session(at(today, 9), at(today, 12))], {
+      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] },
+    }),
+  });
   await page.run("loadAndRender()");
   const card = page.document.getElementById("weekCal");
   const buttons = card.querySelectorAll(".seg")[0].children;
-  assert.deepEqual(buttons.map(b => [b.textContent, b.getAttribute("aria-pressed")]), [["Horario", "true"], ["Objetivo", "false"]]);
+  assert.deepEqual(
+    buttons.map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
+    [
+      ["Horario", "true"],
+      ["Objetivo", "false"],
+    ],
+  );
   assert.ok(card.querySelectorAll(".tl-row").length >= 5);
   assert.equal(card.querySelectorAll(".exp-tick").length, 0);
   buttons[1].listeners.click[0]();
@@ -768,12 +1023,17 @@ test("the week card switches between the timeline and the hours per day", async 
 
 test("the hero is three blocks", async () => {
   const today = new Date();
-  const page = load({ data: payload([session(at(today, 9), null)], {
-    schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] },
-  }) });
+  const page = load({
+    data: payload([session(at(today, 9), null)], {
+      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] },
+    }),
+  });
   await page.run("loadAndRender()");
   const hero = page.document.getElementById("hero");
-  assert.deepEqual(hero.children.map(c => c.className), ["main", "meter-box", "actions"]);
+  assert.deepEqual(
+    hero.children.map((c) => c.className),
+    ["main", "meter-box", "actions"],
+  );
   assert.equal(hero.querySelectorAll(".meter-caption").length, 2);
 });
 
@@ -782,7 +1042,7 @@ test("without phone access the block says why and how to fix it instead of offer
   await page.run("loadAndRender()");
   const phone = page.document.getElementById("phone");
   assert.equal(phone.classList.contains("hidden"), false);
-  const [title, what, why] = phone.children[0].children.map(c => c.textContent);
+  const [title, what, why] = phone.children[0].children.map((c) => c.textContent);
   assert.equal(title, "Abrir en el móvil");
   assert.match(what, /^Este panel también se puede usar desde el móvil.*Ahora no está disponible\.$/);
   assert.equal(why, "Falta openssl. Instálalo.");
@@ -791,12 +1051,17 @@ test("without phone access the block says why and how to fix it instead of offer
 
 test("the week's meter has one section per day that expects hours, as wide as those hours", async () => {
   const today = new Date();
-  const page = load({ data: payload([session(at(today, 9), null)], {
-    schedule: { hours: [8.5, 8.5, 8.5, 8.5, 6, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] },
-  }) });
+  const page = load({
+    data: payload([session(at(today, 9), null)], {
+      schedule: { hours: [8.5, 8.5, 8.5, 8.5, 6, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] },
+    }),
+  });
   await page.run("loadAndRender()");
   const sections = page.document.getElementById("hero").querySelectorAll(".scale")[0].children;
-  assert.deepEqual(sections.map(s => s.style["--hours"]), [8.5, 8.5, 8.5, 8.5, 6]);
+  assert.deepEqual(
+    sections.map((s) => s.style["--hours"]),
+    [8.5, 8.5, 8.5, 8.5, 6],
+  );
 });
 
 test("a punch that succeeds but fails to reload says so and leaves the button disabled", async () => {
@@ -813,7 +1078,7 @@ test("a punch that succeeds but fails to reload says so and leaves the button di
   const page = load({ fetchImpl });
   await page.run("loadAndRender()");
   const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find(b => b.textContent === "Fichar salida");
+  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
   await button.listeners.click[0]();
   await button.listeners.click[0]();
   const errBox = hero.querySelector(".err");
@@ -830,7 +1095,7 @@ test("a punch that itself fails restores the button and shows the plain error", 
   const page = load({ fetchImpl });
   await page.run("loadAndRender()");
   const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find(b => b.textContent === "Fichar salida");
+  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
   await button.listeners.click[0]();
   await button.listeners.click[0]();
   const errBox = hero.querySelector(".err");
@@ -842,14 +1107,18 @@ test("a punch that itself fails restores the button and shows the plain error", 
 test("the login page asks only for what Odoo still needs, and for the code when Odoo wants one", async () => {
   const open = async (cfg, answers = []) => {
     const posts = [];
-    const page = load({ entry: "login.js", path: "/login", fetchImpl: async (url, opts) => {
-      if (url === "/api/config") return { ok: true, status: 200, json: async () => cfg };
-      posts.push(JSON.parse(opts.body));
-      const next = answers.shift();
-      if (next instanceof Error) throw next;
-      return { ok: next.status === 200, status: next.status, json: async () => next.body };
-    } });
-    const field = id => page.document.getElementById(id);
+    const page = load({
+      entry: "login.js",
+      path: "/login",
+      fetchImpl: async (url, opts) => {
+        if (url === "/api/config") return { ok: true, status: 200, json: async () => cfg };
+        posts.push(JSON.parse(opts.body));
+        const next = answers.shift();
+        if (next instanceof Error) throw next;
+        return { ok: next.status === 200, status: next.status, json: async () => next.body };
+      },
+    });
+    const field = (id) => page.document.getElementById(id);
     const focused = [];
     for (const id of ["url", "user", "pass", "code"]) field(id).focus = () => focused.push(id);
     await settle();
@@ -868,15 +1137,25 @@ test("the login page asks only for what Odoo still needs, and for the code when 
   assert.deepEqual([known.field("user").value, known.focused], ["ana", ["pass"]]);
   known.field("pass").type = "password";
   known.field("eye").listeners.click[0]();
-  assert.deepEqual([known.field("pass").type, known.field("eye").getAttribute("aria-label"),
-    known.field("eye-slash").classList.contains("hidden")], ["text", "Ocultar contraseña", false]);
+  assert.deepEqual(
+    [
+      known.field("pass").type,
+      known.field("eye").getAttribute("aria-label"),
+      known.field("eye-slash").classList.contains("hidden"),
+    ],
+    ["text", "Ocultar contraseña", false],
+  );
   known.field("eye").listeners.click[0]();
-  assert.deepEqual([known.field("pass").type, known.field("eye-slash").classList.contains("hidden")],
-    ["password", true]);
+  assert.deepEqual(
+    [known.field("pass").type, known.field("eye-slash").classList.contains("hidden")],
+    ["password", true],
+  );
   known.field("pass").value = "secreta";
   await known.submit();
-  assert.deepEqual([known.field("code").hidden, known.field("code").required, known.field("submit").disabled],
-    [false, true, false]);
+  assert.deepEqual(
+    [known.field("code").hidden, known.field("code").required, known.field("submit").disabled],
+    [false, true, false],
+  );
   assert.match(known.field("hint").textContent, /^Introduce el código/);
   known.field("code").value = "123456";
   for (const said of ["Usuario o contraseña incorrectos", "HTTP 500", "sin red"]) {
@@ -893,79 +1172,163 @@ test("the login page asks only for what Odoo still needs, and for the code when 
   assert.deepEqual(nameless.focused, ["user"]);
   const phone = await open({ configured: true, local: false });
   assert.match(phone.field("hint").textContent, /^Aquí no se inicia sesión/);
-  assert.deepEqual(["user", "secret", "submit"].map(id => phone.field(id).hidden), [true, true, true]);
+  assert.deepEqual(
+    ["user", "secret", "submit"].map((id) => phone.field(id).hidden),
+    [true, true, true],
+  );
   assert.deepEqual(phone.focused, []);
 });
 
 test("a 401 sends the page to the login", async () => {
   const page = load({ fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: "caducada" }) }) });
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   page.calls.replace.length = 0;
   await assert.rejects(page.run("api('/api/data')"), /caducada/);
   assert.deepEqual(page.calls.replace, ["/login"]);
 });
 
-const settle = () => new Promise(resolve => setImmediate(resolve));
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 const Y25 = new Date().getFullYear() === 2025 ? "" : " 2025";
 const WEEK_DAYS = ["2025-03-03", "2025-03-04", "2025-03-05", "2025-03-06", "2025-03-07", "2025-03-08", "2025-03-09"];
-const teamWeek = (changes = {}) => WEEK_DAYS.map((date, i) => ({
-  date, hours: i < 5 ? 8 : 0, target: i < 5 ? 8 : 0, absence: null, sessions: [], flags: [], requests: [], ...changes[i],
-}));
-const isoDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const daysAgo = (n, h, m = 0) => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate() - n, h, m); };
-const dayTime = d => `${d.getDate()} ${["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][d.getMonth()]} `
-  + `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-const withBalance = p => {
+const teamWeek = (changes = {}) =>
+  WEEK_DAYS.map((date, i) => ({
+    date,
+    hours: i < 5 ? 8 : 0,
+    target: i < 5 ? 8 : 0,
+    absence: null,
+    sessions: [],
+    flags: [],
+    requests: [],
+    ...changes[i],
+  }));
+const isoDate = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const daysAgo = (n, h, m = 0) => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - n, h, m);
+};
+const withBalance = (p) => {
   for (const e of p.employees) if (e.balance === undefined) e.balance = e.target == null ? null : e.hours - e.target;
   for (const e of p.employees) e.due = e.target;
   return p;
 };
 const fixLimits = { long_day: 12, under_margin: 1 / 60, over_margin: 5 };
-const teamFixes = () => ({ generated_at: new Date().toISOString(), limits: fixLimits, employees: [
-  { id: 3, name: "Zoe", items: [
-    { date: "2025-02-20", kind: "open", hours: 0, target: 8,
-      sessions: [{ in: new Date(2025, 1, 20, 8).toISOString(), out: null, hours: null }] },
-    { date: isoDate(daysAgo(3, 0)), kind: "long", hours: 20, target: 8,
-      sessions: [{ in: daysAgo(3, 8).toISOString(), out: daysAgo(2, 4).toISOString(), hours: 20 }] },
-    { date: isoDate(daysAgo(5, 0)), kind: "empty", hours: 0, target: 8, sessions: [] },
-  ] },
-  { id: 4, name: "Bruno", items: [
-    { date: isoDate(daysAgo(11, 0)), kind: "empty", hours: 0, target: 8, sessions: [] },
-  ] },
-] });
-const teamPayload = () => withBalance({
-  week: "2025-03-03", generated_at: new Date(2025, 2, 10, 9, 5).toISOString(), limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 },
-  reasons: [],
+const teamFixes = () => ({
+  generated_at: new Date().toISOString(),
+  limits: fixLimits,
   employees: [
-    { id: 3, name: "Zoe", hours: 40, target: 40, flags: [], days: teamWeek({ 0: { hours: 7.5, sessions: [
-      { in: new Date(2025, 2, 3, 9).toISOString(), out: new Date(2025, 2, 3, 16, 30).toISOString(), hours: 7.5, rest: false },
-    ] } }) },
-    { id: 1, name: "Álvaro", hours: 32, target: 40, flags: ["under"], pending: 1, days: teamWeek({ 1: { hours: 0, flags: ["empty"], requests: [
-      { from: new Date(2025, 2, 4, 9).toISOString(), to: new Date(2025, 2, 4, 17, 40).toISOString(), status: "pending", reason: "Olvidé fichar" },
-      { from: new Date(2025, 2, 4, 9).toISOString(), to: null, status: "refused", reason: "" },
-    ] } }) },
-    { id: 2, name: "Ana", hours: 30, target: null, flags: [], days: teamWeek({ 3: { hours: 0, target: 0, absence: "Vacaciones" } }) },
-    { id: 4, name: "Bruno", hours: 46.5, target: 40, flags: ["over"], days: teamWeek() },
+    {
+      id: 3,
+      name: "Zoe",
+      items: [
+        {
+          date: "2025-02-20",
+          kind: "open",
+          hours: 0,
+          target: 8,
+          sessions: [{ in: new Date(2025, 1, 20, 8).toISOString(), out: null, hours: null }],
+        },
+        {
+          date: isoDate(daysAgo(3, 0)),
+          kind: "long",
+          hours: 20,
+          target: 8,
+          sessions: [{ in: daysAgo(3, 8).toISOString(), out: daysAgo(2, 4).toISOString(), hours: 20 }],
+        },
+        { date: isoDate(daysAgo(5, 0)), kind: "empty", hours: 0, target: 8, sessions: [] },
+      ],
+    },
+    {
+      id: 4,
+      name: "Bruno",
+      items: [{ date: isoDate(daysAgo(11, 0)), kind: "empty", hours: 0, target: 8, sessions: [] }],
+    },
   ],
 });
-const cellText = td => td.children.map(c => c.textContent).join("|");
-const rowName = tr => (tr.children[0].children[0] || tr.children[0]).textContent;
-const withFilters = page => {
+const teamPayload = () =>
+  withBalance({
+    week: "2025-03-03",
+    generated_at: new Date(2025, 2, 10, 9, 5).toISOString(),
+    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 },
+    reasons: [],
+    employees: [
+      {
+        id: 3,
+        name: "Zoe",
+        hours: 40,
+        target: 40,
+        flags: [],
+        days: teamWeek({
+          0: {
+            hours: 7.5,
+            sessions: [
+              {
+                in: new Date(2025, 2, 3, 9).toISOString(),
+                out: new Date(2025, 2, 3, 16, 30).toISOString(),
+                hours: 7.5,
+                rest: false,
+              },
+            ],
+          },
+        }),
+      },
+      {
+        id: 1,
+        name: "Álvaro",
+        hours: 32,
+        target: 40,
+        flags: ["under"],
+        pending: 1,
+        days: teamWeek({
+          1: {
+            hours: 0,
+            flags: ["empty"],
+            requests: [
+              {
+                from: new Date(2025, 2, 4, 9).toISOString(),
+                to: new Date(2025, 2, 4, 17, 40).toISOString(),
+                status: "pending",
+                reason: "Olvidé fichar",
+              },
+              { from: new Date(2025, 2, 4, 9).toISOString(), to: null, status: "refused", reason: "" },
+            ],
+          },
+        }),
+      },
+      {
+        id: 2,
+        name: "Ana",
+        hours: 30,
+        target: null,
+        flags: [],
+        days: teamWeek({ 3: { hours: 0, target: 0, absence: "Vacaciones" } }),
+      },
+      { id: 4, name: "Bruno", hours: 46.5, target: 40, flags: ["over"], days: teamWeek() },
+    ],
+  });
+const cellText = (td) => td.children.map((c) => c.textContent).join("|");
+const rowName = (tr) => (tr.children[0].children[0] || tr.children[0]).textContent;
+const withFilters = (page) => {
   const seg = page.document.getElementById("filterSeg");
   for (const key of ["issues", "under", "over", "requests", "all"]) {
     const button = page.document.createElement("button");
     button.dataset.filter = key;
     seg.appendChild(button);
   }
-  return key => seg.listeners.click[0]({ target: { closest: () => seg.children.find(b => b.dataset.filter === key) } });
+  return (key) =>
+    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.filter === key) } });
 };
-const texts = box => box.children.map(c => c.children.length ? c.children.map(k => k.textContent).join(" ") : c.textContent)
-  .filter(Boolean);
-const bannerLine = item => item.children.map(c => c.textContent ?? c).join("");
+const texts = (box) =>
+  box.children
+    .map((c) => (c.children.length ? c.children.map((k) => k.textContent).join(" ") : c.textContent))
+    .filter(Boolean);
+const bannerLine = (item) => item.children.map((c) => c.textContent ?? c).join("");
 const hover = (page, node) => {
   node.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
   const tip = page.document.getElementById("tip");
-  const texts = tip.children.map(c => c.children.length ? c.children.map(k => k.textContent).join(" ") : c.textContent);
+  const texts = tip.children.map((c) =>
+    c.children.length ? c.children.map((k) => k.textContent).join(" ") : c.textContent,
+  );
   node.listeners.pointerleave[0]();
   return texts.filter(Boolean);
 };
@@ -976,21 +1339,34 @@ test("the management view draws one row per person, sorted in Spanish, with its 
   await settle();
   const doc = page.document;
   assert.equal(doc.getElementById("weekLabel").textContent, `Semana del 3 mar al 9 mar${Y25}`);
-  assert.match(doc.getElementById("criteria").textContent,
-    /^Bajo objetivo: una semana terminada con 1m o más por debajo .* más de 5h por encima .* más de 12h fichadas en un día\./);
+  assert.match(
+    doc.getElementById("criteria").textContent,
+    /^Bajo objetivo: una semana terminada con 1m o más por debajo .* más de 5h por encima .* más de 12h fichadas en un día\./,
+  );
   assert.match(doc.getElementById("subtitle").textContent, /^4 personas · actualizado el 10 mar a las 09:05/);
-  assert.deepEqual(doc.getElementById("filterSeg").children.map(b => [b.textContent, b.getAttribute("aria-pressed")]),
-    [["Con incidencias (2)", "true"], ["Bajo objetivo (1)", "false"], ["Demasiadas horas (1)", "false"], ["Con solicitudes (1)", "false"],
-      ["Todas (4)", "false"]]);
+  assert.deepEqual(
+    doc.getElementById("filterSeg").children.map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
+    [
+      ["Con incidencias (2)", "true"],
+      ["Bajo objetivo (1)", "false"],
+      ["Demasiadas horas (1)", "false"],
+      ["Con solicitudes (1)", "false"],
+      ["Todas (4)", "false"],
+    ],
+  );
   pick("requests");
   assert.deepEqual(doc.getElementById("grid").children[1].children.map(rowName), ["Álvaro"]);
   pick("all");
   const [thead, tbody] = doc.getElementById("grid").children;
-  assert.deepEqual(thead.children[0].children.map(th => th.textContent),
-    ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Semana"]);
+  assert.deepEqual(
+    thead.children[0].children.map((th) => th.textContent),
+    ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Semana"],
+  );
   assert.deepEqual(tbody.children.map(rowName), ["Álvaro", "Ana", "Bruno", "Zoe"]);
-  assert.deepEqual(tbody.children.map(tr => tr.children[0].children[0].href),
-    ["/empleado?id=1", "/empleado?id=2", "/empleado?id=4", "/empleado?id=3"]);
+  assert.deepEqual(
+    tbody.children.map((tr) => tr.children[0].children[0].href),
+    ["/empleado?id=1", "/empleado?id=2", "/empleado?id=4", "/empleado?id=3"],
+  );
   const bruno = tbody.children[2].children;
   assert.equal(cellText(bruno[6]), "Sobran 6h 30m|46h 30m| de 40h");
   page.run("team.data.employees.find(e => e.name === 'Bruno').suspect = true; render()");
@@ -1003,47 +1379,106 @@ test("the management view draws one row per person, sorted in Spanish, with its 
   assert.equal(alvaro[2].classList.contains("warn"), true);
   assert.equal(alvaro[2].classList.contains("bad"), false);
   assert.equal(cellText(alvaro[2]), "Sin fichar|Solicitud pendiente 09:00–17:40|Solicitud rechazada 09:00");
-  assert.deepEqual(alvaro[2].children.slice(1).map(c => c.className), ["req pending", "req refused"]);
-  assert.deepEqual(hover(page, alvaro[2]), [`Mar 4 mar${Y25}`, "Sin fichajes", "Jornada prevista de 8h sin fichajes ni ausencia",
-    "Solicitud pendiente 09:00–17:40", "Olvidé fichar", "Solicitud rechazada 09:00"]);
+  assert.deepEqual(
+    alvaro[2].children.slice(1).map((c) => c.className),
+    ["req pending", "req refused"],
+  );
+  assert.deepEqual(hover(page, alvaro[2]), [
+    `Mar 4 mar${Y25}`,
+    "Sin fichajes",
+    "Jornada prevista de 8h sin fichajes ni ausencia",
+    "Solicitud pendiente 09:00–17:40",
+    "Olvidé fichar",
+    "Solicitud rechazada 09:00",
+  ]);
   alvaro[2].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-  assert.deepEqual(page.document.getElementById("tip").children.filter(c => /^Solicitud/.test(c.textContent)).map(c => c.className),
-    ["t-note pending", "t-note refused"]);
+  assert.deepEqual(
+    page.document
+      .getElementById("tip")
+      .children.filter((c) => /^Solicitud/.test(c.textContent))
+      .map((c) => c.className),
+    ["t-note pending", "t-note refused"],
+  );
   alvaro[2].listeners.pointerleave[0]();
   assert.equal(page.document.getElementById("tip").style.display, "none");
-  assert.deepEqual(hover(page, alvaro[6]), ["Saldo de la semana, día a día", "Ningún día cerrado con jornada prevista",
-    "32h de 40h previstas: faltan 8h"]);
+  assert.deepEqual(hover(page, alvaro[6]), [
+    "Saldo de la semana, día a día",
+    "Ningún día cerrado con jornada prevista",
+    "32h de 40h previstas: faltan 8h",
+  ]);
   const zoe = tbody.children[3].children;
   assert.deepEqual(hover(page, zoe[1]), [`Lun 3 mar${Y25}`, "09:00–16:30 7h 30m", "Frente a 8h previstas −30m"]);
-  assert.deepEqual(hover(page, zoe[6]), ["Saldo de la semana, día a día", `Lun 3 mar${Y25} −30m`, "Semana frente a 40h +0h"]);
+  assert.deepEqual(hover(page, zoe[6]), [
+    "Saldo de la semana, día a día",
+    `Lun 3 mar${Y25} −30m`,
+    "Semana frente a 40h +0h",
+  ]);
   assert.equal(cellText(alvaro[6]), "Faltan 8h|32h| de 40h");
   assert.equal(alvaro[6].classList.contains("bad"), true);
   const ana = tbody.children[1].children;
   assert.equal(cellText(ana[4]), "Vacaciones");
   assert.equal(cellText(ana[6]), "30h| sin horario");
   assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
-  assert.match(doc.getElementById("fixesNote").textContent,
-    /^Entradas sin cerrar, jornadas de más de 12h y días con jornada prevista sin fichar/);
+  assert.match(
+    doc.getElementById("fixesNote").textContent,
+    /^Entradas sin cerrar, jornadas de más de 12h y días con jornada prevista sin fichar/,
+  );
   const fixes = doc.getElementById("fixes").children[0].children;
-  assert.deepEqual(fixes.slice(0, 2).map(c => c.textContent), ["Persona", "Pendiente"]);
+  assert.deepEqual(
+    fixes.slice(0, 2).map((c) => c.textContent),
+    ["Persona", "Pendiente"],
+  );
   const cells = fixes.slice(3);
-  assert.deepEqual(cells.filter(c => c.tagName === "A").map(a => [a.textContent, a.href]), [["Zoe", "/empleado?id=3"], ["Bruno", "/empleado?id=4"]]);
-  assert.deepEqual(cells[1].children.map(c => [c.textContent, c.className]),
-    [["Abierta desde el 20 feb 2025 08:00", "chip warn"], ["1 jornada muy larga · 20h", "chip"], ["1 sin fichar", "chip"]]);
-  assert.deepEqual(cells[4].children.map(c => c.textContent), ["1 sin fichar"]);
-  const zoeMarks = cells[2].children.filter(c => c.tagName === "G");
-  assert.deepEqual(zoeMarks.map(g => g.children[1].getAttribute("class")), ["bar error", "bar error late", "bar missing"]);
-  assert.deepEqual(hover(page, zoeMarks[0]), ["Zoe · Jue 20 feb 2025", "Sin cerrar", "08:00–abierto abierta", "Entrada a las 08:00 sin salida"]);
-  assert.deepEqual(hover(page, zoeMarks[2]).slice(1), ["Sin fichar", "Jornada prevista de 8h sin fichajes ni ausencia"]);
-  assert.deepEqual(hover(page, zoeMarks[1]).slice(1), ["Jornada muy larga", "08:00–04:00 20h", "20h fichadas en el día, más de 12h"]);
+  assert.deepEqual(
+    cells.filter((c) => c.tagName === "A").map((a) => [a.textContent, a.href]),
+    [
+      ["Zoe", "/empleado?id=3"],
+      ["Bruno", "/empleado?id=4"],
+    ],
+  );
+  assert.deepEqual(
+    cells[1].children.map((c) => [c.textContent, c.className]),
+    [
+      ["Abierta desde el 20 feb 2025 08:00", "chip warn"],
+      ["1 jornada muy larga · 20h", "chip"],
+      ["1 sin fichar", "chip"],
+    ],
+  );
+  assert.deepEqual(
+    cells[4].children.map((c) => c.textContent),
+    ["1 sin fichar"],
+  );
+  const zoeMarks = cells[2].children.filter((c) => c.tagName === "G");
+  assert.deepEqual(
+    zoeMarks.map((g) => g.children[1].getAttribute("class")),
+    ["bar error", "bar error late", "bar missing"],
+  );
+  assert.deepEqual(hover(page, zoeMarks[0]), [
+    "Zoe · Jue 20 feb 2025",
+    "Sin cerrar",
+    "08:00–abierto abierta",
+    "Entrada a las 08:00 sin salida",
+  ]);
+  assert.deepEqual(hover(page, zoeMarks[2]).slice(1), [
+    "Sin fichar",
+    "Jornada prevista de 8h sin fichajes ni ausencia",
+  ]);
+  assert.deepEqual(hover(page, zoeMarks[1]).slice(1), [
+    "Jornada muy larga",
+    "08:00–04:00 20h",
+    "20h fichadas en el día, más de 12h",
+  ]);
   zoeMarks[1].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
   assert.equal(doc.getElementById("tip").children[2].classList.contains("warn"), true);
   zoeMarks[1].listeners.pointerleave[0]();
-  const brunoMarks = cells[5].children.filter(c => c.tagName === "G");
-  assert.deepEqual(brunoMarks.map(g => g.children[1].getAttribute("class")), ["bar missing"]);
-  assert.ok(fixes[2].children.filter(c => c.tagName === "TEXT").length >= 6);
-  const lines = strip => strip.children.filter(c => c.tagName === "LINE").map(l => l.getAttribute("class"));
-  assert.ok(lines(cells[2]).filter(c => c === "day").length > 70);
+  const brunoMarks = cells[5].children.filter((c) => c.tagName === "G");
+  assert.deepEqual(
+    brunoMarks.map((g) => g.children[1].getAttribute("class")),
+    ["bar missing"],
+  );
+  assert.ok(fixes[2].children.filter((c) => c.tagName === "TEXT").length >= 6);
+  const lines = (strip) => strip.children.filter((c) => c.tagName === "LINE").map((l) => l.getAttribute("class"));
+  assert.ok(lines(cells[2]).filter((c) => c === "day").length > 70);
   assert.ok(lines(cells[2]).includes("monday"));
   const width = () => Number(cells[2].getAttribute("width"));
   const strip = () => doc.getElementById("fixes").children[0].children.slice(3)[2];
@@ -1058,12 +1493,18 @@ test("the management view draws one row per person, sorted in Spanish, with its 
   assert.equal(page.run("team.fixDay"), 2);
   assert.equal(doc.getElementById("zoomOut").disabled, true);
   assert.ok(width() > 0);
-  assert.deepEqual([1, 2, 7, 14].map(String), [40, 20, 6, 3].map(px => String(page.run(`tickStep(${px})`))));
+  assert.deepEqual(
+    [1, 2, 7, 14].map(String),
+    [40, 20, 6, 3].map((px) => String(page.run(`tickStep(${px})`))),
+  );
   const now = new Date(2025, 5, 30, 12);
-  const span = page.run(`(() => { const s = fixSpan([{ items: [{ date: "2025-06-20", sessions: [{ in: new Date(2025, 5, 20, 16).toISOString() }] }] }],
+  const span =
+    page.run(`(() => { const s = fixSpan([{ items: [{ date: "2025-06-20", sessions: [{ in: new Date(2025, 5, 20, 16).toISOString() }] }] }],
     new Date(${now.getTime()})); return [s.from.getDate(), s.from.getHours(), Math.round(s.days * 10) / 10]; })()`);
   assert.deepEqual(span, [13, 0, 17.5]);
-  const old = page.run(`fixSpan([{ items: [{ date: "2020-01-01", sessions: [] }] }], new Date(${now.getTime()})).from.getFullYear()`);
+  const old = page.run(
+    `fixSpan([{ items: [{ date: "2020-01-01", sessions: [] }] }], new Date(${now.getTime()})).from.getFullYear()`,
+  );
   assert.equal(old, 2019);
   assert.equal(page.run(`fixSpan([], new Date(${now.getTime()})).days`), 7.5);
   const closed = page.run(`(() => { const s = fixSpan([{ items: [
@@ -1071,7 +1512,8 @@ test("the management view draws one row per person, sorted in Spanish, with its 
     { date: "2025-06-04", sessions: [] }] }], new Date(${now.getTime()}));
     return [s.from.getDate(), s.to.getDate(), s.to.getHours(), s.days]; })()`);
   assert.deepEqual(closed, [26, 12, 0, 17]);
-  const midnightEnd = page.run(`fixSpan([{ items: [{ date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(),
+  const midnightEnd =
+    page.run(`fixSpan([{ items: [{ date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(),
     out: new Date(2025, 5, 3).toISOString() }] }] }], new Date(${now.getTime()})).days`);
   assert.equal(midnightEnd, 15);
   page.run("team.fixes = null; renderFixes()");
@@ -1093,8 +1535,10 @@ test("the filters keep incidents, under or over target, or everyone, and say whe
   assert.deepEqual(rows().map(rowName), ["Bruno"]);
   pick("all");
   assert.deepEqual(rows().map(rowName), ["Álvaro", "Ana", "Bruno", "Zoe"]);
-  page.run("team.data.employees.find(e => e.name === 'Zoe').days[5].sessions = team.data.employees[0].days[0].sessions.concat([{ in: '2025-03-08T09:00:00', out: '2025-03-08T10:00:00', hours: 1, rest: false }]); render()");
-  const head = () => page.document.getElementById("grid").children[0].children[0].children.map(th => th.textContent);
+  page.run(
+    "team.data.employees.find(e => e.name === 'Zoe').days[5].sessions = team.data.employees[0].days[0].sessions.concat([{ in: '2025-03-08T09:00:00', out: '2025-03-08T10:00:00', hours: 1, rest: false }]); render()",
+  );
+  const head = () => page.document.getElementById("grid").children[0].children[0].children.map((th) => th.textContent);
   assert.deepEqual(head(), ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Sáb 8", "Semana"]);
   assert.equal(rows()[0].children.length, 8);
   pick("over");
@@ -1121,8 +1565,14 @@ test("a click on a day opens its details in a dialog that closes", async () => {
   const dialog = page.document.getElementById("dayDialog");
   assert.equal(dialog.open, true);
   assert.equal(page.document.getElementById("dayDialogTitle").textContent, "Álvaro");
-  assert.deepEqual(texts(page.document.getElementById("dayDialogBody")).slice(0, 6), [`Mar 4 mar${Y25}`, "Sin fichajes",
-    "Jornada prevista de 8h sin fichajes ni ausencia", "Solicitud pendiente 09:00–17:40", "Olvidé fichar", "Solicitud rechazada 09:00"]);
+  assert.deepEqual(texts(page.document.getElementById("dayDialogBody")).slice(0, 6), [
+    `Mar 4 mar${Y25}`,
+    "Sin fichajes",
+    "Jornada prevista de 8h sin fichajes ni ausencia",
+    "Solicitud pendiente 09:00–17:40",
+    "Olvidé fichar",
+    "Solicitud rechazada 09:00",
+  ]);
   page.document.getElementById("dayDialogClose").listeners.click[0]();
   assert.equal(dialog.open, false);
   alvaro[3].listeners.keydown[0]({ key: "Enter" });
@@ -1133,24 +1583,44 @@ test("a click on a day opens its details in a dialog that closes", async () => {
 });
 
 test("a day with a punch error offers its owner's message, to send by Discord or to copy", async () => {
-  let clipboard = { writeText: async text => { copied.push(text); } };
-  const copied = [], posts = [];
+  let clipboard = {
+    writeText: async (text) => {
+      copied.push(text);
+    },
+  };
+  const copied = [],
+    posts = [];
   const data = teamPayload();
   let answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
-  const page = load({ entry: "team.js", globals: { navigator: { get clipboard() { return clipboard; } } },
+  const page = load({
+    entry: "team.js",
+    globals: {
+      navigator: {
+        get clipboard() {
+          return clipboard;
+        },
+      },
+    },
     fetchImpl: async (url, opts) => {
-      if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return answer; }
-      return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : data };
-    } });
+      if (opts?.method === "POST") {
+        posts.push([url, JSON.parse(opts.body)]);
+        return answer;
+      }
+      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : data) };
+    },
+  });
   await settle();
   const doc = page.document;
-  const cell = i => doc.getElementById("grid").children[1].children[0].children[i];
-  const notice = () => doc.getElementById("dayDialogBody").children.find(c => c.className === "notice");
+  const cell = (i) => doc.getElementById("grid").children[1].children[0].children[i];
+  const notice = () => doc.getElementById("dayDialogBody").children.find((c) => c.className === "notice");
   const actions = () => notice().children[1].children;
-  const button = label => actions().find(b => b.textContent === label);
+  const button = (label) => actions().find((b) => b.textContent === label);
   const note = () => doc.getElementById("dayDialogNote").textContent;
-  const unfold = label => {
-    assert.deepEqual(notice().children.map(c => c.textContent), [label]);
+  const unfold = (label) => {
+    assert.deepEqual(
+      notice().children.map((c) => c.textContent),
+      [label],
+    );
     notice().children[0].listeners.click[0]();
   };
   cell(3).listeners.click[0]();
@@ -1158,16 +1628,29 @@ test("a day with a punch error offers its owner's message, to send by Discord or
   cell(2).listeners.click[0]();
   unfold("Preparar aviso…");
   const text = notice().children[0];
-  assert.equal(text.value, "Tienes un error en el fichaje del martes 4 de marzo: jornada prevista de 8h sin "
-    + "fichajes ni ausencia.\nPor favor, haz una solicitud de cambio de fichaje en Odoo.");
-  assert.deepEqual(actions().map(b => [b.textContent, b.className]), [["Copiar", "btn small"], ["Cancelar", "btn ghost small"]]);
+  assert.equal(
+    text.value,
+    "Tienes un error en el fichaje del martes 4 de marzo: jornada prevista de 8h sin " +
+      "fichajes ni ausencia.\nPor favor, haz una solicitud de cambio de fichaje en Odoo.",
+  );
+  assert.deepEqual(
+    actions().map((b) => [b.textContent, b.className]),
+    [
+      ["Copiar", "btn small"],
+      ["Cancelar", "btn ghost small"],
+    ],
+  );
   text.value = "Hola, revisa el martes";
   button("Cancelar").listeners.click[0]();
   unfold("Preparar aviso…");
   assert.equal(notice().children[0].value, "Hola, revisa el martes");
   await button("Copiar").listeners.click[0]();
   assert.deepEqual([copied, note()], [["Hola, revisa el martes"], "Mensaje copiado."]);
-  clipboard = { writeText: async () => { throw new Error("denegado"); } };
+  clipboard = {
+    writeText: async () => {
+      throw new Error("denegado");
+    },
+  };
   await button("Copiar").listeners.click[0]();
   assert.equal(note(), "No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C.");
   assert.equal(text.selected, true);
@@ -1178,13 +1661,25 @@ test("a day with a punch error offers its owner's message, to send by Discord or
   page.run("team.data.can_message = true");
   cell(2).listeners.click[0]();
   unfold("Preparar aviso…");
-  assert.deepEqual(actions().map(b => b.textContent), ["Copiar", "Cancelar", "Sin Discord en su ficha de Odoo"]);
+  assert.deepEqual(
+    actions().map((b) => b.textContent),
+    ["Copiar", "Cancelar", "Sin Discord en su ficha de Odoo"],
+  );
   page.run("team.data.employees.find(e => e.name === 'Álvaro').discord = '123456789012345678'");
   cell(2).listeners.click[0]();
   unfold("Avisar por Discord…");
-  assert.deepEqual(actions().map(b => [b.textContent, b.className]), [["Enviar", "btn small"], ["Copiar", "btn ghost small"],
-    ["Cancelar", "btn ghost small"]]);
-  assert.equal(button("Enviar").title, "Al final se añade que es automático, que te escriba a ti y un botón para hacer la solicitud en Odoo");
+  assert.deepEqual(
+    actions().map((b) => [b.textContent, b.className]),
+    [
+      ["Enviar", "btn small"],
+      ["Copiar", "btn ghost small"],
+      ["Cancelar", "btn ghost small"],
+    ],
+  );
+  assert.equal(
+    button("Enviar").title,
+    "Al final se añade que es automático, que te escriba a ti y un botón para hacer la solicitud en Odoo",
+  );
   notice().children[0].value = "Revisa el martes";
   const send = button("Enviar");
   await send.listeners.click[0]();
@@ -1202,10 +1697,16 @@ test("a day with a punch error offers its owner's message, to send by Discord or
 test("«Discord» says whether the bot has a token and keeps a new one without ever showing it", async () => {
   const posts = [];
   let answer = { ok: true, status: 200, json: async () => ({ bot: "Odoo" }) };
-  const page = load({ entry: "team.js", fetchImpl: async (url, opts) => {
-    if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return answer; }
-    return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : teamPayload() };
-  } });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async (url, opts) => {
+      if (opts?.method === "POST") {
+        posts.push([url, JSON.parse(opts.body)]);
+        return answer;
+      }
+      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
+    },
+  });
   await settle();
   const doc = page.document;
   const dialog = doc.getElementById("discordDialog");
@@ -1229,7 +1730,10 @@ test("«Discord» says whether the bot has a token and keeps a new one without e
   answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
   await test.listeners.click[0]();
   assert.deepEqual(posts.at(-1), ["/api/team/discord/test", {}]);
-  assert.deepEqual([note.textContent, test.disabled], ["Prueba enviada: mira tus mensajes directos de Discord.", false]);
+  assert.deepEqual(
+    [note.textContent, test.disabled],
+    ["Prueba enviada: mira tus mensajes directos de Discord.", false],
+  );
   answer = { ok: false, status: 409, json: async () => ({ error: "No se encuentra tu ID de Discord" }) };
   await test.listeners.click[0]();
   assert.equal(note.textContent, "No se envió la prueba: No se encuentra tu ID de Discord");
@@ -1254,15 +1758,44 @@ test("today's open session reads as in progress, not as zero", async () => {
   const data = teamPayload();
   const today = new Date();
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (today.getDay() + 6) % 7);
-  const day = i => { const d = new Date(monday); d.setDate(d.getDate() + i); return d; };
-  const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+  const day = (i) => {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    return d;
+  };
+  const isoOf = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   data.week = isoOf(monday);
   const index = (today.getDay() + 6) % 7;
-  data.employees = [{ id: 1, name: "Ana", hours: 0, target: 8, flags: [], days: [0, 1, 2, 3, 4, 5, 6].map(i => ({
-    date: isoOf(day(i)), hours: 0, target: 8, absence: null, flags: [], requests: [],
-    sessions: i === index ? [{ in: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9).toISOString(), out: null, hours: null, rest: false }] : [],
-  })) }];
+  data.employees = [
+    {
+      id: 1,
+      name: "Ana",
+      hours: 0,
+      target: 8,
+      flags: [],
+      days: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+        date: isoOf(day(i)),
+        hours: 0,
+        target: 8,
+        absence: null,
+        flags: [],
+        requests: [],
+        sessions:
+          i === index
+            ? [
+                {
+                  in: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9).toISOString(),
+                  out: null,
+                  hours: null,
+                  rest: false,
+                },
+              ]
+            : [],
+      })),
+    },
+  ];
   const page = load({ entry: "team.js", data });
   const pick = withFilters(page);
   await settle();
@@ -1276,9 +1809,13 @@ test("today's open session reads as in progress, not as zero", async () => {
 
 test("someone else's week is read only: their data, no punch buttons, no durations, no state polling", async () => {
   const today = new Date();
-  const page = load({ path: "/empleado?id=9", data: payload([session(at(today, 9), null)], {
-    schedule: { hours: [8, 8, 8, 8, 8, 8, 8], lunch_from: [null, null, null, null, null, null, null] }, team: true,
-  }) });
+  const page = load({
+    path: "/empleado?id=9",
+    data: payload([session(at(today, 9), null)], {
+      schedule: { hours: [8, 8, 8, 8, 8, 8, 8], lunch_from: [null, null, null, null, null, null, null] },
+      team: true,
+    }),
+  });
   await page.run("loadAndRender()");
   assert.equal(page.run("store.other"), "9");
   assert.equal(page.calls.fetch.at(-1)[0], "/api/data?employee=9");
@@ -1297,21 +1834,34 @@ test("sessions read as times, and weeks move by seven days", () => {
   const { run } = load({ entry: "team.js" });
   assert.equal(run('shiftWeek("2025-03-03", -1)'), "2025-02-24");
   assert.equal(run('shiftWeek("2025-03-24", 1)'), "2025-03-31");
-  const s = (a, b, extra) => JSON.stringify({ in: a.toISOString(), out: b && b.toISOString(), hours: b ? (b - a) / 3.6e6 : null, rest: false, ...extra });
+  const s = (a, b, extra) =>
+    JSON.stringify({
+      in: a.toISOString(),
+      out: b?.toISOString(),
+      hours: b ? (b - a) / 3.6e6 : null,
+      rest: false,
+      ...extra,
+    });
   assert.equal(run(`sessionSpan(${s(new Date(2025, 2, 3, 9), new Date(2025, 2, 3, 13, 30))})`), "09:00–13:30");
-  assert.equal(run(`sessionSpan(${s(new Date(2025, 2, 3, 13, 30), new Date(2025, 2, 3, 13, 45), { rest: true })})`), "13:30–13:45 descanso");
+  assert.equal(
+    run(`sessionSpan(${s(new Date(2025, 2, 3, 13, 30), new Date(2025, 2, 3, 13, 45), { rest: true })})`),
+    "13:30–13:45 descanso",
+  );
   assert.equal(run(`sessionSpan(${s(new Date(2025, 2, 3, 9), null)})`), "09:00–abierto");
-  const day = (flags, sessions, extra) => JSON.stringify({ date: "2025-03-03", hours: 14.5, target: 8, flags, sessions, ...extra });
+  const day = (flags, sessions, extra) =>
+    JSON.stringify({ date: "2025-03-03", hours: 14.5, target: 8, flags, sessions, ...extra });
   const limits = JSON.stringify({ long_day: 12, under_margin: 1 / 60 });
   assert.deepEqual(run(`whyDay("long", ${day(["long"], [])}, ${limits})`), ["14h 30m fichadas en el día, más de 12h"]);
-  assert.deepEqual(run(`whyDay("open", ${day(["open"], [JSON.parse(s(new Date(2025, 2, 3, 9, 5), null))])}, ${limits})`),
-    ["Entrada a las 09:05 sin salida"]);
+  assert.deepEqual(
+    run(`whyDay("open", ${day(["open"], [JSON.parse(s(new Date(2025, 2, 3, 9, 5), null))])}, ${limits})`),
+    ["Entrada a las 09:05 sin salida"],
+  );
 });
 
 test("week buttons ask the server for the week they point at", async () => {
   const page = load({ entry: "team.js", data: teamPayload() });
   await settle();
-  const click = async id => {
+  const click = async (id) => {
     const button = page.document.getElementById(id);
     await button.listeners.click[0]({ currentTarget: button });
     assert.equal(button.disabled, false);
@@ -1320,19 +1870,38 @@ test("week buttons ask the server for the week they point at", async () => {
   await click("nextWeek");
   await click("refreshBtn");
   await click("thisWeek");
-  assert.deepEqual(page.calls.fetch.map(([url]) => url),
-    ["/api/team", "/api/team?fixes", "/api/team?week=2025-02-24", "/api/team?week=2025-02-24", "/api/team?week=2025-02-24",
-     "/api/team?week=2025-03-10", "/api/team?week=2025-02-24", "/api/team?week=2025-03-03&fresh", "/api/team?fixes&fresh",
-     "/api/team?week=2025-02-24", "/api/team", "/api/team?week=2025-02-24"]);
+  assert.deepEqual(
+    page.calls.fetch.map(([url]) => url),
+    [
+      "/api/team",
+      "/api/team?fixes",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-03-10",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-03-03&fresh",
+      "/api/team?fixes&fresh",
+      "/api/team?week=2025-02-24",
+      "/api/team",
+      "/api/team?week=2025-02-24",
+    ],
+  );
   page.run("team.data = null");
   withFilters(page)("all");
 });
 
 test("the loading bar runs while a load is in flight, and stops even when it fails", async () => {
   let finish;
-  const page = load({ entry: "team.js", fetchImpl: url => url.includes("week=")
-    ? Promise.resolve({ ok: true, status: 200, json: async () => teamPayload() })
-    : new Promise(resolve => { finish = resolve; }) });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: (url) =>
+      url.includes("week=")
+        ? Promise.resolve({ ok: true, status: 200, json: async () => teamPayload() })
+        : new Promise((resolve) => {
+            finish = resolve;
+          }),
+  });
   const bar = page.document.getElementById("loadbar");
   assert.equal(bar.classList.contains("on"), true);
   finish({ ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) });
@@ -1344,26 +1913,38 @@ const monthPayload = () => {
   const p = teamPayload();
   p.start = "2025-03-01";
   p.stop = "2025-04-01";
-  const later = iso => { const [y, m, d] = iso.split("-").map(Number); const t = new Date(y, m - 1, d + 7);
-    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
+  const later = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    const t = new Date(y, m - 1, d + 7);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  };
   for (const e of p.employees) {
-    e.days = e.days.concat(teamWeek().map(d => ({ ...d, date: later(d.date) })));
+    e.days = e.days.concat(teamWeek().map((d) => ({ ...d, date: later(d.date) })));
     e.balance = e.target == null ? null : e.hours - e.target;
     e.due = e.target;
-    e.weeks = [{ monday: "2025-03-03", hours: e.hours, target: e.target, balance: e.balance, due: e.target, flags: e.flags },
-      { monday: "2025-03-10", hours: 40, target: e.target == null ? null : 40, balance: e.target == null ? null : 0,
-        due: e.target == null ? null : 40, flags: [] }];
+    e.weeks = [
+      { monday: "2025-03-03", hours: e.hours, target: e.target, balance: e.balance, due: e.target, flags: e.flags },
+      {
+        monday: "2025-03-10",
+        hours: 40,
+        target: e.target == null ? null : 40,
+        balance: e.target == null ? null : 0,
+        due: e.target == null ? null : 40,
+        flags: [],
+      },
+    ];
   }
   return p;
 };
-const withViews = page => {
+const withViews = (page) => {
   const seg = page.document.getElementById("viewSeg");
   for (const key of ["week", "month", "year"]) {
     const button = page.document.createElement("button");
     button.dataset.view = key;
     seg.appendChild(button);
   }
-  return key => seg.listeners.click[0]({ target: { closest: () => seg.children.find(b => b.dataset.view === key) } });
+  return (key) =>
+    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.view === key) } });
 };
 
 test("the month view shows each week whole, how many days carry a flag, and the month's own balance", async () => {
@@ -1378,10 +1959,16 @@ test("the month view shows each week whole, how many days carry a flag, and the 
   assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-03");
   assert.equal(page.calls.fetch.at(-1)[0], "/api/team?month=2025-02");
   assert.equal(doc.getElementById("weekLabel").textContent, "Marzo de 2025");
-  assert.deepEqual(doc.getElementById("viewSeg").children.map(b => b.getAttribute("aria-pressed")), ["false", "true", "false"]);
+  assert.deepEqual(
+    doc.getElementById("viewSeg").children.map((b) => b.getAttribute("aria-pressed")),
+    ["false", "true", "false"],
+  );
   pick("all");
   const [thead, tbody] = doc.getElementById("grid").children;
-  assert.deepEqual(thead.children[0].children.map(th => th.textContent), ["Persona", "3 mar – 9 mar", "10 mar – 16 mar", "Mes"]);
+  assert.deepEqual(
+    thead.children[0].children.map((th) => th.textContent),
+    ["Persona", "3 mar – 9 mar", "10 mar – 16 mar", "Mes"],
+  );
   const alvaro = tbody.children[0].children;
   assert.equal(cellText(alvaro[1]), "Faltan 8h|32h| de 40h|1 día con errores de fichaje");
   assert.equal(alvaro[1].classList.contains("bad"), true);
@@ -1389,22 +1976,48 @@ test("the month view shows each week whole, how many days carry a flag, and the 
   assert.equal(cellText(alvaro[3]), "Faltan 8h|32h| de 40h");
   assert.equal(alvaro[3].classList.contains("bad"), true);
   assert.equal(tbody.children[3].children[3].classList.contains("bad"), false);
-  assert.deepEqual(hover(page, alvaro[3]),
-    ["Saldo de cada semana, entera", "3 mar – 9 mar −8h", "10 mar – 16 mar +0h", "Solo los días del mes −8h"]);
-  page.run('team.data = { ...team.data, stop: "2999-01-01", employees: team.data.employees.map(e => ({ ...e, due: 24 })) }; render()');
-  assert.equal(cellText(doc.getElementById("grid").children[1].children[0].children[3]), "Faltan 8h hasta ayer|16h| de 24h");
-  assert.deepEqual([
-    "{ flags: [], balance: -2, weeks: [] }", "{ flags: [], balance: -2, flagged_days: 1, weeks: [] }",
-    "{ flags: [], balance: 1, weeks: [{ flags: ['under'] }] }", "{ flags: [], balance: -2, flagged_days: 1, weeks: [{ flags: ['under'] }] }",
-  ].map(e => page.run(`Filters.under.keep(${e})`)), [true, false, false, true]);
-  assert.deepEqual(["{ flags: [], balance: 6, weeks: [{ flags: ['over'] }] }", "{ flags: [], balance: 2, weeks: [{ flags: ['over'] }] }"]
-    .map(e => page.run(`Filters.over.keep(${e})`)), [true, false]);
-  assert.deepEqual(["gapText(0)", "gapText(0.001)", "gapText(1.5)", "gapText(-0.25)"].map(page.run),
-    ["Al día", "Al día", "Sobran 1h 30m", "Faltan 15m"]);
+  assert.deepEqual(hover(page, alvaro[3]), [
+    "Saldo de cada semana, entera",
+    "3 mar – 9 mar −8h",
+    "10 mar – 16 mar +0h",
+    "Solo los días del mes −8h",
+  ]);
+  page.run(
+    'team.data = { ...team.data, stop: "2999-01-01", employees: team.data.employees.map(e => ({ ...e, due: 24 })) }; render()',
+  );
+  assert.equal(
+    cellText(doc.getElementById("grid").children[1].children[0].children[3]),
+    "Faltan 8h hasta ayer|16h| de 24h",
+  );
+  assert.deepEqual(
+    [
+      "{ flags: [], balance: -2, weeks: [] }",
+      "{ flags: [], balance: -2, flagged_days: 1, weeks: [] }",
+      "{ flags: [], balance: 1, weeks: [{ flags: ['under'] }] }",
+      "{ flags: [], balance: -2, flagged_days: 1, weeks: [{ flags: ['under'] }] }",
+    ].map((e) => page.run(`Filters.under.keep(${e})`)),
+    [true, false, false, true],
+  );
+  assert.deepEqual(
+    [
+      "{ flags: [], balance: 6, weeks: [{ flags: ['over'] }] }",
+      "{ flags: [], balance: 2, weeks: [{ flags: ['over'] }] }",
+    ].map((e) => page.run(`Filters.over.keep(${e})`)),
+    [true, false],
+  );
+  assert.deepEqual(["gapText(0)", "gapText(0.001)", "gapText(1.5)", "gapText(-0.25)"].map(page.run), [
+    "Al día",
+    "Al día",
+    "Sobran 1h 30m",
+    "Faltan 15m",
+  ]);
   assert.equal(cellText(tbody.children[1].children[3]), "30h| sin horario");
   page.run("team.data = { ...team.data, employees: [] }; team.filter = 'issues'; render()");
-  assert.equal(doc.getElementById("grid").children[1].children[0].children[0].textContent, "Nadie tiene incidencias este mes");
-  page.run("team.data = " + JSON.stringify(monthPayload()) + "; team.filter = 'all'; render()");
+  assert.equal(
+    doc.getElementById("grid").children[1].children[0].children[0].textContent,
+    "Nadie tiene incidencias este mes",
+  );
+  page.run(`team.data = ${JSON.stringify(monthPayload())}; team.filter = 'all'; render()`);
   const again = doc.getElementById("grid").children[1].children[0].children;
   again[2].listeners.keydown[0]({ key: "Tab" });
   again[2].listeners.keydown[0]({ key: "Enter" });
@@ -1427,7 +2040,7 @@ test("in the month view the arrows and «Hoy» move by months", async () => {
   await settle();
   view("month");
   await settle();
-  const click = async id => {
+  const click = async (id) => {
     const button = page.document.getElementById(id);
     await button.listeners.click[0]({ currentTarget: button });
   };
@@ -1440,41 +2053,81 @@ test("in the month view the arrows and «Hoy» move by months", async () => {
   assert.equal(page.calls.fetch.at(-2)[0], "/api/team?fixes&fresh");
   await click("thisWeek");
   const now = new Date();
-  assert.equal(page.calls.fetch.at(-2)[0], `/api/team?month=${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  assert.equal(
+    page.calls.fetch.at(-2)[0],
+    `/api/team?month=${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+  );
   assert.equal(page.run('shiftMonth("2025-12", 1)'), "2026-01");
   assert.equal(page.run('shiftMonth("2025-01", -1)'), "2024-12");
 });
 
 const yearPayload = (year = 2025) => {
-  const months = changes => Array.from({ length: 12 }, (_, i) => ({
-    month: `${year}-${String(i + 1).padStart(2, "0")}`, hours: 140, target: 140, balance: 0, due: 140, under: 0, over: 0,
-    flagged_days: 0,
-    ...changes[i],
-  }));
+  const months = (changes) =>
+    Array.from({ length: 12 }, (_, i) => ({
+      month: `${year}-${String(i + 1).padStart(2, "0")}`,
+      hours: 140,
+      target: 140,
+      balance: 0,
+      due: 140,
+      under: 0,
+      over: 0,
+      flagged_days: 0,
+      ...changes[i],
+    }));
   return {
-    year: 2025, week: "2024-12-30", start: "2025-01-01", stop: "2026-01-01", generated_at: new Date(2026, 0, 2).toISOString(),
-    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 }, open: [],
+    year: 2025,
+    week: "2024-12-30",
+    start: "2025-01-01",
+    stop: "2026-01-01",
+    generated_at: new Date(2026, 0, 2).toISOString(),
+    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 },
+    open: [],
     employees: [
-      { id: 1, name: "Álvaro", hours: 1600, target: 1700, balance: -100, due: 1700, flags: ["under"],
-        months: months({ 2: { under: 1, flagged_days: 2 }, 4: { over: 2, balance: 12.5 }, 6: { hours: 137, under: 1, balance: -3 } }) },
-      { id: 2, name: "Ana", hours: 900, target: null, balance: null, due: null, flags: [],
-        months: months({}).map(m => ({ ...m, target: null, balance: null, due: null })) },
+      {
+        id: 1,
+        name: "Álvaro",
+        hours: 1600,
+        target: 1700,
+        balance: -100,
+        due: 1700,
+        flags: ["under"],
+        months: months({
+          2: { under: 1, flagged_days: 2 },
+          4: { over: 2, balance: 12.5 },
+          6: { hours: 137, under: 1, balance: -3 },
+        }),
+      },
+      {
+        id: 2,
+        name: "Ana",
+        hours: 900,
+        target: null,
+        balance: null,
+        due: null,
+        flags: [],
+        months: months({}).map((m) => ({ ...m, target: null, balance: null, due: null })),
+      },
     ],
   };
 };
 
-const byPeriod = urls => async url => {
+const byPeriod = (urls) => async (url) => {
   if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
   urls.push(url);
-  const data = url.includes("fixes") ? teamFixes() : url.includes("year=") ? yearPayload()
-    : url.includes("month=") ? monthPayload() : teamPayload();
+  const data = url.includes("fixes")
+    ? teamFixes()
+    : url.includes("year=")
+      ? yearPayload()
+      : url.includes("month=")
+        ? monthPayload()
+        : teamPayload();
   return { ok: true, status: 200, json: async () => data };
 };
 
 test("the year view shows each month against its target, its weeks off target and its flagged days", async () => {
   const urls = [];
   const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
-  page.calls.fetch = { at: i => [urls.at(i)] };
+  page.calls.fetch = { at: (i) => [urls.at(i)] };
   const view = withViews(page);
   const pick = withFilters(page);
   await settle();
@@ -1485,12 +2138,16 @@ test("the year view shows each month against its target, its weeks off target an
   assert.equal(doc.getElementById("weekLabel").textContent, "2025");
   pick("all");
   const [thead, tbody] = doc.getElementById("grid").children;
-  assert.deepEqual(thead.children[0].children.map(th => th.textContent),
-    ["Persona", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic", "Año"]);
+  assert.deepEqual(
+    thead.children[0].children.map((th) => th.textContent),
+    ["Persona", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic", "Año"],
+  );
   const alvaro = tbody.children[0].children;
   assert.equal(cellText(alvaro[3]), "Al día|140h| de 140h|1 semana bajo objetivo|2 días con errores de fichaje");
-  assert.deepEqual([alvaro[3].classList.contains("bad"), alvaro[3].classList.contains("warn"), alvaro[3].children[3].className],
-    [false, true, "meta block"]);
+  assert.deepEqual(
+    [alvaro[3].classList.contains("bad"), alvaro[3].classList.contains("warn"), alvaro[3].children[3].className],
+    [false, true, "meta block"],
+  );
   assert.equal(cellText(alvaro[7]), "Faltan 3h|137h| de 140h|1 semana bajo objetivo");
   assert.deepEqual([alvaro[7].classList.contains("bad"), alvaro[7].children[3].className], [true, "flag"]);
   assert.equal(cellText(alvaro[5]), "Sobran 12h 30m|140h| de 140h|2 semanas con demasiadas horas");
@@ -1504,14 +2161,26 @@ test("the year view shows each month against its target, its weeks off target an
   pick("issues");
   assert.deepEqual(doc.getElementById("grid").children[1].children.map(rowName), ["Álvaro"]);
   const made = "{ flags: ['under'], balance: -1, flagged_days: 1, months: [{ balance: 0 }, { balance: -2 }] }";
-  assert.deepEqual([made, made.replace("-1", "5"), made.replace("-2", "3")].map(e => page.run(`Filters.under.keep(${e})`)),
-    [true, false, false]);
-  assert.equal(page.run("Filters.under.keep({ flags: [], balance: -5, flagged_days: 2, months: [{ balance: -5, flagged_days: 2 }] })"), false);
+  assert.deepEqual(
+    [made, made.replace("-1", "5"), made.replace("-2", "3")].map((e) => page.run(`Filters.under.keep(${e})`)),
+    [true, false, false],
+  );
+  assert.equal(
+    page.run(
+      "Filters.under.keep({ flags: [], balance: -5, flagged_days: 2, months: [{ balance: -5, flagged_days: 2 }] })",
+    ),
+    false,
+  );
   page.run("team.data = { ...team.data, employees: [] }; render()");
-  assert.equal(doc.getElementById("grid").children[1].children[0].children[0].textContent, "Nadie tiene incidencias este año");
+  assert.equal(
+    doc.getElementById("grid").children[1].children[0].children[0].textContent,
+    "Nadie tiene incidencias este año",
+  );
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  page.run(`team.year = "${now.getFullYear()}"; team.data = ${JSON.stringify(yearPayload(now.getFullYear()))}; render()`);
+  page.run(
+    `team.year = "${now.getFullYear()}"; team.data = ${JSON.stringify(yearPayload(now.getFullYear()))}; render()`,
+  );
   const cells = doc.getElementById("grid").children[1].children[0].children;
   const index = now.getMonth() + 1;
   assert.equal(cells[index].classList.contains("today"), true);
@@ -1539,12 +2208,12 @@ test("the year view shows each month against its target, its weeks off target an
 test("in the year view the arrows and «Hoy» move by years, with no background prefetch", async () => {
   const urls = [];
   const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
-  page.calls.fetch = { at: i => [urls.at(i)] };
+  page.calls.fetch = { at: (i) => [urls.at(i)] };
   const view = withViews(page);
   await settle();
   view("year");
   await settle();
-  const click = async id => {
+  const click = async (id) => {
     const button = page.document.getElementById(id);
     await button.listeners.click[0]({ currentTarget: button });
   };
@@ -1564,17 +2233,20 @@ test("in the year view the arrows and «Hoy» move by years, with no background 
   assert.equal(page.calls.fetch.at(-1)[0], `/api/team?week=${iso}`);
 });
 
-const withDisplay = page => {
+const withDisplay = (page) => {
   const seg = page.document.getElementById("displaySeg");
   for (const key of ["table", "charts"]) {
     const button = page.document.createElement("button");
     button.dataset.display = key;
     seg.appendChild(button);
   }
-  return key => seg.listeners.click[0]({ target: { closest: () => seg.children.find(b => b.dataset.display === key) } });
+  return (key) =>
+    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.display === key) } });
 };
-const svgTexts = node => (node.children || []).flatMap(c => typeof c === "string" ? [] : [
-  ...(c.tagName === "TEXT" ? [c.textContent] : []), ...svgTexts(c)]);
+const svgTexts = (node) =>
+  (node.children || []).flatMap((c) =>
+    typeof c === "string" ? [] : [...(c.tagName === "TEXT" ? [c.textContent] : []), ...svgTexts(c)],
+  );
 
 test("the charts tab shows each person's balance and incidents per period, in every view", async () => {
   const urls = [];
@@ -1584,19 +2256,27 @@ test("the charts tab shows each person's balance and incidents per period, in ev
   const pick = withFilters(page);
   await settle();
   pick("all");
-  page.run("team.data.employees.forEach((e, i) => { e.balance = [-8, 0.5, null, 6.5][i]; e.flagged_days = i === 3 ? 2 : 0; })");
+  page.run(
+    "team.data.employees.forEach((e, i) => { e.balance = [-8, 0.5, null, 6.5][i]; e.flagged_days = i === 3 ? 2 : 0; })",
+  );
   display("charts");
   const doc = page.document;
   assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), true);
   assert.equal(doc.getElementById("charts").classList.contains("hidden"), false);
   const [people, timeline] = doc.getElementById("charts").children;
-  assert.deepEqual(page.run(`divergingBars([{ label: "a", value: -4, rows: [] }, { label: "b", value: 40, suspect: true, rows: [] }], String)
-    .children.filter(c => c.tagName === "G").map(g => g.children[2].getAttribute("width"))`), ["355", "355"]);
+  assert.deepEqual(
+    page.run(`divergingBars([{ label: "a", value: -4, rows: [] }, { label: "b", value: 40, suspect: true, rows: [] }], String)
+    .children.filter(c => c.tagName === "G").map(g => g.children[2].getAttribute("width"))`),
+    ["355", "355"],
+  );
   const bars = people.children.at(-2);
   assert.deepEqual(svgTexts(bars), ["Zoe", "−8h", "Álvaro", "+30m", "Bruno", "⚠ +6h 30m"]);
-  assert.equal(people.children.at(-1).textContent, "⚠ Saldo no fiable: incluye errores de fichaje, que se corrigen antes de juzgar sus horas.");
+  assert.equal(
+    people.children.at(-1).textContent,
+    "⚠ Saldo no fiable: incluye errores de fichaje, que se corrigen antes de juzgar sus horas.",
+  );
   assert.deepEqual(svgTexts(timeline.children.at(-1)).map(String), ["0", "1", "Lun", "1", "Mar", "Mié", "Jue", "Vie"]);
-  const marks = bars.children.filter(c => c.tagName === "G");
+  const marks = bars.children.filter((c) => c.tagName === "G");
   assert.equal(marks.length, 3);
   assert.equal(marks[0].children[2].getAttribute("class"), "bar short");
   assert.equal(marks[1].children[2].getAttribute("class"), "bar surplus");
@@ -1606,11 +2286,16 @@ test("the charts tab shows each person's balance and incidents per period, in ev
   marks[1].listeners.keydown[0]({ key: "Tab" });
   assert.deepEqual(page.calls.assigned, ["/empleado?id=3", "/empleado?id=1"]);
   assert.deepEqual(hover(page, marks[0]), ["Zoe", "Fichadas 40h", "Previstas 40h", "Saldo Faltan 8h"]);
-  page.run('team.data = { ...team.data, stop: "2999-01-01" }; team.data.employees.forEach(e => { e.due = 32; }); render()');
-  const runningBars = doc.getElementById("charts").children[0].children.at(-2).children.filter(c => c.tagName === "G");
+  page.run(
+    'team.data = { ...team.data, stop: "2999-01-01" }; team.data.employees.forEach(e => { e.due = 32; }); render()',
+  );
+  const runningBars = doc
+    .getElementById("charts")
+    .children[0].children.at(-2)
+    .children.filter((c) => c.tagName === "G");
   assert.deepEqual(hover(page, runningBars[0]), ["Zoe", "Fichadas 24h", "Previstas 32h", "Saldo Faltan 8h"]);
   page.run('team.data = { ...team.data, stop: "2025-03-10" }; render()');
-  const columns = timeline.children.at(-1).children.filter(c => c.tagName === "G");
+  const columns = timeline.children.at(-1).children.filter((c) => c.tagName === "G");
   assert.equal(columns.length, 5);
   assert.deepEqual(hover(page, columns[1]), [`Mar 4 mar${Y25}`, "Personas con errores de fichaje 1", "Álvaro"]);
   display("table");
@@ -1620,19 +2305,33 @@ test("the charts tab shows each person's balance and incidents per period, in ev
   await settle();
   const month = doc.getElementById("charts").children;
   assert.equal(month[1].children[2].className, "legend-row");
-  const weeks = month[1].children.at(-1).children.filter(c => c.tagName === "G");
+  const weeks = month[1].children.at(-1).children.filter((c) => c.tagName === "G");
   assert.equal(weeks.length, 2);
-  assert.deepEqual(hover(page, weeks[0]), ["3 mar – 9 mar", "Bajo objetivo 1", "Álvaro", "Demasiadas horas 1", "Bruno"]);
+  assert.deepEqual(hover(page, weeks[0]), [
+    "3 mar – 9 mar",
+    "Bajo objetivo 1",
+    "Álvaro",
+    "Demasiadas horas 1",
+    "Bruno",
+  ]);
   weeks[0].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
   const tipKids = page.document.getElementById("tip").children;
-  assert.deepEqual(tipKids.map(c => c.className), ["t-title", "t-row", "t-note t-name", "t-sep", "t-row", "t-note t-name"]);
-  assert.deepEqual(tipKids.filter(c => c.className === "t-row").map(r => r.children[0].children[0].className), ["swatch short", "swatch over"]);
+  assert.deepEqual(
+    tipKids.map((c) => c.className),
+    ["t-title", "t-row", "t-note t-name", "t-sep", "t-row", "t-note t-name"],
+  );
+  assert.deepEqual(
+    tipKids.filter((c) => c.className === "t-row").map((r) => r.children[0].children[0].className),
+    ["swatch short", "swatch over"],
+  );
   weeks[0].listeners.pointerleave[0]();
   view("year");
   await settle();
   const year = doc.getElementById("charts").children;
-  assert.equal(year[1].children.at(-1).children.filter(c => c.tagName === "G").length, 12);
-  page.run("team.data = { ...team.data, employees: team.data.employees.map(e => ({ ...e, balance: null })) }; render()");
+  assert.equal(year[1].children.at(-1).children.filter((c) => c.tagName === "G").length, 12);
+  page.run(
+    "team.data = { ...team.data, employees: team.data.employees.map(e => ({ ...e, balance: null })) }; render()",
+  );
   assert.equal(doc.getElementById("charts").children[0].children.at(-1).textContent, "Nadie con jornada prevista");
   doc.getElementById("displaySeg").listeners.click[0]({ target: { closest: () => null } });
   doc.getElementById("charts").replaceChildren();
@@ -1654,14 +2353,25 @@ test("the fixes card filters its own rows by kind, counting each kind's people",
   }
   await settle();
   const toggles = seg.children;
-  const toggle = kind => seg.listeners.click[0]({ target: { closest: () => toggles.find(b => b.dataset.kind === kind) } });
-  const fixed = () => doc.getElementById("fixes").children[0].children.filter(c => c.tagName === "A").map(a => a.textContent);
-  assert.deepEqual(toggles.map(b => b.textContent), ["Sin cerrar (1)", "Jornada muy larga (1)", "Sin fichar (2)"]);
+  const toggle = (kind) =>
+    seg.listeners.click[0]({ target: { closest: () => toggles.find((b) => b.dataset.kind === kind) } });
+  const fixed = () =>
+    doc
+      .getElementById("fixes")
+      .children[0].children.filter((c) => c.tagName === "A")
+      .map((a) => a.textContent);
+  assert.deepEqual(
+    toggles.map((b) => b.textContent),
+    ["Sin cerrar (1)", "Jornada muy larga (1)", "Sin fichar (2)"],
+  );
   assert.deepEqual(fixed(), ["Zoe", "Bruno"]);
   toggle("open");
   toggle("long");
   assert.deepEqual(fixed(), ["Bruno", "Zoe"]);
-  assert.deepEqual(toggles.map(b => b.getAttribute("aria-pressed")), ["false", "false", "true"]);
+  assert.deepEqual(
+    toggles.map((b) => b.getAttribute("aria-pressed")),
+    ["false", "false", "true"],
+  );
   assert.equal(toggles[0].textContent, "Sin cerrar (1)");
   assert.match(page.calls.hash, /k=empty$/);
   toggle("empty");
@@ -1670,13 +2380,19 @@ test("the fixes card filters its own rows by kind, counting each kind's people",
   assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
   toggle("long");
   const chips = doc.getElementById("fixes").children[0].children[4];
-  assert.deepEqual(chips.children.map(c => c.textContent), ["1 jornada muy larga · 20h"]);
+  assert.deepEqual(
+    chips.children.map((c) => c.textContent),
+    ["1 jornada muy larga · 20h"],
+  );
   const wide = doc.getElementById("wideBtn");
   wide.listeners.click[0]({ currentTarget: wide });
   assert.equal(doc.getElementById("openCard").classList.contains("wide"), true);
   assert.deepEqual([wide.getAttribute("aria-pressed"), wide.title], ["true", "Volver al ancho normal"]);
   wide.listeners.click[0]({ currentTarget: wide });
-  assert.deepEqual([wide.getAttribute("aria-pressed"), wide.getAttribute("aria-label")], ["false", "Ampliar a todo el ancho"]);
+  assert.deepEqual(
+    [wide.getAttribute("aria-pressed"), wide.getAttribute("aria-label")],
+    ["false", "Ampliar a todo el ancho"],
+  );
   doc.getElementById("fixKinds").listeners.click[0]({ target: { closest: () => null } });
   page.run("team.fixes = null");
   toggle("open");
@@ -1685,8 +2401,13 @@ test("the fixes card filters its own rows by kind, counting each kind's people",
 test("the management page keeps its view in the URL and in the session, and restores it", async () => {
   const urls = [];
   const store = new Map();
-  const storage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
-  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls), path: "/gestion#v=month&p=2025-03&f=all&d=charts&k=open,bogus,off&q=zo", storage });
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const page = load({
+    entry: "team.js",
+    fetchImpl: byPeriod(urls),
+    path: "/gestion#v=month&p=2025-03&f=all&d=charts&k=open,bogus,off&q=zo",
+    storage,
+  });
   await settle();
   assert.equal(urls[0], "/api/team?month=2025-03");
   assert.deepEqual(page.run("[team.view, team.filter, team.display, team.search]"), ["month", "all", "charts", "zo"]);
@@ -1697,7 +2418,14 @@ test("the management page keeps its view in the URL and in the session, and rest
   assert.equal(again.run("team.view"), "month");
   const bogus = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion#v=nope&f=nope&d=nope" });
   assert.deepEqual(bogus.run("[team.view, team.filter, team.display, team.search]"), ["week", "issues", "table", ""]);
-  const broken = { getItem: () => { throw new Error("bloqueado"); }, setItem: () => { throw new Error("bloqueado"); } };
+  const broken = {
+    getItem: () => {
+      throw new Error("bloqueado");
+    },
+    setItem: () => {
+      throw new Error("bloqueado");
+    },
+  };
   const blocked = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion", storage: broken });
   await settle();
   assert.equal(blocked.run("team.view"), "week");
@@ -1712,7 +2440,9 @@ test("each step into a period is a history entry, and going back reloads the one
   await settle();
   assert.equal(page.calls.pushed.length, 1);
   assert.match(page.calls.pushed[0], /^#v=month&p=2025-03&f=all&d=table&k=.*&q=%C3%81lvaro$/);
-  page.document.getElementById("prevWeek").listeners.click[0]({ currentTarget: page.document.getElementById("prevWeek") });
+  page.document
+    .getElementById("prevWeek")
+    .listeners.click[0]({ currentTarget: page.document.getElementById("prevWeek") });
   await settle();
   assert.ok(urls.includes("/api/team?month=2025-02"));
   assert.equal(page.calls.pushed.length, 2);
@@ -1725,30 +2455,51 @@ test("each step into a period is a history entry, and going back reloads the one
 });
 
 test("the mouse's back and forward buttons walk the history on both pages", async () => {
-  for (const [entry, data] of [["team.js", teamPayload()], ["app.js", payload([])]]) {
+  for (const [entry, data] of [
+    ["team.js", teamPayload()],
+    ["app.js", payload([])],
+  ]) {
     const page = load({ entry, data });
     await settle();
     const prevented = [];
     for (const button of [0, 3, 4, 1]) {
       page.calls.window.mouseup[0]({ button, preventDefault: () => prevented.push(button) });
     }
-    assert.deepEqual([page.calls.went, prevented], [[-1, 1], [3, 4]]);
+    assert.deepEqual(
+      [page.calls.went, prevented],
+      [
+        [-1, 1],
+        [3, 4],
+      ],
+    );
   }
 });
 
 test("the table shows even when the list of fixes fails, which says why", async () => {
-  const page = load({ entry: "team.js", fetchImpl: async url => url.includes("fixes")
-    ? { ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) }
-    : { ok: true, status: 200, json: async () => teamPayload() } });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async (url) =>
+      url.includes("fixes")
+        ? { ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) }
+        : { ok: true, status: 200, json: async () => teamPayload() },
+  });
   await settle();
   assert.equal(page.document.getElementById("gridCard").classList.contains("hidden"), false);
-  assert.equal(page.document.getElementById("fixesNote").textContent, "No se pudieron cargar los fichajes por corregir: Odoo no responde");
+  assert.equal(
+    page.document.getElementById("fixesNote").textContent,
+    "No se pudieron cargar los fichajes por corregir: Odoo no responde",
+  );
 });
 
 test("a refused or failed load says why", async () => {
-  const page = load({ entry: "team.js", fetchImpl: async () => ({
-    ok: false, status: 403, json: async () => ({ error: "Tu usuario de Odoo no ve fichajes de otras personas" }),
-  }) });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "Tu usuario de Odoo no ve fichajes de otras personas" }),
+    }),
+  });
   await settle();
   const msg = page.document.getElementById("loadmsg");
   assert.equal(msg.textContent, "Error cargando datos de Odoo: Tu usuario de Odoo no ve fichajes de otras personas");
@@ -1757,9 +2508,13 @@ test("a refused or failed load says why", async () => {
 
 test("logout goes to the login page, or says it failed and stays usable", async () => {
   let ok = true;
-  const page = load({ entry: "team.js", fetchImpl: async url => url === "/api/logout"
-    ? { ok, status: ok ? 200 : 502, json: async () => (ok ? { ok: true } : { error: "Odoo no responde" }) }
-    : { ok: true, status: 200, json: async () => teamPayload() } });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async (url) =>
+      url === "/api/logout"
+        ? { ok, status: ok ? 200 : 502, json: async () => (ok ? { ok: true } : { error: "Odoo no responde" }) }
+        : { ok: true, status: 200, json: async () => teamPayload() },
+  });
   const button = page.document.getElementById("logoutBtn");
   await button.listeners.click[0]();
   assert.deepEqual(page.calls.replace, ["/login"]);
@@ -1774,18 +2529,32 @@ test("logout goes to the login page, or says it failed and stays usable", async 
 function fakeAudio(refuse = false, state = "suspended") {
   const made = [];
   class AudioContext {
-    constructor() { this.state = state; this.currentTime = 0; this.destination = {}; made.push(this); }
+    constructor() {
+      this.state = state;
+      this.currentTime = 0;
+      this.destination = {};
+      made.push(this);
+    }
     resume() {
       if (refuse) return Promise.reject(new Error("bloqueado"));
       this.state = "running";
       return Promise.resolve();
     }
     createOscillator() {
-      const osc = { frequency: {}, connect: to => to, start() {}, stop() { osc.stopped = true; } };
+      const osc = {
+        frequency: {},
+        connect: (to) => to,
+        start() {},
+        stop() {
+          osc.stopped = true;
+        },
+      };
       (this.oscillators ||= []).push(osc);
       return osc;
     }
-    createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: to => to }; }
+    createGain() {
+      return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: (to) => to };
+    }
   }
   return { made, window: { AudioContext } };
 }
@@ -1801,10 +2570,12 @@ test("the first touch unlocks the sound, and a lunch that ran out rings three be
   doc.listeners.keydown[0]();
   assert.equal(audio.made.length, 1);
   const lunch = new Date(Date.now() - 40 * 60000).toISOString();
-  page.run(`store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`);
+  page.run(
+    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
+  );
   page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
   assert.equal(audio.made[0].oscillators.length, 3);
-  assert.ok(audio.made[0].oscillators.every(o => o.stopped));
+  assert.ok(audio.made[0].oscillators.every((o) => o.stopped));
   assert.equal(page.run("document.title"), "Fichajes");
   const flash = page.calls.timers.find(([, ms]) => ms === 900)[0];
   flash();
@@ -1816,7 +2587,9 @@ test("the first touch unlocks the sound, and a lunch that ran out rings three be
   blocked.document.listeners.pointerdown[0]();
   await settle();
   assert.equal(refused.made[0].state, "suspended");
-  page.run("store.notifyEl = document.createElement('div'); store.notifyArgs = [null, { expected: 8 }, 8]; refreshNotifyNote()");
+  page.run(
+    "store.notifyEl = document.createElement('div'); store.notifyArgs = [null, { expected: 8 }, 8]; refreshNotifyNote()",
+  );
   assert.match(page.run("store.notifyEl.textContent"), /^Comida vencida a las \d\d:\d\d$/);
 });
 
@@ -1824,7 +2597,9 @@ test("a browser that grants the sound with no gesture rings without a touch", ()
   const audio = fakeAudio(false, "running");
   const page = load({ globals: { window: audio.window } });
   const lunch = new Date(Date.now() - 40 * 60000).toISOString();
-  page.run(`store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`);
+  page.run(
+    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
+  );
   page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
   assert.equal(audio.made[0].oscillators.length, 3);
   assert.match(page.run("notifyStatus(null, { expected: 8 }, 8)"), /^Comida vencida a las \d\d:\d\d$/);
@@ -1833,10 +2608,15 @@ test("a browser that grants the sound with no gesture rings without a touch", ()
 test("a changed setting is saved, and rolled back when the server refuses it", async () => {
   const posts = [];
   let reply = { ok: true, status: 200, json: async () => ({ ...payload([]).state, lunch_minutes: 45 }) };
-  const page = load({ fetchImpl: async (url, opts) => {
-    if (url === "/api/state" && opts?.method === "POST") { posts.push(JSON.parse(opts.body)); return reply; }
-    return { ok: true, status: 200, json: async () => payload([]) };
-  } });
+  const page = load({
+    fetchImpl: async (url, opts) => {
+      if (url === "/api/state" && opts?.method === "POST") {
+        posts.push(JSON.parse(opts.body));
+        return reply;
+      }
+      return { ok: true, status: 200, json: async () => payload([]) };
+    },
+  });
   await page.run("loadAndRender()");
   await page.run("saveState({ lunch_minutes: 45 })");
   assert.deepEqual(posts, [{ lunch_minutes: 45 }]);
@@ -1854,14 +2634,16 @@ test("the state poll repaints only on a change, and reloads after a punch elsewh
   let state = payload([]).state;
   let fail = false;
   const loads = [];
-  const page = load({ fetchImpl: async url => {
-    if (url === "/api/state") {
-      if (fail) throw new Error("sin red");
-      return { ok: state !== null, status: state ? 200 : 500, json: async () => state };
-    }
-    loads.push(url);
-    return { ok: true, status: 200, json: async () => payload([]) };
-  } });
+  const page = load({
+    fetchImpl: async (url) => {
+      if (url === "/api/state") {
+        if (fail) throw new Error("sin red");
+        return { ok: state !== null, status: state ? 200 : 500, json: async () => state };
+      }
+      loads.push(url);
+      return { ok: true, status: 200, json: async () => payload([]) };
+    },
+  });
   await page.run("loadAndRender()");
   const before = loads.length;
   await page.run("refreshState()");
@@ -1888,14 +2670,16 @@ test("the tab coming back, the source poll, the views and «Actualizar» drive t
   const versions = ["a", "a", "b"];
   let versionFails = false;
   const fetched = [];
-  const page = load({ fetchImpl: async url => {
-    fetched.push(url);
-    if (url === "/api/version") {
-      if (versionFails) throw new Error("sin red");
-      return { ok: true, status: 200, json: async () => ({ version: versions.shift() }) };
-    }
-    return { ok: true, status: 200, json: async () => payload([]) };
-  } });
+  const page = load({
+    fetchImpl: async (url) => {
+      fetched.push(url);
+      if (url === "/api/version") {
+        if (versionFails) throw new Error("sin red");
+        return { ok: true, status: 200, json: async () => ({ version: versions.shift() }) };
+      }
+      return { ok: true, status: 200, json: async () => payload([]) };
+    },
+  });
   await page.run("loadAndRender()");
   const doc = page.document;
   const poll = page.calls.timers.find(([, ms]) => ms === 2000)[0];
@@ -1914,7 +2698,7 @@ test("the tab coming back, the source poll, the views and «Actualizar» drive t
   doc.hidden = true;
   visible();
   doc.hidden = false;
-  const loads = () => fetched.filter(url => url.startsWith("/api/data")).length;
+  const loads = () => fetched.filter((url) => url.startsWith("/api/data")).length;
   const loaded = loads();
   visible();
   page.run("store.loadedAt = 0; store.triedAt = 0");
@@ -1930,13 +2714,23 @@ test("the tab coming back, the source poll, the views and «Actualizar» drive t
   page.run(`store.data.sessions = [${JSON.stringify(session(new Date(Date.now() - 3600e3), null))}]; indexSessions()`);
   page.run("document.querySelector = () => ({}); tick(); document.querySelector = () => null; tick()");
   const views = doc.getElementById("viewSeg");
-  const table = doc.createElement("button"), charts = doc.createElement("button");
+  const table = doc.createElement("button"),
+    charts = doc.createElement("button");
   table.dataset.view = "table";
   charts.dataset.view = "charts";
   views.append(charts, table);
   views.listeners.click[0]({ target: { closest: () => table }, currentTarget: views });
-  assert.deepEqual([doc.getElementById("tableView").classList.contains("hidden"), doc.getElementById("chartsView").classList.contains("hidden")], [false, true]);
-  assert.deepEqual([charts, table].map(b => b.getAttribute("aria-pressed")), ["false", "true"]);
+  assert.deepEqual(
+    [
+      doc.getElementById("tableView").classList.contains("hidden"),
+      doc.getElementById("chartsView").classList.contains("hidden"),
+    ],
+    [false, true],
+  );
+  assert.deepEqual(
+    [charts, table].map((b) => b.getAttribute("aria-pressed")),
+    ["false", "true"],
+  );
   views.listeners.click[0]({ target: { closest: () => null }, currentTarget: views });
   const refresh = doc.getElementById("refreshBtn");
   const target = { disabled: false };
@@ -1951,7 +2745,7 @@ test("an armed punch button disarms by itself after four seconds", async () => {
   const page = load({ data: payload([session(at(today, 9), null)], { schedule }) });
   await page.run("loadAndRender()");
   const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find(b => b.textContent === "Fichar salida");
+  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
   button.classList.add("pulse");
   await button.listeners.click[0]();
   assert.equal(button.textContent, "¿Confirmar?");
@@ -1959,25 +2753,38 @@ test("an armed punch button disarms by itself after four seconds", async () => {
   assert.equal(ms, 4000);
   disarm();
   assert.equal(button.textContent, "Fichar salida");
-  assert.deepEqual(["arm", "pulse"].map(c => button.classList.contains(c)), [false, true]);
+  assert.deepEqual(
+    ["arm", "pulse"].map((c) => button.classList.contains(c)),
+    [false, true],
+  );
 });
 
 test("the gear opens the settings, each saved on change and explained in its tooltip", async () => {
   const posts = [];
   const data = payload([session(at(new Date(), 9), null)]);
-  const page = load({ fetchImpl: async (url, opts) => {
-    if (url !== "/api/state") return { ok: true, status: 200, json: async () => data };
-    posts.push(JSON.parse(opts.body));
-    return { ok: true, status: 200, json: async () => ({ ...page.run("store.state"), ...posts.at(-1) }) };
-  } });
+  const page = load({
+    fetchImpl: async (url, opts) => {
+      if (url !== "/api/state") return { ok: true, status: 200, json: async () => data };
+      posts.push(JSON.parse(opts.body));
+      return { ok: true, status: 200, json: async () => ({ ...page.run("store.state"), ...posts.at(-1) }) };
+    },
+  });
   await page.run("loadAndRender()");
-  const doc = page.document, dialog = doc.getElementById("settingsDialog"), tip = doc.getElementById("tip");
-  doc.getElementById("hero").querySelectorAll(".icon-btn").find(b => b.title === "Ajustes").listeners.click[0]();
+  const doc = page.document,
+    dialog = doc.getElementById("settingsDialog"),
+    tip = doc.getElementById("tip");
+  doc
+    .getElementById("hero")
+    .querySelectorAll(".icon-btn")
+    .find((b) => b.title === "Ajustes")
+    .listeners.click[0]();
   assert.equal(dialog.open, true);
   assert.ok(dialog.children.includes(tip));
   const rows = dialog.querySelectorAll(".setting");
-  assert.deepEqual(rows.map(r => r.children[0].textContent),
-    ["Comida", "Descanso", "Botón «Salir a comer»", "Tema", "Actualizaciones"]);
+  assert.deepEqual(
+    rows.map((r) => r.children[0].textContent),
+    ["Comida", "Descanso", "Botón «Salir a comer»", "Tema", "Actualizaciones"],
+  );
   rows[2].listeners.pointerenter[0]({ clientX: 0, clientY: 0 });
   assert.match(tip.children[0].textContent, /^Horas entre las que aparece el botón/);
 
@@ -1999,7 +2806,10 @@ test("the gear opens the settings, each saved on change and explained in its too
   await to.listeners.change[0]();
   assert.deepEqual([to.value, doc.getElementById("settingsNote").textContent, posts.length], ["16:00", "", 3]);
 
-  dialog.querySelectorAll(".btn").find(b => b.textContent === "Cerrar").listeners.click[0]();
+  dialog
+    .querySelectorAll(".btn")
+    .find((b) => b.textContent === "Cerrar")
+    .listeners.click[0]();
   dialog.listeners.close[0]();
   assert.equal(dialog.open, false);
   assert.ok(doc.body.children.includes(tip));
@@ -2014,16 +2824,29 @@ test("«Tema» keeps this browser's theme, and says so when the browser will not
   assert.equal(doc.documentElement.dataset.theme, "dark");
   page.run("store.data = { breaks: false }; openSettings()");
   const seg = doc.getElementById("settingsDialog").querySelectorAll(".seg")[0];
-  const pressed = () => seg.children.map(b => b.getAttribute("aria-pressed"));
-  assert.deepEqual(seg.children.map(b => b.textContent), ["Sistema", "Claro", "Oscuro"]);
+  const pressed = () => seg.children.map((b) => b.getAttribute("aria-pressed"));
+  assert.deepEqual(
+    seg.children.map((b) => b.textContent),
+    ["Sistema", "Claro", "Oscuro"],
+  );
   assert.deepEqual(pressed(), ["false", "false", "true"]);
   seg.children[1].listeners.click[0]();
-  assert.deepEqual([doc.documentElement.dataset.theme, items.theme, pressed()], ["light", "light", ["false", "true", "false"]]);
+  assert.deepEqual(
+    [doc.documentElement.dataset.theme, items.theme, pressed()],
+    ["light", "light", ["false", "true", "false"]],
+  );
   assert.equal(doc.getElementById("settingsNote").textContent, "");
   seg.children[0].listeners.click[0]();
   assert.deepEqual([doc.documentElement.dataset.theme, items.theme], ["", ""]);
 
-  const blocked = { getItem: () => { throw new Error("bloqueado"); }, setItem: () => { throw new Error("bloqueado"); } };
+  const blocked = {
+    getItem: () => {
+      throw new Error("bloqueado");
+    },
+    setItem: () => {
+      throw new Error("bloqueado");
+    },
+  };
   const locked = load({ local: blocked });
   assert.equal(locked.document.documentElement.dataset.theme, undefined);
   locked.run("store.data = { breaks: false }; openSettings()");
@@ -2034,11 +2857,16 @@ test("«Tema» keeps this browser's theme, and says so when the browser will not
 });
 
 test("a newer version shows the banner on both pages, and «Actualizaciones» checks now and says the answer", async () => {
-  const newer = { available: true, current: "1.0.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
-    error: "" };
+  const newer = {
+    available: true,
+    current: "1.0.0",
+    latest: "1.1.0",
+    url: "https://github.com/r/releases/tag/v1.1.0",
+    error: "",
+  };
   let answer = newer;
   const urls = [];
-  const fetchImpl = async url => {
+  const fetchImpl = async (url) => {
     urls.push(url);
     if (url.startsWith("/api/update")) {
       if (answer instanceof Error) throw answer;
@@ -2047,25 +2875,40 @@ test("a newer version shows the banner on both pages, and «Actualizaciones» ch
     }
     return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
   };
-  for (const [entry, path] of [["app.js", "/"], ["team.js", "/gestion"]]) {
+  for (const [entry, path] of [
+    ["app.js", "/"],
+    ["team.js", "/gestion"],
+  ]) {
     const page = load({ entry, path, fetchImpl });
     await settle();
     const banner = page.document.getElementById("updateBanner");
     assert.equal(banner.classList.contains("hidden"), false, entry);
-    assert.deepEqual(banner.children.map(c => c.tagName), ["P", "P", "P"]);
-    assert.deepEqual(banner.querySelectorAll("code").map(c => c.textContent),
-      ["uv tool upgrade odoo-wrapper", "claude plugin update odoo@odoo-wrapper"]);
+    assert.deepEqual(
+      banner.children.map((c) => c.tagName),
+      ["P", "P", "P"],
+    );
+    assert.deepEqual(
+      banner.querySelectorAll("code").map((c) => c.textContent),
+      ["uv tool upgrade odoo-wrapper", "claude plugin update odoo@odoo-wrapper"],
+    );
     assert.equal(banner.children[0].children[0].textContent, "Hay una versión nueva, la 1.1.0");
     assert.equal(banner.children[0].children[1], " (tienes la 1.0.0). ");
     const notes = banner.querySelectorAll("a")[0];
-    assert.deepEqual([notes.textContent, notes.href, notes.target, notes.rel],
-      ["Novedades", newer.url, "_blank", "noopener"]);
-    assert.ok(page.calls.timers.some(([, ms]) => ms === 3600000), entry);
+    assert.deepEqual(
+      [notes.textContent, notes.href, notes.target, notes.rel],
+      ["Novedades", newer.url, "_blank", "noopener"],
+    );
+    assert.ok(
+      page.calls.timers.some(([, ms]) => ms === 3600000),
+      entry,
+    );
   }
 
   const page = load({ fetchImpl });
   await settle();
-  const doc = page.document, banner = doc.getElementById("updateBanner"), note = doc.getElementById("settingsNote");
+  const doc = page.document,
+    banner = doc.getElementById("updateBanner"),
+    note = doc.getElementById("settingsNote");
   const poll = page.calls.timers.find(([, ms]) => ms === 3600000)[0];
   answer = { refused: true, error: "no autorizado" };
   await poll();
@@ -2077,12 +2920,18 @@ test("a newer version shows the banner on both pages, and «Actualizaciones» ch
   assert.equal(banner.classList.contains("hidden"), false);
 
   page.run("openSettings()");
-  const check = doc.getElementById("settingsDialog").querySelectorAll(".btn").find(b => b.textContent === "Buscar ahora");
+  const check = doc
+    .getElementById("settingsDialog")
+    .querySelectorAll(".btn")
+    .find((b) => b.textContent === "Buscar ahora");
   const cases = [
     [UP_TO_DATE, "Tienes la última versión, la 1.1.0.", true],
     [newer, "Hay una versión nueva: el aviso de arriba dice cómo instalarla.", false],
-    [{ ...UP_TO_DATE, latest: null, url: null, error: "No se pudo consultar GitHub: HTTP Error 403" },
-      "No se pudo consultar GitHub: HTTP Error 403", true],
+    [
+      { ...UP_TO_DATE, latest: null, url: null, error: "No se pudo consultar GitHub: HTTP Error 403" },
+      "No se pudo consultar GitHub: HTTP Error 403",
+      true,
+    ],
     [new Error("sin red"), "No se pudo buscar actualizaciones: sin red", true],
   ];
   for (const [next, text, hidden] of cases) {
@@ -2090,28 +2939,38 @@ test("a newer version shows the banner on both pages, and «Actualizaciones» ch
     await check.listeners.click[0]();
     assert.deepEqual([note.textContent, banner.classList.contains("hidden"), check.disabled], [text, hidden, false]);
   }
-  assert.equal(urls.filter(u => u === "/api/update?fresh").length, 4);
+  assert.equal(urls.filter((u) => u === "/api/update?fresh").length, 4);
 });
 
 test("on the machine itself «Actualizar ahora» installs after a second click, waits for the restart and reloads", async () => {
-  const newer = { available: true, current: "1.0.0", latest: "1.1.0", url: "https://github.com/r/releases/tag/v1.1.0",
-    error: "", local: true, how: "auto" };
+  const newer = {
+    available: true,
+    current: "1.0.0",
+    latest: "1.1.0",
+    url: "https://github.com/r/releases/tag/v1.1.0",
+    error: "",
+    local: true,
+    how: "auto",
+  };
   const state = { answer: newer, install: { ok: true, status: 200, body: { ok: true } }, down: false };
   const posts = [];
-  const page = load({ fetchImpl: async (url, opts) => {
-    if (url === "/api/update" && opts?.method === "POST") {
-      posts.push(url);
-      const { ok, status, body } = state.install;
-      return { ok, status, json: async () => body };
-    }
-    if (url.startsWith("/api/update")) {
-      if (state.down) throw new Error("reiniciando");
-      return { ok: true, status: 200, json: async () => state.answer };
-    }
-    return { ok: true, status: 200, json: async () => payload([]) };
-  } });
+  const page = load({
+    fetchImpl: async (url, opts) => {
+      if (url === "/api/update" && opts?.method === "POST") {
+        posts.push(url);
+        const { ok, status, body } = state.install;
+        return { ok, status, json: async () => body };
+      }
+      if (url.startsWith("/api/update")) {
+        if (state.down) throw new Error("reiniciando");
+        return { ok: true, status: 200, json: async () => state.answer };
+      }
+      return { ok: true, status: 200, json: async () => payload([]) };
+    },
+  });
   await settle();
-  const doc = page.document, banner = doc.getElementById("updateBanner");
+  const doc = page.document,
+    banner = doc.getElementById("updateBanner");
   const button = () => banner.querySelectorAll("button")[0];
   const note = () => banner.querySelectorAll("span")[0];
   const waits = () => (page.calls.timeouts || []).filter(([, ms]) => ms === 2000);
@@ -2121,11 +2980,17 @@ test("on the machine itself «Actualizar ahora» installs after a second click, 
       const pending = waits().splice(0);
       page.calls.timeouts = (page.calls.timeouts || []).filter(([, ms]) => ms !== 2000);
       if (!pending.length) return;
-      pending.forEach(([fn]) => fn());
+      for (const [fn] of pending) fn();
     }
   };
-  assert.equal(banner.querySelectorAll("code").some(c => c.textContent === "uv tool upgrade odoo-wrapper"), false);
-  assert.deepEqual(banner.children.map(c => c.className || c.tagName), ["P", "update-actions"]);
+  assert.equal(
+    banner.querySelectorAll("code").some((c) => c.textContent === "uv tool upgrade odoo-wrapper"),
+    false,
+  );
+  assert.deepEqual(
+    banner.children.map((c) => c.className || c.tagName),
+    ["P", "update-actions"],
+  );
   assert.equal(banner.querySelectorAll("code").length, 0);
   assert.deepEqual(banner.children.at(-1).children, [button(), note()]);
   assert.equal(button().textContent, "Actualizar ahora");
@@ -2139,16 +3004,20 @@ test("on the machine itself «Actualizar ahora» installs after a second click, 
   state.install = { ok: false, status: 502, body: { error: "uv no pudo instalarla: boom" } };
   button().listeners.click[0]();
   await button().listeners.click[0]();
-  assert.deepEqual([note().textContent, button().disabled, button().textContent],
-    ["No se pudo actualizar: uv no pudo instalarla: boom", false, "Actualizar ahora"]);
+  assert.deepEqual(
+    [note().textContent, button().disabled, button().textContent],
+    ["No se pudo actualizar: uv no pudo instalarla: boom", false, "Actualizar ahora"],
+  );
 
   state.install = { ok: true, status: 200, body: { ok: true } };
   state.down = true;
   button().listeners.click[0]();
   const installing = button().listeners.click[0]();
   await settle();
-  assert.deepEqual([button().disabled, button().textContent, note().textContent],
-    [true, "Instalando…", "Instalada: reiniciando el panel…"]);
+  assert.deepEqual(
+    [button().disabled, button().textContent, note().textContent],
+    [true, "Instalando…", "Instalada: reiniciando el panel…"],
+  );
   const kept = button();
   page.run("showUpdate({ available: false })");
   assert.equal(banner.classList.contains("hidden"), false);
@@ -2163,8 +3032,13 @@ test("on the machine itself «Actualizar ahora» installs after a second click, 
   assert.equal(button(), kept);
 
   state.answer = newer;
-  const stuck = load({ fetchImpl: async (url, opts) => ({ ok: true, status: 200,
-    json: async () => (opts?.method === "POST" ? { ok: true } : url.startsWith("/api/update") ? newer : payload([])) }) });
+  const stuck = load({
+    fetchImpl: async (url, opts) => ({
+      ok: true,
+      status: 200,
+      json: async () => (opts?.method === "POST" ? { ok: true } : url.startsWith("/api/update") ? newer : payload([])),
+    }),
+  });
   await settle();
   const stuckBanner = stuck.document.getElementById("updateBanner");
   const stuckButton = stuckBanner.querySelectorAll("button")[0];
@@ -2174,17 +3048,27 @@ test("on the machine itself «Actualizar ahora» installs after a second click, 
     await settle();
     const timers = (stuck.calls.timeouts || []).filter(([, ms]) => ms === 2000);
     stuck.calls.timeouts = [];
-    timers.forEach(([fn]) => fn());
+    for (const [fn] of timers) fn();
   }
   await pending;
   assert.match(stuckBanner.querySelectorAll("span")[0].textContent, /el panel no ha vuelto en tres minutos/);
   assert.equal(stuck.calls.reload, 0);
 
   let restartedYet = false;
-  const partial = load({ fetchImpl: async (url, opts) => ({ ok: true, status: 200, json: async () => (
-    opts?.method === "POST" ? { ok: true, skills: "marketplace not found" }
-      : url.startsWith("/api/update") ? (restartedYet ? { ...newer, current: "1.2.0" } : { ...newer, latest: "1.2.0" })
-        : payload([])) }) });
+  const partial = load({
+    fetchImpl: async (url, opts) => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        opts?.method === "POST"
+          ? { ok: true, skills: "marketplace not found" }
+          : url.startsWith("/api/update")
+            ? restartedYet
+              ? { ...newer, current: "1.2.0" }
+              : { ...newer, latest: "1.2.0" }
+            : payload([]),
+    }),
+  });
   await settle();
   const partialBanner = partial.document.getElementById("updateBanner");
   const partialButton = partialBanner.querySelectorAll("button")[0];
@@ -2192,19 +3076,29 @@ test("on the machine itself «Actualizar ahora» installs after a second click, 
   const partialRun = partialButton.listeners.click[0]();
   await settle();
   restartedYet = true;
-  partial.calls.timeouts.filter(([, ms]) => ms === 2000).forEach(([fn]) => fn());
+  for (const [fn] of partial.calls.timeouts.filter(([, ms]) => ms === 2000)) fn();
   await partialRun;
   const said = partialBanner.querySelectorAll("span")[0];
   assert.deepEqual([partial.calls.reload, partialButton.textContent, partialButton.disabled], [0, "Instalada", true]);
-  assert.equal(said.children[0], "La 1.2.0 ya funciona, pero las skills de Claude Code no se han actualizado "
-    + "(marketplace not found). Ejecuta ");
+  assert.equal(
+    said.children[0],
+    "La 1.2.0 ya funciona, pero las skills de Claude Code no se han actualizado " + "(marketplace not found). Ejecuta ",
+  );
   assert.equal(said.children[1].textContent, "claude plugin update odoo@odoo-wrapper");
 
-  const texts = how => {
-    const other = load({ fetchImpl: async url => ({ ok: true, status: 200,
-      json: async () => (url.startsWith("/api/update") ? { ...newer, how } : payload([])) }) });
-    return settle().then(() => other.document.getElementById("updateBanner").children.map(p => p.children
-      .filter(c => typeof c === "string").join("")));
+  const texts = (how) => {
+    const other = load({
+      fetchImpl: async (url) => ({
+        ok: true,
+        status: 200,
+        json: async () => (url.startsWith("/api/update") ? { ...newer, how } : payload([])),
+      }),
+    });
+    return settle().then(() =>
+      other.document
+        .getElementById("updateBanner")
+        .children.map((p) => p.children.filter((c) => typeof c === "string").join("")),
+    );
   };
   assert.equal((await texts("git"))[1], "Es la instalación de desarrollo: tráela con git.");
   assert.match((await texts("manual"))[1], /^No encuentro uv en este ordenador\. Para instalarla, ejecuta/);
@@ -2215,29 +3109,59 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   const work = (day, h1, m1, h2, m2) => session(d(day, h1, m1), d(day, h2, m2));
   const rest = (day, h1, m1, h2, m2) => session(d(day, h1, m1), h2 == null ? null : d(day, h2, m2), true);
   const sessions = [
-    work(7, 8, 0, 12, 0), rest(7, 12, 0, 12, 15), work(7, 12, 15, 13, 0), work(7, 13, 45, 17, 30),
-    work(8, 8, 0, 16, 30), work(9, 8, 0, 16, 0), work(10, 8, 0, 16, 0), work(11, 8, 0, 16, 0),
-    work(14, 8, 0, 16, 0), work(15, 7, 45, 8, 15), rest(15, 8, 45),
+    work(7, 8, 0, 12, 0),
+    rest(7, 12, 0, 12, 15),
+    work(7, 12, 15, 13, 0),
+    work(7, 13, 45, 17, 30),
+    work(8, 8, 0, 16, 30),
+    work(9, 8, 0, 16, 0),
+    work(10, 8, 0, 16, 0),
+    work(11, 8, 0, 16, 0),
+    work(14, 8, 0, 16, 0),
+    work(15, 7, 45, 8, 15),
+    rest(15, 8, 45),
   ];
-  const absences = [1, 2, 3, 4].map(day => ({ date: isoDate(d(day, 0)), type: "Vacaciones" })).concat([
-    { date: "2026-08-31", type: "Vacaciones" },
-    { date: "2026-09-08", type: "Médico", hours: 1, from: d(8, 16, 30).toISOString(), to: d(8, 17, 30).toISOString() },
-    { date: "2026-09-15", type: "Médico", hours: 0.5, from: d(15, 16).toISOString(), to: d(15, 16, 30).toISOString() },
-  ]);
+  const absences = [1, 2, 3, 4]
+    .map((day) => ({ date: isoDate(d(day, 0)), type: "Vacaciones" }))
+    .concat([
+      { date: "2026-08-31", type: "Vacaciones" },
+      {
+        date: "2026-09-08",
+        type: "Médico",
+        hours: 1,
+        from: d(8, 16, 30).toISOString(),
+        to: d(8, 17, 30).toISOString(),
+      },
+      {
+        date: "2026-09-15",
+        type: "Médico",
+        hours: 0.5,
+        from: d(15, 16).toISOString(),
+        to: d(15, 16, 30).toISOString(),
+      },
+    ]);
   const schedule = { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [0, 0, 0, 0, 0, 0, 0] };
   const data = payload(sessions, { generated_at: d(15, 10).toISOString(), schedule, absences });
-  const page = load({ fetchImpl: async (url, opts) => ({ ok: true, status: 200,
-    json: async () => url === "/api/state" ? { ...data.state, ...JSON.parse(opts.body) } : data }) });
+  const page = load({
+    fetchImpl: async (url, opts) => ({
+      ok: true,
+      status: 200,
+      json: async () => (url === "/api/state" ? { ...data.state, ...JSON.parse(opts.body) } : data),
+    }),
+  });
   await page.run("loadAndRender()");
   const doc = page.document;
   const hero = doc.getElementById("hero");
-  assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Volver del descanso", "Fichar salida"]);
-  const notes = hero.querySelectorAll(".note").map(n => n.textContent);
+  assert.deepEqual(
+    hero.querySelectorAll(".btn").map((b) => b.textContent),
+    ["Volver del descanso", "Fichar salida"],
+  );
+  const notes = hero.querySelectorAll(".note").map((n) => n.textContent);
   assert.ok(notes.includes("Ausente hoy: 30m"));
   assert.equal(hero.querySelectorAll(".meter-caption")[0].children[1].textContent, "1h 45m · 23 %");
   assert.ok(notes.includes("Descanso de hoy: 1h 15m ausente (en curso)"));
   assert.ok(notes.includes("Mar 15 sep · Médico 30m · 1h 45m fichadas"));
-  const mute = () => hero.querySelectorAll(".icon-btn").find(b => b.title.endsWith("avisos"));
+  const mute = () => hero.querySelectorAll(".icon-btn").find((b) => b.title.endsWith("avisos"));
   mute().listeners.click[0]();
   await settle();
   assert.equal(page.run("store.state.muted"), true);
@@ -2246,11 +3170,14 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   await settle();
   assert.equal(page.run("store.state.muted"), false);
   page.run("store.data.sessions.at(-1).rest = false; indexSessions(); renderHero()");
-  assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Fichar salida", "Salir a descanso"]);
+  assert.deepEqual(
+    hero.querySelectorAll(".btn").map((b) => b.textContent),
+    ["Fichar salida", "Salir a descanso"],
+  );
 
   const card = doc.getElementById("weekCal");
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "en curso · faltan 29h 45m");
-  const nav = cls => card.querySelectorAll(`.${cls}`)[0];
+  const nav = (cls) => card.querySelectorAll(`.${cls}`)[0];
   nav("navbtn").listeners.click[0]();
   assert.equal(page.run("calOffset"), 1);
   card.querySelectorAll(".navbtn")[1].listeners.click[0]();
@@ -2262,27 +3189,50 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "▲ +2h 15m vs 39h");
   const monday = card.querySelectorAll(".dayrow")[0];
   assert.equal(monday.querySelectorAll(".rest").length, 1);
-  assert.deepEqual(hover(page, monday), ["Lun 7 sep", "Total 8h 45m", "Previsto 8h", "Ausente 45m", "Descanso 15m",
-    "08:00 – 12:00 4h", "12:00 – 12:15 · descanso 15m", "12:15 – 13:00 45m", "13:45 – 17:30 3h 45m"]);
-  assert.deepEqual(hover(page, card.querySelectorAll(".dayrow")[1]).slice(0, 4), ["Mar 8 sep", "Total 8h 30m", "Previsto 7h", "Permiso · Médico 1h"]);
+  assert.deepEqual(hover(page, monday), [
+    "Lun 7 sep",
+    "Total 8h 45m",
+    "Previsto 8h",
+    "Ausente 45m",
+    "Descanso 15m",
+    "08:00 – 12:00 4h",
+    "12:00 – 12:15 · descanso 15m",
+    "12:15 – 13:00 45m",
+    "13:45 – 17:30 3h 45m",
+  ]);
+  assert.deepEqual(hover(page, card.querySelectorAll(".dayrow")[1]).slice(0, 4), [
+    "Mar 8 sep",
+    "Total 8h 30m",
+    "Previsto 7h",
+    "Permiso · Médico 1h",
+  ]);
   page.run("calOffset = 2; renderCalendar()");
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "vacaciones");
-  assert.deepEqual(hover(page, card.querySelectorAll(".dayrow")[0]).slice(0, 3), ["Lun 31 ago", "Total —", "Ausencia Vacaciones"]);
+  assert.deepEqual(hover(page, card.querySelectorAll(".dayrow")[0]).slice(0, 3), [
+    "Lun 31 ago",
+    "Total —",
+    "Ausencia Vacaciones",
+  ]);
   page.run("calOffset = 1; calView = 'horario'; renderCalendar()");
   const rows = card.querySelectorAll(".tl-row");
-  const mondayRow = rows.find(r => r.querySelectorAll(".dnum")[0]?.textContent === "7");
-  assert.deepEqual(mondayRow.querySelectorAll(".gap").map(g => g.textContent), ["45m"]);
-  const restBlock = mondayRow.querySelectorAll(".sess").find(s => s.classList.contains("rest"));
+  const mondayRow = rows.find((r) => r.querySelectorAll(".dnum")[0]?.textContent === "7");
+  assert.deepEqual(
+    mondayRow.querySelectorAll(".gap").map((g) => g.textContent),
+    ["45m"],
+  );
+  const restBlock = mondayRow.querySelectorAll(".sess").find((s) => s.classList.contains("rest"));
   assert.deepEqual(hover(page, restBlock).slice(0, 2), ["Lun 7 sep · 12:00 – 12:15", "Descanso 15m"]);
-  assert.ok(mondayRow.querySelectorAll(".sess").some(s => s.classList.contains("join-r")));
-  const tuesdayRow = rows.find(r => r.querySelectorAll(".dnum")[0]?.textContent === "8");
-  assert.deepEqual(tuesdayRow.querySelectorAll(".leave").map(l => [l.textContent, ...hover(page, l)]),
-    [["Médico", "Mar 8 sep · 16:30 – 17:30", "Permiso · Médico 1h"]]);
+  assert.ok(mondayRow.querySelectorAll(".sess").some((s) => s.classList.contains("join-r")));
+  const tuesdayRow = rows.find((r) => r.querySelectorAll(".dnum")[0]?.textContent === "8");
+  assert.deepEqual(
+    tuesdayRow.querySelectorAll(".leave").map((l) => [l.textContent, ...hover(page, l)]),
+    [["Médico", "Mar 8 sep · 16:30 – 17:30", "Permiso · Médico 1h"]],
+  );
   assert.deepEqual(hover(page, mondayRow.querySelectorAll(".gap")[0]), ["Lun 7 sep · 13:00 – 13:45", "Sin fichar 45m"]);
 
   page.run("renderOverview(buildWeeks(4))");
-  const cols = doc.getElementById("overviewChart").children[0].children.filter(g => g.tagName === "G");
-  assert.ok(cols[2].children.some(c => (c.getAttribute("class") || "") === "rest"));
+  const cols = doc.getElementById("overviewChart").children[0].children.filter((g) => g.tagName === "G");
+  assert.ok(cols[2].children.some((c) => (c.getAttribute("class") || "") === "rest"));
   assert.deepEqual(hover(page, cols[1]).slice(-1), ["Vacaciones toda la semana"]);
   assert.deepEqual(hover(page, cols[2]).slice(1, 4), ["Total 41h 15m", "Trabajo 41h", "Descanso 15m"]);
   assert.equal(hover(page, cols[2]).at(-1), "Sobre objetivo +2h 15m");
@@ -2291,39 +3241,78 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
 
 test("the usual hours get one tile per length of day when the days worked had more than one", () => {
   const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
-  const page = withData([on(7, 9, 0, 18, 0), on(8, 9, 30, 18, 30), on(11, 8, 0, 14, 0), on(12, 10, 30, 12, 30),
-    session(at(TUESDAY, 9), null)]);
-  const usual = contracts => {
+  const page = withData([
+    on(7, 9, 0, 18, 0),
+    on(8, 9, 30, 18, 30),
+    on(11, 8, 0, 14, 0),
+    on(12, 10, 30, 12, 30),
+    session(at(TUESDAY, 9), null),
+  ]);
+  const usual = (contracts) => {
     page.run(`store.contractHours = new Map(${JSON.stringify(contracts)}); renderKpis(buildWeeks(2))`);
-    return page.document.getElementById("kpis").children.slice(2).map(tile => tile.children.map(c => c.textContent));
+    return page.document
+      .getElementById("kpis")
+      .children.slice(2)
+      .map((tile) => tile.children.map((c) => c.textContent));
   };
   assert.deepEqual(usual([["2026-09-15", 7]]), [
     ["Horario habitual · jornada de 8h 30m", "09:15 – 18:15", "entrada y salida medias · 2 días"],
-    ["Horario habitual · jornada de 6h", "08:00 – 14:00", "entrada y salida medias · 1 día"]]);
-  assert.deepEqual(usual([["2026-09-11", 8.5]]),
-    [["Horario habitual", "09:12 – 15:45", "entrada y salida medias · 5 días"]]);
+    ["Horario habitual · jornada de 6h", "08:00 – 14:00", "entrada y salida medias · 1 día"],
+  ]);
+  assert.deepEqual(usual([["2026-09-11", 8.5]]), [
+    ["Horario habitual", "09:12 – 15:45", "entrada y salida medias · 5 días"],
+  ]);
 });
 
 test("the gap between two sessions is drawn only where no hour leave covers it", () => {
   const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
-  const leave = (day, h1, m1, h2, m2) => [`2026-09-0${day}`, [{ type: "Médico", hours: 1,
-    from: new Date(2026, 8, day, h1, m1).toISOString(), to: new Date(2026, 8, day, h2, m2).toISOString() }]];
-  const page = withData([on(7, 9, 30, 11, 25), on(7, 12, 56, 16, 28), on(8, 9, 0, 12, 0), on(8, 14, 0, 17, 0),
-    on(9, 9, 0, 13, 0), on(9, 14, 0, 18, 0)]);
-  page.run(`store.leaveMap = new Map(${JSON.stringify([leave(7, 11, 30, 12, 55), leave(8, 12, 0, 13, 0),
-    leave(9, 18, 0, 19, 0)])}); renderTimeline(document.getElementById("weekCal"), buildWeek(1))`);
-  const gaps = page.document.getElementById("weekCal").querySelectorAll(".tl-row").slice(0, 3)
-    .map(row => row.querySelectorAll(".gap").map(g => [g.textContent, g.style.left]));
-  assert.deepEqual(gaps.map(day => day.map(([text]) => text)), [["5m"], ["1h"], ["1h"]]);
-  assert.deepEqual(gaps.map(day => day[0][1]), ["31.060606060606055%", "45.45454545454545%", "45.45454545454545%"]);
+  const leave = (day, h1, m1, h2, m2) => [
+    `2026-09-0${day}`,
+    [
+      {
+        type: "Médico",
+        hours: 1,
+        from: new Date(2026, 8, day, h1, m1).toISOString(),
+        to: new Date(2026, 8, day, h2, m2).toISOString(),
+      },
+    ],
+  ];
+  const page = withData([
+    on(7, 9, 30, 11, 25),
+    on(7, 12, 56, 16, 28),
+    on(8, 9, 0, 12, 0),
+    on(8, 14, 0, 17, 0),
+    on(9, 9, 0, 13, 0),
+    on(9, 14, 0, 18, 0),
+  ]);
+  page.run(
+    `store.leaveMap = new Map(${JSON.stringify([
+      leave(7, 11, 30, 12, 55),
+      leave(8, 12, 0, 13, 0),
+      leave(9, 18, 0, 19, 0),
+    ])}); renderTimeline(document.getElementById("weekCal"), buildWeek(1))`,
+  );
+  const gaps = page.document
+    .getElementById("weekCal")
+    .querySelectorAll(".tl-row")
+    .slice(0, 3)
+    .map((row) => row.querySelectorAll(".gap").map((g) => [g.textContent, g.style.left]));
+  assert.deepEqual(
+    gaps.map((day) => day.map(([text]) => text)),
+    [["5m"], ["1h"], ["1h"]],
+  );
+  assert.deepEqual(
+    gaps.map((day) => day[0][1]),
+    ["31.060606060606055%", "45.45454545454545%", "45.45454545454545%"],
+  );
 });
 
 test("the fixes strip pans by dragging, and a plain press or a name link is left alone", async () => {
   const page = load({ entry: "team.js", data: teamPayload() });
   await settle();
   const scroller = page.document.getElementById("fixes");
-  const on = type => scroller.listeners[type][0];
-  const target = link => ({ closest: () => link ? {} : null });
+  const on = (type) => scroller.listeners[type][0];
+  const target = (link) => ({ closest: () => (link ? {} : null) });
   scroller.scrollLeft = 500;
   on("pointermove")({ clientX: 10, clientY: 0 });
   on("pointerdown")({ button: 2, target: target(false), clientX: 100, clientY: 0 });
@@ -2349,14 +3338,21 @@ test("the table pans by dragging, and a drag does not open the cell it ends on",
   await settle();
   const doc = page.document;
   const scroller = doc.getElementById("gridScroll");
-  const on = type => scroller.listeners[type][0];
+  const on = (type) => scroller.listeners[type][0];
   const cell = doc.getElementById("grid").children[1].children[0].children[1];
   scroller.scrollLeft = 200;
   scroller.scrollTop = 100;
   on("pointerdown")({ button: 0, pointerType: "touch", target: { closest: () => null }, clientX: 300, clientY: 0 });
   on("pointermove")({ clientX: 250, clientY: 0 });
   assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [200, 100]);
-  on("pointerdown")({ button: 0, pointerType: "mouse", target: { closest: () => null }, clientX: 300, clientY: 300, pointerId: 1 });
+  on("pointerdown")({
+    button: 0,
+    pointerType: "mouse",
+    target: { closest: () => null },
+    clientX: 300,
+    clientY: 300,
+    pointerId: 1,
+  });
   on("pointermove")({ clientX: 302, clientY: 298 });
   assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [200, 100]);
   on("pointermove")({ clientX: 250, clientY: 260 });
@@ -2371,7 +3367,7 @@ test("the table pans by dragging, and a drag does not open the cell it ends on",
 test("a tooltip also opens on keyboard focus and closes on blur", () => {
   const page = load({ entry: "team.js" });
   const node = page.document.createElement("div");
-  page.run("attachTip").call(null, node, tip => tip.appendChild(page.run("el('div', 't-title', 'Hola')")));
+  page.run("attachTip").call(null, node, (tip) => tip.appendChild(page.run("el('div', 't-title', 'Hola')")));
   node.listeners.focus[0]();
   const tip = page.document.getElementById("tip");
   node.listeners.pointermove[0]({ clientX: 40, clientY: 50 });
@@ -2385,26 +3381,40 @@ test("a tooltip also opens on keyboard focus and closes on blur", () => {
 test("a punch that goes through reloads and checks the alarms", async () => {
   const today = new Date();
   let punched = false;
-  const page = load({ fetchImpl: async (url, opts) => {
-    if (opts?.method === "POST") { punched = true; return { ok: true, status: 200, json: async () => ({}) }; }
-    return { ok: true, status: 200, json: async () => payload(punched ? [session(at(today, 9), at(today, 10))] : [session(at(today, 9), null)]) };
-  } });
+  const page = load({
+    fetchImpl: async (url, opts) => {
+      if (opts?.method === "POST") {
+        punched = true;
+        return { ok: true, status: 200, json: async () => ({}) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => payload(punched ? [session(at(today, 9), at(today, 10))] : [session(at(today, 9), null)]),
+      };
+    },
+  });
   await page.run("loadAndRender()");
   const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find(b => b.textContent === "Fichar salida");
+  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
   await button.listeners.click[0]();
   await button.listeners.click[0]();
   assert.equal(punched, true);
-  assert.deepEqual(hero.querySelectorAll(".btn").map(b => b.textContent), ["Fichar entrada"]);
+  assert.deepEqual(
+    hero.querySelectorAll(".btn").map((b) => b.textContent),
+    ["Fichar entrada"],
+  );
   assert.equal(hero.querySelector(".err").textContent, "");
 });
 
 test("failed reloads from a returning tab, a new day or a prefetch leave the page alone and only log", async () => {
   let down = false;
-  const page = load({ fetchImpl: async () => {
-    if (down) throw new Error("sin red");
-    return { ok: true, status: 200, json: async () => payload([]) };
-  } });
+  const page = load({
+    fetchImpl: async () => {
+      if (down) throw new Error("sin red");
+      return { ok: true, status: 200, json: async () => payload([]) };
+    },
+  });
   await page.run("loadAndRender()");
   down = true;
   page.run("store.loadedAt = 0; store.triedAt = 0");
@@ -2416,19 +3426,23 @@ test("failed reloads from a returning tab, a new day or a prefetch leave the pag
   assert.ok(page.calls.warnings.includes("[odoo] the reload on returning to the tab failed: Error: sin red"));
   assert.ok(page.calls.warnings.includes("[odoo] the reload on a new day failed: Error: sin red"));
   const urls = [];
-  const team = load({ entry: "team.js", fetchImpl: async url => {
-    urls.push(url);
-    if (url.startsWith("/api/team?week=")) throw new Error("sin red");
-    return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : teamPayload() };
-  } });
+  const team = load({
+    entry: "team.js",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.startsWith("/api/team?week=")) throw new Error("sin red");
+      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
+    },
+  });
   await settle();
-  assert.ok(urls.some(url => url.startsWith("/api/team?week=")));
+  assert.ok(urls.some((url) => url.startsWith("/api/team?week=")));
   assert.equal(team.document.getElementById("gridCard").classList.contains("hidden"), false);
   assert.ok(team.calls.warnings.includes("[odoo] the prefetch failed: Error: sin red"));
 });
 
 test("the dashboard's texts in their other cases", () => {
-  const monday = new Date(2026, 8, 14), last = new Date(2026, 8, 7);
+  const monday = new Date(2026, 8, 14),
+    last = new Date(2026, 8, 7);
   const on = (base, days, h, m = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, h, m);
   const page = withData([
     session(on(last, 0, 20), on(last, 2, 8)),
@@ -2437,27 +3451,49 @@ test("the dashboard's texts in their other cases", () => {
     session(on(monday, 1, 8), on(monday, 1, 8, 15), true),
     session(on(monday, 1, 8, 15), null),
   ]);
-  const text = code => page.run(code);
+  const text = (code) => page.run(code);
   const past = new Date(TUESDAY.getTime() - 3600e3).getTime();
-  assert.match(text(`punchText({ at: new Date(${past}), out: new Date(), rest: true })`), /^Fin del descanso a las 09:00 · hace /);
-  assert.match(text(`punchText({ at: new Date(${past}), out: null, rest: true, open: true })`), /^En descanso desde las 09:00 · llevas /);
-  const headline = code => text(`heroHeadline(${code}).children.map(c => c.textContent)`);
-  assert.deepEqual(headline(`{ expected: 0, vacation: true, auto: "Festivo", leaves: [], hours: 0 }, 0, 0, null, 0`).slice(0, 3), ["Hoy", "Sin jornada", "Festivo"]);
-  assert.deepEqual(headline(`{ expected: 8, hours: 8, leaves: [] }, 0, 0, null, 0`).slice(0, 3), ["Hoy", "Jornada cumplida", "justo en las 8h previstas"]);
+  assert.match(
+    text(`punchText({ at: new Date(${past}), out: new Date(), rest: true })`),
+    /^Fin del descanso a las 09:00 · hace /,
+  );
+  assert.match(
+    text(`punchText({ at: new Date(${past}), out: null, rest: true, open: true })`),
+    /^En descanso desde las 09:00 · llevas /,
+  );
+  const headline = (code) => text(`heroHeadline(${code}).children.map(c => c.textContent)`);
+  assert.deepEqual(
+    headline(`{ expected: 0, vacation: true, auto: "Festivo", leaves: [], hours: 0 }, 0, 0, null, 0`).slice(0, 3),
+    ["Hoy", "Sin jornada", "Festivo"],
+  );
+  assert.deepEqual(headline(`{ expected: 8, hours: 8, leaves: [] }, 0, 0, null, 0`).slice(0, 3), [
+    "Hoy",
+    "Jornada cumplida",
+    "justo en las 8h previstas",
+  ]);
 
   page.run("renderHero()");
   const hero = page.document.getElementById("hero");
-  assert.ok(hero.querySelectorAll(".note").some(n => n.textContent === "Descanso de hoy: 15m ausente"));
+  assert.ok(hero.querySelectorAll(".note").some((n) => n.textContent === "Descanso de hoy: 15m ausente"));
   page.run(`store.absMap = new Map([["2026-09-15", "Festivo"]]); renderHero()`);
-  assert.ok(hero.querySelectorAll(".note").some(n => /^Mar 15 sep · Festivo · /.test(n.textContent)));
-  assert.equal(hero.querySelectorAll(".btn").find(b => b.textContent === "Fichar salida").classList.contains("pulse"), false);
+  assert.ok(hero.querySelectorAll(".note").some((n) => /^Mar 15 sep · Festivo · /.test(n.textContent)));
+  assert.equal(
+    hero
+      .querySelectorAll(".btn")
+      .find((b) => b.textContent === "Fichar salida")
+      .classList.contains("pulse"),
+    false,
+  );
   page.run(`store.absMap = new Map(); store.expected = [0.5, 0.25, 0, 0, 0, 0, 0]; renderHero()`);
-  assert.ok(hero.querySelectorAll(".meter-caption").some(c => /· objetivo alcanzado$/.test(c.children[0].textContent)));
+  assert.ok(
+    hero.querySelectorAll(".meter-caption").some((c) => /· objetivo alcanzado$/.test(c.children[0].textContent)),
+  );
   page.run(SCHEDULE);
 
   page.run("renderKpis([])");
   assert.equal(page.document.getElementById("kpis").children.length, 0);
-  const tile = delta => text(`(() => { renderKpis([{ complete: true, target: 8, total: 8 + ${delta}, delta: ${delta}, error: false, days: [] }]);
+  const tile = (delta) =>
+    text(`(() => { renderKpis([{ complete: true, target: 8, total: 8 + ${delta}, delta: ${delta}, error: false, days: [] }]);
     return document.getElementById("kpis").children[1].children[1].style.color; })()`);
   assert.deepEqual([tile(0), tile(-2), tile(2)], [undefined, "var(--destructive)", undefined]);
 
@@ -2468,19 +3504,23 @@ test("the dashboard's texts in their other cases", () => {
   Object.assign(host, { scrollWidth: 1000, scrollLeft: 100, clientWidth: 200 });
   page.run("store.weekTarget = 40; rangeShort = true; renderOverview(window.ws)");
   assert.equal(host.scrollLeft, 100);
-  const cols = host.children[0].children.filter(g => g.tagName === "G");
+  const cols = host.children[0].children.filter((g) => g.tagName === "G");
   const first = hover(page, cols[0]);
-  assert.ok(["2 días sin fichar", "2 días con una entrada sin cerrar"].every(t => first.includes(t)));
+  assert.ok(["2 días sin fichar", "2 días con una entrada sin cerrar"].every((t) => first.includes(t)));
   assert.equal(first.at(-1), "Bajo objetivo −3h");
-  const tone = col => {
+  const tone = (col) => {
     col.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
     const color = page.document.getElementById("tip").querySelectorAll(".v").at(-1).style.color;
     col.listeners.pointerleave[0]();
     return color;
   };
-  assert.deepEqual(cols.slice(0, 3).map(tone), ["var(--status-warning)", "var(--status-warning)", "var(--destructive)"]);
+  assert.deepEqual(cols.slice(0, 3).map(tone), [
+    "var(--status-warning)",
+    "var(--status-warning)",
+    "var(--destructive)",
+  ]);
   page.run("rangeShort = false; renderOverview(window.ws)");
-  const madeUp = host.children[0].children.filter(g => g.tagName === "G")[2];
+  const madeUp = host.children[0].children.filter((g) => g.tagName === "G")[2];
   assert.equal(tone(madeUp), undefined);
 
   const card = page.document.getElementById("weekCal");
@@ -2492,29 +3532,44 @@ test("the dashboard's texts in their other cases", () => {
   assert.ok(tip.includes("08:00 – 08:15 · descanso 15m"));
   page.run(`store.absMap = new Map([["2026-09-14", "Festivo"]]); calView = 'horario'; renderCalendar()`);
   const rows = card.querySelectorAll(".tl-row");
-  assert.deepEqual(rows.slice(0, 2).map(r => ["today", "vac"].filter(c => r.classList.contains(c))), [["vac"], ["today"]]);
-  const open = rows[1].querySelectorAll(".sess").find(s => !s.classList.contains("rest"));
+  assert.deepEqual(
+    rows.slice(0, 2).map((r) => ["today", "vac"].filter((c) => r.classList.contains(c))),
+    [["vac"], ["today"]],
+  );
+  const open = rows[1].querySelectorAll(".sess").find((s) => !s.classList.contains("rest"));
   assert.deepEqual(hover(page, open).slice(0, 2), ["Mar 15 sep · 08:15 – en curso", "Trabajo 1h 45m"]);
   page.run("store.absMap = new Map(); calOffset = 1; renderCalendar()");
   const long = card.querySelectorAll(".tl-row")[0].querySelectorAll(".sess")[0];
   assert.ok(hover(page, long).includes("Termina 2 días después"));
   page.run("renderErrors()");
   const banner = page.document.getElementById("errorsBanner");
-  const items = banner.children[0].children[2].children.map(li => bannerLine(li.children[0]));
+  const items = banner.children[0].children[2].children.map((li) => bannerLine(li.children[0]));
   assert.ok(items.includes("Lun 7 sep 2026 · Jornada de 36h"));
-  page.run(`store.data.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`);
+  page.run(
+    `store.data.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`,
+  );
   assert.equal(banner.classList.contains("hidden"), true);
   page.run(SCHEDULE);
-  page.run(`store.data.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"].map(v => {
-    const [d, h1, m1, h2, m2] = v.split(",").map(Number);
-    return JSON.stringify(session(on(last, d, h1, m1), on(last, d, h2, m2)));
-  }).join(",")}]; indexSessions(); calOffset = 1; rangeShort = true; renderCalendar(); renderTable(buildWeeks(2))`);
+  page.run(
+    `store.data.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"]
+      .map((v) => {
+        const [d, h1, m1, h2, m2] = v.split(",").map(Number);
+        return JSON.stringify(session(on(last, d, h1, m1), on(last, d, h2, m2)));
+      })
+      .join(",")}]; indexSessions(); calOffset = 1; rangeShort = true; renderCalendar(); renderTable(buildWeeks(2))`,
+  );
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "▼ −1h vs 40h");
-  const downs = () => page.document.getElementById("tableView").querySelectorAll("td").filter(td => td.classList.contains("down"));
+  const downs = () =>
+    page.document
+      .getElementById("tableView")
+      .querySelectorAll("td")
+      .filter((td) => td.classList.contains("down"));
   assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge down", 1]);
   page.run("rangeShort = false; renderCalendar(); renderTable(buildWeeks(2))");
   assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge flat", 0]);
-  page.run(`store.data.sessions.at(-1).out = "${on(last, 4, 14).toISOString()}"; store.data.sessions.at(-1).hours = 6; indexSessions(); renderCalendar()`);
+  page.run(
+    `store.data.sessions.at(-1).out = "${on(last, 4, 14).toISOString()}"; store.data.sessions.at(-1).hours = 6; indexSessions(); renderCalendar()`,
+  );
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "+0h vs 40h");
   page.run("setRangeMonths(1); renderAll(); setRangeMonths(0); renderAll()");
   page.run(`store.since = "2026-09-14"`);
@@ -2523,7 +3578,10 @@ test("the dashboard's texts in their other cases", () => {
   page.run(`store.since = ""`);
   page.run(`store.data.sessions = [${JSON.stringify(session(on(last, 0, 8), on(last, 0, 9)))}, ${JSON.stringify(session(on(last, 0, 10), on(last, 0, 23)))}];
     store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`);
-  assert.equal(bannerLine(banner.children[0].children[2].children[0].children[0]), "Lun 7 sep 2026 · Jornada de 14h en 2 sesiones");
+  assert.equal(
+    bannerLine(banner.children[0].children[2].children[0].children[0]),
+    "Lun 7 sep 2026 · Jornada de 14h en 2 sesiones",
+  );
 });
 
 test("the alarms, the loader and the tooltip in their other cases", async () => {
@@ -2534,13 +3592,20 @@ test("the alarms, the loader and the tooltip in their other cases", async () => 
   await settle();
   assert.equal(audio.made.length, 1);
   const lunch = new Date(Date.now() - 40 * 60000).toISOString();
-  page.run(`store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`);
-  page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms(); checkAlarms(); LastRing.lunch = 0; checkAlarms()");
+  page.run(
+    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
+  );
+  page.run(
+    "setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms(); checkAlarms(); LastRing.lunch = 0; checkAlarms()",
+  );
   assert.equal(audio.made[0].oscillators.length, 6);
   assert.equal(page.calls.timers.filter(([, ms]) => ms === 900).length, 1);
   const since = new Date(Date.now() - 3600e3).toISOString();
   page.run("store.state.break_minutes = 0");
-  assert.equal(page.run(`notifyStatus({ rest: true, in: "${since}" }, { expected: 8 }, 0)`), "En descanso · sin aviso configurado");
+  assert.equal(
+    page.run(`notifyStatus({ rest: true, in: "${since}" }, { expected: 8 }, 0)`),
+    "En descanso · sin aviso configurado",
+  );
   page.run("NotifiedAt = 0");
   assert.match(page.run(`notifyStatus({ in: "${since}" }, { expected: 8 }, 0)`), /siguiente en menos de 1 min$/);
   page.run("NotifiedAt = Date.now()");
@@ -2549,9 +3614,12 @@ test("the alarms, the loader and the tooltip in their other cases", async () => 
   const bare = { ...payload([]) };
   delete bare.state;
   delete bare.absences;
-  const loader = load({ fetchImpl: async url => url === "/api/boom"
-    ? { ok: false, status: 500, json: async () => ({}) }
-    : { ok: true, status: 200, json: async () => bare } });
+  const loader = load({
+    fetchImpl: async (url) =>
+      url === "/api/boom"
+        ? { ok: false, status: 500, json: async () => ({}) }
+        : { ok: true, status: 200, json: async () => bare },
+  });
   loader.run(`store.state = ${JSON.stringify(payload([]).state)}`);
   await loader.run("loadAndRender()");
   assert.equal(loader.run("store.state.lunch_minutes"), 30);
@@ -2560,7 +3628,8 @@ test("the alarms, the loader and the tooltip in their other cases", async () => 
   loader.run("setClock(new Date(Date.now() - 864e5)); tick()");
   assert.equal(loader.run("isoDay(store.today)"), loader.run("isoDay(new Date())"));
   const seg = loader.document.getElementById("rangeSeg");
-  const all = loader.document.createElement("button"), one = loader.document.createElement("button");
+  const all = loader.document.createElement("button"),
+    one = loader.document.createElement("button");
   all.dataset.months = "all";
   one.dataset.months = "1";
   seg.listeners.click[0]({ target: { closest: () => null }, currentTarget: seg });
@@ -2569,7 +3638,8 @@ test("the alarms, the loader and the tooltip in their other cases", async () => 
   seg.listeners.click[0]({ target: { closest: () => one }, currentTarget: seg });
   assert.equal(loader.run("rangeMonths"), 1);
 
-  const a = page.document.createElement("div"), b = page.document.createElement("div");
+  const a = page.document.createElement("div"),
+    b = page.document.createElement("div");
   for (const node of [a, b]) page.run("attachTip").call(null, node, () => {});
   const tip = page.document.getElementById("tip");
   a.listeners.pointerenter[0]({ clientX: 1275, clientY: 795 });
@@ -2584,49 +3654,74 @@ test("the management cells, charts and controls in their other cases", async () 
   const page = load({ entry: "team.js", data: teamPayload() });
   await settle();
   const doc = page.document;
-  const probe = code => {
+  const probe = (code) => {
     page.run(`document.getElementById("probe").replaceChildren(${code})`);
     return doc.getElementById("probe").children[0];
   };
   const limits = "{ long_day: 12, under_margin: 1 / 60, over_margin: 5 }";
-  const day = (date, extra = "") => `{ date: "${date}", hours: 0, target: 8, absence: null, sessions: [], flags: [], requests: [] ${extra} }`;
+  const day = (date, extra = "") =>
+    `{ date: "${date}", hours: 0, target: 8, absence: null, sessions: [], flags: [], requests: [] ${extra} }`;
   assert.equal(probe(`dayCell({}, ${day("2099-01-01")}, "2026-01-01", ${limits})`).classList.contains("future"), true);
   const days = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06", "2026-03-07", "2026-03-08"];
   const week = `{ monday: "2026-03-02", hours: 0, target: null, balance: null, flags: [] }`;
   const employee = `{ id: 1, name: "Ana", weeks: [${week}], days: [${days.map((d, i) => day(d, i < 2 ? ', flags: ["empty"]' : "")).join(",")}] }`;
   const cell = probe(`weekCell(${employee}, 0, "2026-03-04", ${limits})`);
   assert.equal(cell.classList.contains("today"), true);
-  assert.ok(cell.children.some(c => c.textContent === "2 días con errores de fichaje"));
+  assert.ok(cell.children.some((c) => c.textContent === "2 días con errores de fichaje"));
   assert.deepEqual(hover(page, cell), ["Saldo de la semana, día a día", "Ningún día cerrado con jornada prevista"]);
-  const month = probe(`monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-05-01")`);
+  const month = probe(
+    `monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-05-01")`,
+  );
   assert.deepEqual(hover(page, month).slice(-1), ["Solo los días del mes −10h"]);
-  const running = probe(`monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-03-15")`);
+  const running = probe(
+    `monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-03-15")`,
+  );
   assert.deepEqual(hover(page, running).slice(-1), ["Días del mes hasta ayer −10h"]);
-  const yearMonth = (m, year = -5) => probe(`yearMonthCell({ balance: ${year} }, { month: "2026-01", hours: 1, target: 1, under: 0, over: 0, flagged_days: 0, ${m} }, "2026-06-01", ${limits})`);
+  const yearMonth = (m, year = -5) =>
+    probe(
+      `yearMonthCell({ balance: ${year} }, { month: "2026-01", hours: 1, target: 1, under: 0, over: 0, flagged_days: 0, ${m} }, "2026-06-01", ${limits})`,
+    );
   assert.equal(yearMonth("balance: -2").classList.contains("bad"), true);
   assert.equal(yearMonth("balance: -2", 3).classList.contains("bad"), false);
   assert.equal(yearMonth("balance: -2, flagged_days: 1").classList.contains("bad"), false);
   const over = yearMonth("balance: 6, over: 1", 6);
   assert.deepEqual([over.classList.contains("bad"), over.children.at(-1).className], [true, "flag"]);
   assert.equal(yearMonth("balance: 6, over: 1", 2).children.at(-1).className, "meta block");
-  assert.deepEqual(["bad", "warn"].map(c => yearMonth("balance: 0").classList.contains(c)), [false, false]);
+  assert.deepEqual(
+    ["bad", "warn"].map((c) => yearMonth("balance: 0").classList.contains(c)),
+    [false, false],
+  );
   assert.equal(yearMonth("balance: 0, flagged_days: 2").classList.contains("warn"), true);
   assert.equal(page.run(`team.year = "2020"; Views.year.anchor()`), "2020-01-01");
   assert.equal(page.run(`team.year = thisDay().slice(0, 4); Views.year.anchor()`), page.run("thisDay()"));
   assert.match(page.run(`team.week = null; team.view = "week"; stateHash()`), /^#v=week&p=&/);
   page.run(`team.fixes = { ...team.fixes, employees: [{ id: 5, name: "Uno", items: [
     { date: "2025-03-04", kind: "long", hours: 13, target: 8, sessions: [{ in: "2025-03-04T08:00:00", out: "2025-03-04T21:00:00", hours: 13 }] }] }] }; renderFixes()`);
-  const chips = () => doc.getElementById("fixes").children[0].children.flatMap(c => c.children || []).map(k => k.textContent);
+  const chips = () =>
+    doc
+      .getElementById("fixes")
+      .children[0].children.flatMap((c) => c.children || [])
+      .map((k) => k.textContent);
   assert.ok(chips().includes("1 jornada muy larga · 13h"));
-  page.run("team.fixes.employees[0].items.push({ ...team.fixes.employees[0].items[0], date: '2025-03-05' }); renderFixes()");
+  page.run(
+    "team.fixes.employees[0].items.push({ ...team.fixes.employees[0].items[0], date: '2025-03-05' }); renderFixes()",
+  );
   assert.ok(chips().includes("2 jornadas muy largas · 26h"));
   page.run(`team.view = "month"; periods({ employees: [] }, [], "2026-01-01")`);
   page.run(`team.view = "week"; renderCharts({ ...team.data, stop: "2000-01-01" }, team.data.employees, "2026-01-01")`);
   assert.doesNotMatch(doc.getElementById("charts").children[0].children[1].textContent, /hasta ayer/);
   page.run(`renderCharts({ ...team.data, stop: "2999-01-01" }, team.data.employees, "2026-01-01")`);
   assert.match(doc.getElementById("charts").children[0].children[1].textContent, /hasta ayer: hoy aún no cuenta/);
-  const columns = probe(`groupedColumns([{ label: "L", values: { a: 1 } }], [{ key: "a", label: "Serie", cls: "error" }])`);
-  assert.deepEqual(hover(page, columns.children.find(c => c.tagName === "G")), ["L", "Serie 1"]);
+  const columns = probe(
+    `groupedColumns([{ label: "L", values: { a: 1 } }], [{ key: "a", label: "Serie", cls: "error" }])`,
+  );
+  assert.deepEqual(
+    hover(
+      page,
+      columns.children.find((c) => c.tagName === "G"),
+    ),
+    ["L", "Serie 1"],
+  );
   const views = doc.getElementById("viewSeg");
   page.run("team.data = null");
   const monthButton = doc.createElement("button");
@@ -2636,8 +3731,14 @@ test("the management cells, charts and controls in their other cases", async () 
   assert.equal(page.run("team.view"), "month");
   const scroller = doc.getElementById("fixes");
   const captured = [];
-  scroller.setPointerCapture = id => captured.push(id);
-  scroller.listeners.pointerdown[0]({ button: 0, target: { closest: () => null }, clientX: 5, clientY: 0, pointerId: 7 });
+  scroller.setPointerCapture = (id) => captured.push(id);
+  scroller.listeners.pointerdown[0]({
+    button: 0,
+    target: { closest: () => null },
+    clientX: 5,
+    clientY: 0,
+    pointerId: 7,
+  });
   assert.deepEqual(captured, []);
   scroller.listeners.pointermove[0]({ clientX: 50, clientY: 0 });
   assert.deepEqual(captured, [7]);
@@ -2651,7 +3752,11 @@ test("the name search ignores case and accents, reaches every list and is kept i
   await settle();
   const doc = page.document;
   const names = () => doc.getElementById("grid").children[1].children.map(rowName);
-  const fixed = () => doc.getElementById("fixes").children[0].children.filter(c => c.tagName === "A").map(a => a.textContent);
+  const fixed = () =>
+    doc
+      .getElementById("fixes")
+      .children[0].children.filter((c) => c.tagName === "A")
+      .map((a) => a.textContent);
   assert.equal(doc.getElementById("search").value, "ZO");
   assert.deepEqual(names(), ["Zoe"]);
   assert.deepEqual(fixed(), ["Zoe"]);
@@ -2664,7 +3769,10 @@ test("the name search ignores case and accents, reaches every list and is kept i
   search.listeners.input[0]({ target: { value: "  nadie  " } });
   assert.equal(names()[0], "Nadie cuyo nombre contenga «nadie»");
   assert.deepEqual(fixed(), []);
-  assert.match(doc.getElementById("fixesNote").textContent, /Nadie cuyo nombre contenga «nadie» con los tipos elegidos\.$/);
+  assert.match(
+    doc.getElementById("fixesNote").textContent,
+    /Nadie cuyo nombre contenga «nadie» con los tipos elegidos\.$/,
+  );
   assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
   search.listeners.input[0]({ target: { value: "" } });
   assert.deepEqual(names(), ["Álvaro", "Ana", "Bruno", "Zoe"]);
@@ -2677,22 +3785,50 @@ test("the name search ignores case and accents, reaches every list and is kept i
 });
 
 test("the day dialog corrects punches and approves a request, with a second click each", async () => {
-  const data = { ...teamPayload(), can_edit: true, reasons: [{ id: 5, name: "Normal" }, { id: 3, name: "Descanso" }] };
-  const alvaro = data.employees.find(e => e.name === "Álvaro");
+  const data = {
+    ...teamPayload(),
+    can_edit: true,
+    reasons: [
+      { id: 5, name: "Normal" },
+      { id: 3, name: "Descanso" },
+    ],
+  };
+  const alvaro = data.employees.find((e) => e.name === "Álvaro");
   const at = (d, h, m = 0) => new Date(2025, 2, d, h, m).toISOString();
-  alvaro.days[0] = { ...alvaro.days[0], hours: 23.6, flags: ["long"], sessions: [
-    { id: 11, in: at(3, 8, 36), out: at(3, 15, 45), hours: 7.15 },
-    { id: 12, in: at(3, 16, 7), out: at(4, 8, 34), hours: 16.45, reason: "Normal", reason_id: 5 },
-    { id: 13, in: at(3, 16, 50), out: at(3, 17), hours: 0.17, rest: true, reason: "Descanso", reason_id: 3 }],
-    requests: [{ id: 552, from: at(3, 8, 30), to: at(3, 17, 40), status: "pending", reason: "Salí a las 17:40", can_approve: true }] };
+  alvaro.days[0] = {
+    ...alvaro.days[0],
+    hours: 23.6,
+    flags: ["long"],
+    sessions: [
+      { id: 11, in: at(3, 8, 36), out: at(3, 15, 45), hours: 7.15 },
+      { id: 12, in: at(3, 16, 7), out: at(4, 8, 34), hours: 16.45, reason: "Normal", reason_id: 5 },
+      { id: 13, in: at(3, 16, 50), out: at(3, 17), hours: 0.17, rest: true, reason: "Descanso", reason_id: 3 },
+    ],
+    requests: [
+      {
+        id: 552,
+        from: at(3, 8, 30),
+        to: at(3, 17, 40),
+        status: "pending",
+        reason: "Salí a las 17:40",
+        can_approve: true,
+      },
+    ],
+  };
   const posts = [];
   let answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: at(4, 8, 34) }) };
   let refused = null;
   const overlap = { ok: false, status: 409, json: async () => ({ error: "se solapa" }) };
-  const page = load({ entry: "team.js", fetchImpl: async (url, opts) => {
-    if (opts?.method === "POST") { posts.push([url, JSON.parse(opts.body)]); return url === refused ? overlap : answer; }
-    return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : data };
-  } });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async (url, opts) => {
+      if (opts?.method === "POST") {
+        posts.push([url, JSON.parse(opts.body)]);
+        return url === refused ? overlap : answer;
+      }
+      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : data) };
+    },
+  });
   await settle();
   const doc = page.document;
   const cell = () => doc.getElementById("grid").children[1].children[0].children[1];
@@ -2700,18 +3836,41 @@ test("the day dialog corrects punches and approves a request, with a second clic
   const body = doc.getElementById("dayDialogBody");
   const note = () => doc.getElementById("dayDialogNote").textContent;
   const editor = () => body.children[1];
-  const rows = () => editor().children.filter(c => c.className.startsWith("edit-row"));
-  const inputs = i => rows()[i].children.filter(c => c.tagName === "INPUT");
-  const motive = i => rows()[i].children.find(c => c.tagName === "SELECT");
-  const plus = i => rows()[i].children.at(-1);
+  const rows = () => editor().children.filter((c) => c.className.startsWith("edit-row"));
+  const inputs = (i) => rows()[i].children.filter((c) => c.tagName === "INPUT");
+  const motive = (i) => rows()[i].children.find((c) => c.tagName === "SELECT");
+  const plus = (i) => rows()[i].children.at(-1);
   const saveButton = () => editor().children.at(-1).children[0];
-  const twice = async button => { await button.listeners.click[0](); await button.listeners.click[0](); await settle(); };
-  assert.deepEqual(rows().map(r => r.className), ["edit-row", "edit-row warn", "edit-row"]);
-  assert.deepEqual(inputs(1).map(i => i.value), ["16:07", "08:34"]);
-  assert.ok(rows()[1].children.some(c => c.textContent === "salida el 4 mar 2025"));
-  assert.deepEqual([0, 1, 2].map(i => motive(i).value), ["", "5", "3"]);
-  assert.deepEqual(motive(0).children.map(o => [o.value, o.textContent]), [["", "sin motivo"], [5, "Normal"], [3, "Descanso"]]);
-  assert.deepEqual(motive(1).children.map(o => o.textContent), ["Normal", "Descanso"]);
+  const twice = async (button) => {
+    await button.listeners.click[0]();
+    await button.listeners.click[0]();
+    await settle();
+  };
+  assert.deepEqual(
+    rows().map((r) => r.className),
+    ["edit-row", "edit-row warn", "edit-row"],
+  );
+  assert.deepEqual(
+    inputs(1).map((i) => i.value),
+    ["16:07", "08:34"],
+  );
+  assert.ok(rows()[1].children.some((c) => c.textContent === "salida el 4 mar 2025"));
+  assert.deepEqual(
+    [0, 1, 2].map((i) => motive(i).value),
+    ["", "5", "3"],
+  );
+  assert.deepEqual(
+    motive(0).children.map((o) => [o.value, o.textContent]),
+    [
+      ["", "sin motivo"],
+      [5, "Normal"],
+      [3, "Descanso"],
+    ],
+  );
+  assert.deepEqual(
+    motive(1).children.map((o) => o.textContent),
+    ["Normal", "Descanso"],
+  );
   assert.equal(motive(1).attrs["aria-label"], "Motivo");
 
   assert.deepEqual([plus(0).textContent, plus(0).attrs["aria-label"]], ["+", "Añadir un fichaje debajo"]);
@@ -2726,29 +3885,57 @@ test("the day dialog corrects punches and approves a request, with a second clic
   inputs(1)[1].value = "17:40";
   const close = doc.getElementById("dayDialogClose");
   const held = [];
-  const cancel = e => { let refused = false; doc.getElementById("dayDialog").listeners.cancel[0]({ preventDefault: () => { refused = true; } }); held.push([close.disabled, refused]); };
+  const cancel = (e) => {
+    let refused = false;
+    doc.getElementById("dayDialog").listeners.cancel[0]({
+      preventDefault: () => {
+        refused = true;
+      },
+    });
+    held.push([close.disabled, refused]);
+  };
   await saveButton().listeners.click[0]();
   const saving = saveButton().listeners.click[0]();
   cancel();
   await saving;
   await settle();
   cancel();
-  assert.deepEqual(held, [[true, true], [false, false]]);
-  assert.deepEqual(posts.at(-1), ["/api/team/attendance", { id: 12, check_in: at(3, 16, 7), check_out: at(3, 17, 40) }]);
-  assert.equal(note(), "Guardado. La salida original, 4 mar 2025 a las 08:34, era probablemente la entrada de ese día: añádela allí.");
+  assert.deepEqual(held, [
+    [true, true],
+    [false, false],
+  ]);
+  assert.deepEqual(posts.at(-1), [
+    "/api/team/attendance",
+    { id: 12, check_in: at(3, 16, 7), check_out: at(3, 17, 40) },
+  ]);
+  assert.equal(
+    note(),
+    "Guardado. La salida original, 4 mar 2025 a las 08:34, era probablemente la entrada de ese día: añádela allí.",
+  );
   assert.equal(doc.getElementById("dayDialog").open, true);
 
   answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
   motive(2).value = "5";
   await twice(saveButton());
-  assert.deepEqual(posts.at(-1), ["/api/team/attendance", { id: 13, check_in: at(3, 16, 50), check_out: at(3, 17), reason: 5 }]);
+  assert.deepEqual(posts.at(-1), [
+    "/api/team/attendance",
+    { id: 13, check_in: at(3, 16, 50), check_out: at(3, 17), reason: 5 },
+  ]);
   plus(0).listeners.click[0]();
   await twice(saveButton());
   assert.equal(note(), "No hay cambios que guardar.");
   const fresh = 1;
-  assert.deepEqual(rows().map(r => r.className), ["edit-row", "edit-row", "edit-row warn", "edit-row"]);
-  assert.deepEqual([inputs(fresh).map(i => i.value), motive(fresh).value], [["", ""], "5"]);
-  assert.deepEqual(rows()[fresh].children.filter(c => c.tagName === "BUTTON").map(b => b.textContent), ["+"]);
+  assert.deepEqual(
+    rows().map((r) => r.className),
+    ["edit-row", "edit-row", "edit-row warn", "edit-row"],
+  );
+  assert.deepEqual([inputs(fresh).map((i) => i.value), motive(fresh).value], [["", ""], "5"]);
+  assert.deepEqual(
+    rows()
+      [fresh].children.filter((c) => c.tagName === "BUTTON")
+      .map((b) => b.textContent),
+    ["+"],
+  );
   inputs(fresh)[0].value = "08:34";
   await twice(saveButton());
   assert.match(note(), /cada fichaje necesita entrada y salida$/);
@@ -2757,16 +3944,31 @@ test("the day dialog corrects punches and approves a request, with a second clic
   await twice(saveButton());
   assert.deepEqual(posts.slice(-2), [
     ["/api/team/attendance", { id: 11, check_in: at(3, 8, 40), check_out: at(3, 15, 45) }],
-    ["/api/team/attendance", { employee: 1, check_in: at(3, 8, 34), check_out: at(3, 15), reason: 5 }]]);
+    ["/api/team/attendance", { employee: 1, check_in: at(3, 8, 34), check_out: at(3, 15), reason: 5 }],
+  ]);
   assert.equal(note(), "Guardado.");
 
-  const cross = i => rows()[i].children.at(-2);
-  assert.deepEqual([cross(1).textContent, cross(1).title, cross(1).attrs["aria-pressed"]], ["✕", "Eliminar este fichaje", "false"]);
+  const cross = (i) => rows()[i].children.at(-2);
+  assert.deepEqual(
+    [cross(1).textContent, cross(1).title, cross(1).attrs["aria-pressed"]],
+    ["✕", "Eliminar este fichaje", "false"],
+  );
   cross(1).listeners.click[0]();
-  assert.deepEqual([rows()[1].className, inputs(1).map(i => i.disabled), motive(1).disabled, cross(1).attrs["aria-label"], cross(1).attrs["aria-pressed"]],
-    ["edit-row warn gone", [true, true], true, "No eliminar este fichaje", "true"]);
+  assert.deepEqual(
+    [
+      rows()[1].className,
+      inputs(1).map((i) => i.disabled),
+      motive(1).disabled,
+      cross(1).attrs["aria-label"],
+      cross(1).attrs["aria-pressed"],
+    ],
+    ["edit-row warn gone", [true, true], true, "No eliminar este fichaje", "true"],
+  );
   cross(1).listeners.click[0]();
-  assert.deepEqual([rows()[1].className, inputs(1).map(i => i.disabled), cross(1).title], ["edit-row warn", [false, false], "Eliminar este fichaje"]);
+  assert.deepEqual(
+    [rows()[1].className, inputs(1).map((i) => i.disabled), cross(1).title],
+    ["edit-row warn", [false, false], "Eliminar este fichaje"],
+  );
   await twice(saveButton());
   assert.equal(note(), "No hay cambios que guardar.");
   inputs(0)[1].value = "17:00";
@@ -2775,7 +3977,8 @@ test("the day dialog corrects punches and approves a request, with a second clic
   await twice(saveButton());
   assert.deepEqual(posts.slice(-2), [
     ["/api/team/delete", { id: 12, gone: true }],
-    ["/api/team/attendance", { id: 11, check_in: at(3, 8, 36), check_out: at(3, 17) }]]);
+    ["/api/team/attendance", { id: 11, check_in: at(3, 8, 36), check_out: at(3, 17) }],
+  ]);
   assert.equal(note(), "Guardado.");
 
   refused = "/api/team/attendance";
@@ -2789,7 +3992,7 @@ test("the day dialog corrects punches and approves a request, with a second clic
   assert.deepEqual([rows()[1].className, inputs(0)[1].value], ["edit-row warn", "15:45"]);
   refused = null;
 
-  const approve = () => body.children.find(c => c.textContent === "Aprobar solicitud");
+  const approve = () => body.children.find((c) => c.textContent === "Aprobar solicitud");
   await twice(approve());
   assert.deepEqual(posts.at(-1), ["/api/team/approve", { id: 552 }]);
   assert.equal(note(), "Solicitud aprobada.");
@@ -2800,22 +4003,29 @@ test("the day dialog corrects punches and approves a request, with a second clic
   const blame = page.run(`toBlame([{ in: "${at(3, 8, 36)}", out: "${at(3, 15, 45)}", hours: 7.15 },
     { in: "${at(3, 16, 7)}", out: "${at(4, 8, 34)}", hours: 16.45 }], team.fixes.limits).map(s => s.hours)`);
   assert.deepEqual(blame, [16.45]);
-  const adding = page.run(`toBlame([{ in: "${at(3, 8)}", out: "${at(3, 14)}", hours: 6 }, { in: "${at(3, 12)}", out: "${at(3, 19)}", hours: 7 }],
+  const adding =
+    page.run(`toBlame([{ in: "${at(3, 8)}", out: "${at(3, 14)}", hours: 6 }, { in: "${at(3, 12)}", out: "${at(3, 19)}", hours: 7 }],
     team.fixes.limits).length`);
   assert.equal(adding, 2);
   const open = `{ s: { id: 9, in: "${at(3, 9)}", out: null }, start: { value: "09:00" }, end: { value: VALUE } }`;
   assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '""')}])`), []);
-  assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '"14:00"')}])`),
-    [{ id: 9, check_in: at(3, 9), check_out: at(3, 14) }]);
-  const other = page.run(`(f => [f.value, f.children.map(o => o.textContent)])(reasonField({ reason: "Felt Sick", reason_id: 8 }, team.data.reasons))`);
+  assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '"14:00"')}])`), [
+    { id: 9, check_in: at(3, 9), check_out: at(3, 14) },
+  ]);
+  const other = page.run(
+    `(f => [f.value, f.children.map(o => o.textContent)])(reasonField({ reason: "Felt Sick", reason_id: 8 }, team.data.reasons))`,
+  );
   assert.deepEqual(other, ["8", ["Felt Sick", "Normal", "Descanso"]]);
-  const plain = page.run(`punchEditor({ id: 1 }, { date: "2025-03-03", sessions: [{ id: 13, in: "${at(3, 16, 50)}", out: "${at(3, 17)}", rest: true }] },
+  const plain =
+    page.run(`punchEditor({ id: 1 }, { date: "2025-03-03", sessions: [{ id: 13, in: "${at(3, 16, 50)}", out: "${at(3, 17)}", rest: true }] },
     team.data.limits, []).children[0].children.at(-3).textContent`);
   assert.equal(plain, "descanso");
-  const empty = page.run(`punchEditor({ id: 1 }, { date: "2025-03-04", sessions: [] }, team.data.limits, []).children.map(c => c.className)`);
+  const empty = page.run(
+    `punchEditor({ id: 1 }, { date: "2025-03-04", sessions: [] }, team.data.limits, []).children.map(c => c.className)`,
+  );
   assert.deepEqual(empty, ["edit-row", "edit-actions"]);
   answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
-  data.employees = data.employees.filter(e => e !== alvaro);
+  data.employees = data.employees.filter((e) => e !== alvaro);
   inputs(0)[0].value = "08:45";
   await twice(saveButton());
   assert.equal(note(), "Guardado.");
@@ -2824,18 +4034,21 @@ test("the day dialog corrects punches and approves a request, with a second clic
 test("a mark in the fixes strip opens its day to correct it, unless it ends a drag", async () => {
   const urls = [];
   let down = false;
-  const page = load({ entry: "team.js", fetchImpl: async url => {
-    urls.push(url);
-    if (down && url.includes("week=")) throw new Error("sin red");
-    return { ok: true, status: 200, json: async () => url.includes("fixes") ? teamFixes() : teamPayload() };
-  } });
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (down && url.includes("week=")) throw new Error("sin red");
+      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
+    },
+  });
   await settle();
   const doc = page.document;
   const dialog = doc.getElementById("dayDialog");
   const zoe = doc.getElementById("fixes").children[0].children.slice(3)[2];
-  const marks = zoe.children.filter(c => c.tagName === "G");
+  const marks = zoe.children.filter((c) => c.tagName === "G");
   const scroller = doc.getElementById("fixes");
-  const on = type => scroller.listeners[type][0];
+  const on = (type) => scroller.listeners[type][0];
   on("pointerdown")({ button: 0, target: { closest: () => null }, clientX: 100, clientY: 0 });
   on("pointermove")({ clientX: 40, clientY: 0 });
   on("pointerup")();
@@ -2844,7 +4057,10 @@ test("a mark in the fixes strip opens its day to correct it, unless it ends a dr
   on("pointerdown")({ button: 0, target: { closest: () => null }, clientX: 100, clientY: 0 });
   on("pointerup")();
   page.run(`team.fixes.employees[0].items[0].date = "2025-03-03"; renderFixes()`);
-  const first = doc.getElementById("fixes").children[0].children.slice(3)[2].children.filter(c => c.tagName === "G")[0];
+  const first = doc
+    .getElementById("fixes")
+    .children[0].children.slice(3)[2]
+    .children.filter((c) => c.tagName === "G")[0];
   await first.listeners.click[0]();
   await settle();
   assert.ok(urls.includes("/api/team?week=2025-03-03"));
@@ -2861,25 +4077,32 @@ test("a mark in the fixes strip opens its day to correct it, unless it ends a dr
 
 test("the personal page's punches to fix open the correcting dialog when the session may", async () => {
   const today = new Date();
-  const back = n => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+  const back = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
   const errors = [session(at(back(10), 16), at(back(9), 8, 30))];
   const week = { ...teamPayload(), can_edit: true };
   const day = isoDate(back(10));
   week.employees[0] = { ...week.employees[0], id: 9, days: [{ ...week.employees[0].days[0], date: day }] };
   const urls = [];
   let down = false;
-  const page = load({ path: "/empleado?id=9", fetchImpl: async url => {
-    urls.push(url);
-    if (url === "/api/team/attendance") {
-      down = true;
-      return { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
-    }
-    if (url.startsWith("/api/team")) {
-      if (down) throw new Error("sin red");
-      return { ok: true, status: 200, json: async () => week };
-    }
-    return { ok: true, status: 200, json: async () => payload(errors, { team: true, can_edit: true, employee_id: 3 }) };
-  } });
+  const page = load({
+    path: "/empleado?id=9",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url === "/api/team/attendance") {
+        down = true;
+        return { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
+      }
+      if (url.startsWith("/api/team")) {
+        if (down) throw new Error("sin red");
+        return { ok: true, status: 200, json: async () => week };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => payload(errors, { team: true, can_edit: true, employee_id: 3 }),
+      };
+    },
+  });
   await page.run("loadAndRender()");
   const doc = page.document;
   const items = () => doc.getElementById("errorsBanner").children[0].children[2].children;
@@ -2892,15 +4115,21 @@ test("the personal page's punches to fix open the correcting dialog when the ses
   assert.equal(dialog.open, true);
   assert.equal(doc.getElementById("dayDialogTitle").textContent, "Zoe");
   const editor = doc.getElementById("dayDialogBody").children[1];
-  editor.children.find(c => c.className === "edit-row").children.at(-1).listeners.click[0]();
-  const added = editor.children.filter(c => c.className === "edit-row").at(-1).children.filter(c => c.tagName === "INPUT");
+  editor.children
+    .find((c) => c.className === "edit-row")
+    .children.at(-1)
+    .listeners.click[0]();
+  const added = editor.children
+    .filter((c) => c.className === "edit-row")
+    .at(-1)
+    .children.filter((c) => c.tagName === "INPUT");
   [added[0].value, added[1].value] = ["09:00", "10:00"];
-  const save = editor.children.find(c => c.className === "edit-actions").children[0];
-  const loads = urls.filter(u => u.startsWith("/api/data")).length;
+  const save = editor.children.find((c) => c.className === "edit-actions").children[0];
+  const loads = urls.filter((u) => u.startsWith("/api/data")).length;
   await save.listeners.click[0]();
   await save.listeners.click[0]();
   await settle();
-  assert.equal(urls.filter(u => u.startsWith("/api/data")).length, loads + 1);
+  assert.equal(urls.filter((u) => u.startsWith("/api/data")).length, loads + 1);
   assert.equal(doc.getElementById("dayDialogNote").textContent, "Guardado.");
   down = false;
   doc.getElementById("dayDialogClose").listeners.click[0]();
@@ -2914,7 +4143,12 @@ test("the personal page's punches to fix open the correcting dialog when the ses
   page.run("store.other = null; renderErrors()");
   assert.equal(items()[0].children[1].textContent, "Solicitar cambio");
   page.run("store.data.can_edit = true; renderErrors()");
-  assert.deepEqual(items()[0].children.slice(1).map(b => b.textContent), ["Corregir", "Solicitar cambio"]);
+  assert.deepEqual(
+    items()[0]
+      .children.slice(1)
+      .map((b) => b.textContent),
+    ["Corregir", "Solicitar cambio"],
+  );
   down = false;
   await items()[0].children[1].listeners.click[0]();
   await settle();
@@ -2923,27 +4157,33 @@ test("the personal page's punches to fix open the correcting dialog when the ses
 
 test("your own punches to fix open Odoo's change request form, and the header an empty one", async () => {
   const today = new Date();
-  const back = n => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+  const back = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
   const urls = [];
   let down = false;
-  const page = load({ fetchImpl: async url => {
-    urls.push(url);
-    if (url.startsWith("/api/request")) {
-      if (down) return { ok: false, status: 409, json: async () => ({ error: "sin categoría" }) };
-      return { ok: true, status: 200, json: async () => ({ url: "https://odoo.example/form" }) };
-    }
-    return { ok: true, status: 200, json: async () => payload([session(at(back(10), 16), at(back(9), 8, 30))]) };
-  } });
-  page.run("window.tabs = []; window.open = (url, target) => { const tab = { url, target, opener: window, "
-    + "closed: false, close() { this.closed = true; } }; window.tabs.push(tab); return tab; }");
+  const page = load({
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.startsWith("/api/request")) {
+        if (down) return { ok: false, status: 409, json: async () => ({ error: "sin categoría" }) };
+        return { ok: true, status: 200, json: async () => ({ url: "https://odoo.example/form" }) };
+      }
+      return { ok: true, status: 200, json: async () => payload([session(at(back(10), 16), at(back(9), 8, 30))]) };
+    },
+  });
+  page.run(
+    "window.tabs = []; window.open = (url, target) => { const tab = { url, target, opener: window, " +
+      "closed: false, close() { this.closed = true; } }; window.tabs.push(tab); return tab; }",
+  );
   await page.run("loadAndRender()");
   const ask = page.document.getElementById("errorsBanner").children[0].children[2].children[0].children[1];
   assert.equal(ask.textContent, "Solicitar cambio");
   await ask.listeners.click[0]();
   const tabs = page.run("window.tabs");
   assert.equal(urls.at(-1), `/api/request?date=${isoDate(back(10))}`);
-  assert.deepEqual([tabs[0].url, tabs[0].target, tabs[0].opener, tabs[0].location, tabs[0].closed],
-    ["", "_blank", null, "https://odoo.example/form", false]);
+  assert.deepEqual(
+    [tabs[0].url, tabs[0].target, tabs[0].opener, tabs[0].location, tabs[0].closed],
+    ["", "_blank", null, "https://odoo.example/form", false],
+  );
   const shortcut = page.document.getElementById("requestBtn");
   assert.equal(shortcut.classList.contains("hidden"), false);
   await shortcut.listeners.click[0]();
@@ -2962,29 +4202,58 @@ test("someone's page shows the requests the viewer may approve, one line per day
   const week = teamPayload();
   const urls = [];
   let down = false;
-  const requests = [{ id: 552, from: new Date(2025, 2, 3, 8, 30).toISOString(), to: new Date(2025, 2, 3, 17, 40).toISOString(),
-    status: "pending", reason: "Salí a las 17:40", can_approve: true },
-    { id: 553, from: new Date(2025, 2, 4, 9).toISOString(), to: null, status: "pending", reason: "", can_approve: true }];
-  const page = load({ path: "/empleado?id=3", fetchImpl: async url => {
-    urls.push(url);
-    if (url.startsWith("/api/team")) {
-      if (down) throw new Error("sin red");
-      return { ok: true, status: 200, json: async () => week };
-    }
-    return { ok: true, status: 200, json: async () => payload([], { team: true, requests }) };
-  } });
+  const requests = [
+    {
+      id: 552,
+      from: new Date(2025, 2, 3, 8, 30).toISOString(),
+      to: new Date(2025, 2, 3, 17, 40).toISOString(),
+      status: "pending",
+      reason: "Salí a las 17:40",
+      can_approve: true,
+    },
+    {
+      id: 553,
+      from: new Date(2025, 2, 4, 9).toISOString(),
+      to: null,
+      status: "pending",
+      reason: "",
+      can_approve: true,
+    },
+  ];
+  const page = load({
+    path: "/empleado?id=3",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.startsWith("/api/team")) {
+        if (down) throw new Error("sin red");
+        return { ok: true, status: 200, json: async () => week };
+      }
+      return { ok: true, status: 200, json: async () => payload([], { team: true, requests }) };
+    },
+  });
   await page.run("loadAndRender()");
   const box = page.document.getElementById("errorsBanner");
   const lines = () => box.children[0].children[2].children;
   assert.deepEqual([box.classList.contains("hidden"), box.classList.contains("requests")], [false, true]);
   assert.equal(box.querySelectorAll("h2")[0].textContent, "2 solicitudes pendientes");
-  assert.deepEqual(lines().map(li => bannerLine(li.children[0])),
-    ["Mar 4 mar 2025 · Solicitud pendiente 09:00", "Lun 3 mar 2025 · Solicitud pendiente 08:30–17:40 · Salí a las 17:40"]);
-  assert.deepEqual(lines().map(li => li.children[1].textContent), ["Revisar", "Revisar"]);
+  assert.deepEqual(
+    lines().map((li) => bannerLine(li.children[0])),
+    [
+      "Mar 4 mar 2025 · Solicitud pendiente 09:00",
+      "Lun 3 mar 2025 · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
+    ],
+  );
+  assert.deepEqual(
+    lines().map((li) => li.children[1].textContent),
+    ["Revisar", "Revisar"],
+  );
   await lines()[1].children[1].listeners.click[0]();
   await settle();
   assert.ok(urls.includes("/api/team?week=2025-03-03"));
-  assert.equal(page.document.getElementById("dayDialogBody").children.some(c => c.className === "editor"), false);
+  assert.equal(
+    page.document.getElementById("dayDialogBody").children.some((c) => c.className === "editor"),
+    false,
+  );
   assert.equal(page.document.getElementById("dayDialog").open, true);
   down = true;
   await lines()[0].children[1].listeners.click[0]();
@@ -2994,7 +4263,10 @@ test("someone's page shows the requests the viewer may approve, one line per day
     indexSessions(); renderErrors()`);
   assert.equal(box.querySelectorAll("h2")[0].textContent, "⚠ 1 fichaje por corregir · 1 solicitud pendiente");
   assert.equal(box.classList.contains("requests"), false);
-  assert.equal(bannerLine(lines()[0].children[0]), "Lun 3 mar 2025 · Sin cerrar entrada a las 09:00, sin salida · Solicitud pendiente 08:30–17:40 · Salí a las 17:40");
+  assert.equal(
+    bannerLine(lines()[0].children[0]),
+    "Lun 3 mar 2025 · Sin cerrar entrada a las 09:00, sin salida · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
+  );
   page.run("delete store.data.requests; store.data.sessions = []; indexSessions(); renderErrors()");
   assert.equal(box.classList.contains("hidden"), true);
 });

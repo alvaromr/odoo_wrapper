@@ -31,7 +31,7 @@
  *   commands for the dashboard and the skills. While it installs the poll leaves the banner alone, so the button and its note stay.
  */
 export function warned(what) {
-  return error => console.warn(`[odoo] ${what} failed:`, error);
+  return (error) => console.warn(`[odoo] ${what} failed:`, error);
 }
 
 export function el(tag, cls, text) {
@@ -51,9 +51,12 @@ function loading(delta) {
 export async function api(path, body) {
   loading(1);
   try {
-    const res = await fetch(path, body
-      ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      : undefined);
+    const res = await fetch(
+      path,
+      body
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : undefined,
+    );
     const json = await res.json();
     if (res.status === 401) location.replace("/login");
     if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -66,7 +69,7 @@ export async function api(path, body) {
 const MouseHistory = { 3: -1, 4: 1 };
 
 export function wireMouseHistory() {
-  addEventListener("mouseup", e => {
+  addEventListener("mouseup", (e) => {
     if (!MouseHistory[e.button]) return;
     e.preventDefault();
     history.go(MouseHistory[e.button]);
@@ -89,7 +92,9 @@ export function wireLogout(button) {
 
 /* ---------- tooltip ---------- */
 const tip = () => document.getElementById("tip");
-export function tipOpen() { return tip().style.display === "block"; }
+export function tipOpen() {
+  return tip().style.display === "block";
+}
 export function tipRow(k, v) {
   const r = el("div", "t-row");
   r.appendChild(el("span", "k", k));
@@ -107,11 +112,12 @@ function showTip(build, x, y, owner) {
 }
 function moveTip(x, y) {
   const r = tip().getBoundingClientRect();
-  let left = x + 14, top = y + 14;
+  let left = x + 14,
+    top = y + 14;
   if (left + r.width > innerWidth - 8) left = x - r.width - 14;
   if (top + r.height > innerHeight - 8) top = y - r.height - 14;
-  tip().style.left = left + "px";
-  tip().style.top = top + "px";
+  tip().style.left = `${left}px`;
+  tip().style.top = `${top}px`;
 }
 export function hideTip(owner) {
   if (owner && TipOwner !== owner) return;
@@ -121,16 +127,24 @@ export function hideTip(owner) {
 const PanSlop = 3;
 
 export function panScroll(scroller) {
-  let press = null, panned = false;
-  scroller.addEventListener("pointerdown", e => {
+  let press = null,
+    panned = false;
+  scroller.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.pointerType === "touch" || e.target.closest("a")) return;
-    press = { x: e.clientX, y: e.clientY, left: scroller.scrollLeft, top: scroller.scrollTop, moved: false,
-      pointer: e.pointerId };
+    press = {
+      x: e.clientX,
+      y: e.clientY,
+      left: scroller.scrollLeft,
+      top: scroller.scrollTop,
+      moved: false,
+      pointer: e.pointerId,
+    };
     panned = false;
   });
-  scroller.addEventListener("pointermove", e => {
+  scroller.addEventListener("pointermove", (e) => {
     if (!press) return;
-    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    const dx = e.clientX - press.x,
+      dy = e.clientY - press.y;
     if (!press.moved && Math.hypot(dx, dy) > PanSlop) {
       press.moved = true;
       scroller.setPointerCapture?.(press.pointer);
@@ -148,7 +162,13 @@ export function panScroll(scroller) {
   };
   scroller.addEventListener("pointerup", end);
   scroller.addEventListener("pointercancel", end);
-  return { consume: () => { const was = panned; panned = false; return was; } };
+  return {
+    consume: () => {
+      const was = panned;
+      panned = false;
+      return was;
+    },
+  };
 }
 
 /* ---------- actualizaciones ---------- */
@@ -162,7 +182,7 @@ let Installing = false;
 
 async function restarted(old) {
   for (let i = 0; i < RestartTries; i++) {
-    await new Promise(resolve => setTimeout(resolve, RestartPollMs));
+    await new Promise((resolve) => setTimeout(resolve, RestartPollMs));
     try {
       const res = await fetch("/api/update");
       if (res.ok && (await res.json()).current !== old) return;
@@ -200,8 +220,12 @@ function installButton(answer, note) {
         return;
       }
       b.textContent = "Instalada";
-      note.replaceChildren(`La ${answer.latest} ya funciona, pero las skills de Claude Code no se han actualizado `
-        + `(${skills}). Ejecuta `, el("code", null, PluginCommand), " y recarga esta página.");
+      note.replaceChildren(
+        `La ${answer.latest} ya funciona, pero las skills de Claude Code no se han actualizado ` +
+          `(${skills}). Ejecuta `,
+        el("code", null, PluginCommand),
+        " y recarga esta página.",
+      );
     } catch (e) {
       note.textContent = `No se pudo actualizar: ${e.message}`;
       b.disabled = Installing = false;
@@ -227,8 +251,12 @@ function installRow(answer) {
 
 function handLine(answer) {
   if (answer.local && answer.how === "git") return line("Es la instalación de desarrollo: tráela con git.");
-  return line(answer.local ? "No encuentro uv en este ordenador. " : "", "Para instalarla, ejecuta ",
-    el("code", null, UpgradeCommand), " en una terminal del ordenador: el dashboard se reinicia solo.");
+  return line(
+    answer.local ? "No encuentro uv en este ordenador. " : "",
+    "Para instalarla, ejecuta ",
+    el("code", null, UpgradeCommand),
+    " en una terminal del ordenador: el dashboard se reinicia solo.",
+  );
 }
 
 export function showUpdate(answer) {
@@ -242,24 +270,36 @@ export function showUpdate(answer) {
     notes.rel = "noopener";
     const auto = answer.local && answer.how === "auto";
     banner.replaceChildren(
-      line(el("strong", null, `Hay una versión nueva, la ${answer.latest}`), ` (tienes la ${answer.current}). `, notes,
-        "."),
-      ...(auto ? [installRow(answer)] : [handLine(answer),
-        line("Las skills de Claude Code se actualizan con ", el("code", null, PluginCommand), ".")]));
+      line(
+        el("strong", null, `Hay una versión nueva, la ${answer.latest}`),
+        ` (tienes la ${answer.current}). `,
+        notes,
+        ".",
+      ),
+      ...(auto
+        ? [installRow(answer)]
+        : [
+            handLine(answer),
+            line("Las skills de Claude Code se actualizan con ", el("code", null, PluginCommand), "."),
+          ]),
+    );
   }
   return answer;
 }
 
 export function wireUpdates() {
-  const poll = () => fetch("/api/update").then(res => res.ok && res.json()).then(answer => answer && showUpdate(answer))
-    .catch(warned("the update check"));
+  const poll = () =>
+    fetch("/api/update")
+      .then((res) => res.ok && res.json())
+      .then((answer) => answer && showUpdate(answer))
+      .catch(warned("the update check"));
   poll();
   setInterval(poll, UpdateEveryMs);
 }
 
 export function attachTip(node, build) {
-  node.addEventListener("pointerenter", e => showTip(build, e.clientX, e.clientY, node));
-  node.addEventListener("pointermove", e => moveTip(e.clientX, e.clientY));
+  node.addEventListener("pointerenter", (e) => showTip(build, e.clientX, e.clientY, node));
+  node.addEventListener("pointermove", (e) => moveTip(e.clientX, e.clientY));
   node.addEventListener("pointerleave", () => hideTip(node));
   node.addEventListener("focus", () => {
     const r = node.getBoundingClientRect();
