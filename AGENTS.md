@@ -171,7 +171,8 @@ also lints; run them rather than wrapping by hand. mypy checks the bodies of fun
 which is all the package has; annotate only what it cannot infer.
 
 Mutation testing runs now and then rather than on every commit: it takes minutes, and its working copy,
-`mutants/`, is ignored by git. mutmut 3.3 needs pytest 8.3, and skips the one test that starts a subprocess.
+`mutants/`, is ignored by git. mutmut 3.3 needs pytest 8.3, and skips the one test that starts a subprocess and
+the project's guards, which read the repo its copy lacks.
 On macOS the run also needs `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`: without it the forked child of every
 mutant crashes, and mutmut reports them all as segfault.
 

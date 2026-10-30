@@ -42,6 +42,7 @@ def files():
         yield from (os.path.join(folder, name) for name in found)
 
 
+@unittest.skipIf("MUTANT_UNDER_TEST" in os.environ, "mutmut's copy holds the package, not the repo these guard")
 class ProjectTest(unittest.TestCase):
     def test_the_client_imports_nothing_from_the_package(self):
         with open(os.path.join(PACKAGE, "client.py"), encoding="utf-8") as f:
