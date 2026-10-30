@@ -111,16 +111,29 @@ from urllib.parse import parse_qsl
 
 from . import corrections, data, discord, lan, process, state, team, updates
 from .client import (
-    CONFIG_KEYS, AccessDenied, OdooClient, OdooDown, OdooError, SessionExpired, TotpRequired,
-    load_config, read_config, save_config,
+    CONFIG_KEYS,
+    AccessDenied,
+    OdooClient,
+    OdooDown,
+    OdooError,
+    SessionExpired,
+    TotpRequired,
+    load_config,
+    read_config,
+    save_config,
 )
 
 PORT = 8931
 TEMPLATE = f"{process.TEMPLATES}/dashboard.html"
 LOGIN_TEMPLATE = f"{process.TEMPLATES}/login.html"
 TEAM_TEMPLATE = f"{process.TEMPLATES}/team.html"
-PAGES = {"/": TEMPLATE, "/index.html": TEMPLATE, "/empleado": TEMPLATE, "/gestion": TEAM_TEMPLATE,
-         "/login": LOGIN_TEMPLATE}
+PAGES = {
+    "/": TEMPLATE,
+    "/index.html": TEMPLATE,
+    "/empleado": TEMPLATE,
+    "/gestion": TEAM_TEMPLATE,
+    "/login": LOGIN_TEMPLATE,
+}
 SCRIPTS = f"{process.TEMPLATES}/js"
 MANIFEST = f"{process.TEMPLATES}/manifest.json"
 ICON = f"{process.TEMPLATES}/icon.svg"
@@ -134,8 +147,10 @@ LOGIN_LOCK = 30
 LOGIN_LOCK_MAX = 900
 PAIR_TTL = 120
 SEES_TTL = 1800
-CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
-                  "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
+CONTENT_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+    "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+)
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
 log = logging.getLogger(__name__)
@@ -349,8 +364,15 @@ class Handler(BaseHTTPRequestHandler):
             if not employee:
                 client = new_client(self.session)
                 payload = data.fetch_data(client, fresh="fresh" in params)
-                self._send(200, dict(payload, phone=lan.phone_access(), state=state.read_state(client.uid),
-                                     can_edit=bool(payload.get("team")) and edits_punches(client)))
+                self._send(
+                    200,
+                    dict(
+                        payload,
+                        phone=lan.phone_access(),
+                        state=state.read_state(client.uid),
+                        can_edit=bool(payload.get("team")) and edits_punches(client),
+                    ),
+                )
                 return
             if not employee.isdigit():
                 self._send(400, {"error": f"Empleado no válido: {employee}"})
@@ -360,8 +382,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(403, {"error": NOT_TEAM})
                 return
             payload = data.fetch_data(client, fresh="fresh" in params, employee=int(employee))
-            self._send(200, dict(payload, phone=None, state=state.OTHER_STATE, can_edit=edits_punches(client),
-                                 requests=team.requests_to_approve(client, int(employee))))
+            self._send(
+                200,
+                dict(
+                    payload,
+                    phone=None,
+                    state=state.OTHER_STATE,
+                    can_edit=edits_punches(client),
+                    requests=team.requests_to_approve(client, int(employee)),
+                ),
+            )
         elif self.path == "/api/team":
             if not self._authorized():
                 self._send(401, {"error": "no autorizado"})
@@ -493,8 +523,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(403, {"error": "Solo se actualiza desde el propio ordenador"})
             else:
                 self._send(*updates.install(process.relaunch_args(), PORT))
-        elif self.path in ("/api/team/attendance", "/api/team/delete", "/api/team/approve", "/api/team/discord",
-                           "/api/team/discord/token", "/api/team/discord/test"):
+        elif self.path in (
+            "/api/team/attendance",
+            "/api/team/delete",
+            "/api/team/approve",
+            "/api/team/discord",
+            "/api/team/discord/token",
+            "/api/team/discord/test",
+        ):
             client = new_client(self.session)
             if not sees_others(client):
                 self._send(403, {"error": NOT_TEAM})

@@ -105,7 +105,9 @@ class ScriptedClient:
     def open_is_rest(self, open_att, rest):
         if not open_att or not rest:
             return False
-        ids = self.call_kw("hr.attendance", "search_read", [[("id", "=", open_att["id"])]], {})[0]["attendance_reason_ids"]
+        ids = self.call_kw("hr.attendance", "search_read", [[("id", "=", open_att["id"])]], {})[0][
+            "attendance_reason_ids"
+        ]
         return rest["id"] in ids
 
     def attendance_reasons(self):
@@ -147,12 +149,14 @@ def temp_state(test):
     home = tempfile.TemporaryDirectory()
     test.addCleanup(home.cleanup)
     for module, name, value in (
-        (c, "STATE_DIR", home.name), (c, "CONFIG_FILE", os.path.join(home.name, "config.json")),
+        (c, "STATE_DIR", home.name),
+        (c, "CONFIG_FILE", os.path.join(home.name, "config.json")),
         (cli, "CLI_SESSION_FILE", os.path.join(home.name, "cli_session")),
         (cli, "CLI_DEVICE_FILE", os.path.join(home.name, "cli_device")),
         (cli, "SHEET_FILE", os.path.join(home.name, "notices_sheet")),
         (cli, "WRITTEN_FILE", os.path.join(home.name, "notices_written")),
-        (lan, "STATE_DIR", home.name), (pr, "STATE_DIR", home.name),
+        (lan, "STATE_DIR", home.name),
+        (pr, "STATE_DIR", home.name),
         (st, "STATE_FILE", os.path.join(home.name, "state.json")),
         (dc, "TOKEN_FILE", os.path.join(home.name, "discord_token")),
         (pr, "LOG_FILE", os.path.join(home.name, "dashboard.log")),

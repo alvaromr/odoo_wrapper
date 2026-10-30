@@ -39,12 +39,20 @@ class DiscordTest(unittest.TestCase):
         results = list(results)
 
         def urlopen(request, timeout):
-            self.requests.append((request.get_method(), request.full_url, request.data and json.loads(request.data),
-                                  dict(request.header_items()), timeout))
+            self.requests.append(
+                (
+                    request.get_method(),
+                    request.full_url,
+                    request.data and json.loads(request.data),
+                    dict(request.header_items()),
+                    timeout,
+                )
+            )
             result = results.pop(0)
             if isinstance(result, Exception):
                 raise result
             return answer(result)
+
         return patch.object(dc.urllib.request, "urlopen", side_effect=urlopen)
 
     def test_the_token_is_checked_with_discord_and_kept_private(self):
@@ -53,13 +61,17 @@ class DiscordTest(unittest.TestCase):
             self.assertEqual(dc.save_token("tok"), "Odoo")
         method, url, body, headers, _ = self.requests[0]
         self.assertEqual((method, url, body), ("GET", f"{dc.API}/users/@me", None))
-        self.assertEqual((headers["Authorization"], headers["User-agent"], headers["Content-type"]),
-                         ("Bot tok", dc.USER_AGENT, "application/json"))
+        self.assertEqual(
+            (headers["Authorization"], headers["User-agent"], headers["Content-type"]),
+            ("Bot tok", dc.USER_AGENT, "application/json"),
+        )
         self.assertTrue(dc.configured())
         self.assertEqual(os.stat(dc.TOKEN_FILE).st_mode & 0o777, 0o600)
         with self.opener(refused(401)), self.assertRaises(dc.DiscordError) as caught:
             dc.save_token("bad")
-        self.assertEqual(str(caught.exception), "Discord no acepta el token del bot: guárdalo de nuevo con odoo discord")
+        self.assertEqual(
+            str(caught.exception), "Discord no acepta el token del bot: guárdalo de nuevo con odoo discord"
+        )
         self.assertEqual(dc.read_private(dc.TOKEN_FILE), "tok")
 
     def test_the_page_sets_the_token_and_learns_only_the_bot_name(self):
@@ -81,24 +93,45 @@ class DiscordTest(unittest.TestCase):
         dc.write_private(dc.TOKEN_FILE, "tok")
         with self.opener({"id": "999"}, {"id": "1"}):
             dc.send("123", "hola")
-        self.assertEqual([r[:3] for r in self.requests], [
-            ("POST", f"{dc.API}/users/@me/channels", {"recipient_id": "123"}),
-            ("POST", f"{dc.API}/channels/999/messages", {"content": "hola"}),
-        ])
+        self.assertEqual(
+            [r[:3] for r in self.requests],
+            [
+                ("POST", f"{dc.API}/users/@me/channels", {"recipient_id": "123"}),
+                ("POST", f"{dc.API}/channels/999/messages", {"content": "hola"}),
+            ],
+        )
         self.assertEqual(self.requests[0][4], dc.TIMEOUT)
         self.assertEqual([r[3]["Authorization"] for r in self.requests], ["Bot tok", "Bot tok"])
         with self.opener({"id": "999"}, {"id": "2"}):
             dc.send("123", "hola", "https://odoo.example/odoo/approvals/23/approval.request/new")
-        self.assertEqual(self.requests[-1][2], {"content": "hola", "components": [{"type": 1, "components": [
-            {"type": 2, "style": 5, "label": "Hacer la solicitud en Odoo",
-             "url": "https://odoo.example/odoo/approvals/23/approval.request/new"}]}]})
+        self.assertEqual(
+            self.requests[-1][2],
+            {
+                "content": "hola",
+                "components": [
+                    {
+                        "type": 1,
+                        "components": [
+                            {
+                                "type": 2,
+                                "style": 5,
+                                "label": "Hacer la solicitud en Odoo",
+                                "url": "https://odoo.example/odoo/approvals/23/approval.request/new",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
 
     def test_the_link_opens_a_new_request_of_the_category_found_by_name(self):
         odoo = ScriptedClient({"approval.category": [{"id": 23}]})
         odoo.url = "https://odoo.example"
         self.assertEqual(dc.request_link(odoo), "https://odoo.example/odoo/approvals/23/approval.request/new")
-        self.assertEqual(odoo.queries, [("approval.category", "search_read", [[("name", "ilike", "fichaje")]],
-                                         {"fields": ["id"], "limit": 1})])
+        self.assertEqual(
+            odoo.queries,
+            [("approval.category", "search_read", [[("name", "ilike", "fichaje")]], {"fields": ["id"], "limit": 1})],
+        )
         odoo.rows["approval.category"] = []
         self.assertIsNone(dc.request_link(odoo))
         odoo.rows["approval.category"] = lambda args, kwargs: (_ for _ in ()).throw(dc.OdooError("sin acceso"))
@@ -109,9 +142,11 @@ class DiscordTest(unittest.TestCase):
 
     def test_the_own_request_is_the_notices_link_for_the_sessions_own_employee(self):
         odoo = unittest.mock.Mock(employee_id=20)
-        with patch.object(dc, "notice_day", return_value={"x": 1}) as day, \
-                patch.object(dc, "prefilled_link", return_value="filled") as filled, \
-                patch.object(dc, "request_link", return_value="empty"):
+        with (
+            patch.object(dc, "notice_day", return_value={"x": 1}) as day,
+            patch.object(dc, "prefilled_link", return_value="filled") as filled,
+            patch.object(dc, "request_link", return_value="empty"),
+        ):
             self.assertEqual(dc.own_request(odoo, "2026-10-19"), (200, {"url": "filled"}))
             odoo.load_employee.assert_called_once_with()
             day.assert_called_once_with(odoo, 20, "2026-10-19")
@@ -120,17 +155,23 @@ class DiscordTest(unittest.TestCase):
             self.assertEqual(dc.own_request(odoo, "2026-10-19"), (200, {"url": "empty"}))
             dc.request_link.assert_called_once_with(odoo)
             with patch.object(dc, "request_link", return_value=None):
-                self.assertEqual(dc.own_request(odoo, "2026-10-19"),
-                                 (409, {"error": "Odoo no tiene la categoría de solicitudes de cambio de fichaje"}))
+                self.assertEqual(
+                    dc.own_request(odoo, "2026-10-19"),
+                    (409, {"error": "Odoo no tiene la categoría de solicitudes de cambio de fichaje"}),
+                )
 
     def test_every_refusal_reads_in_words(self):
         dc.write_private(dc.TOKEN_FILE, "tok")
         cases = [
-            (refused(403, json.dumps({"code": dc.CANNOT_MESSAGE}).encode()),
-             "Discord no deja al bot escribirle: no está en su servidor o no acepta mensajes privados de él"),
+            (
+                refused(403, json.dumps({"code": dc.CANNOT_MESSAGE}).encode()),
+                "Discord no deja al bot escribirle: no está en su servidor o no acepta mensajes privados de él",
+            ),
             (refused(404, json.dumps({"code": dc.UNKNOWN_USER}).encode()), "Discord no conoce ese ID de usuario"),
-            (refused(400, json.dumps({"code": 50035, "message": "Invalid Form Body"}).encode()),
-             "Discord respondió 400: Invalid Form Body"),
+            (
+                refused(400, json.dumps({"code": 50035, "message": "Invalid Form Body"}).encode()),
+                "Discord respondió 400: Invalid Form Body",
+            ),
             (refused(502, b"<html>", "Bad Gateway"), "Discord respondió 502: Bad Gateway"),
             (urllib.error.URLError("sin red"), "Discord no responde"),
             (TimeoutError(), "Discord no responde"),
@@ -144,8 +185,13 @@ class DiscordTest(unittest.TestCase):
         odoo = ScriptedClient({"hr.employee": [{"id": 9, "x_studio_discord": "555"}]})
         odoo.labelled[("hr.employee", "discord")] = "x_studio_discord"
         self.assertEqual(dc.sender_id(odoo), "555")
-        self.assertEqual(odoo.queries, [("hr.employee", "search_read", [[("user_id", "=", 3)]], {"fields": ["id"], "limit": 1}),
-                                        ("hr.employee", "read", [[9], ["name", "x_studio_discord"]], None)])
+        self.assertEqual(
+            odoo.queries,
+            [
+                ("hr.employee", "search_read", [[("user_id", "=", 3)]], {"fields": ["id"], "limit": 1}),
+                ("hr.employee", "read", [[9], ["name", "x_studio_discord"]], None),
+            ],
+        )
         odoo.rows["hr.employee"] = [{"id": 9, "x_studio_discord": "elena_dc"}]
         self.assertIsNone(dc.sender_id(odoo))
         odoo.rows["hr.employee"] = []
@@ -154,12 +200,17 @@ class DiscordTest(unittest.TestCase):
     def test_a_test_goes_to_whoever_asks_and_nobody_else(self):
         odoo = ScriptedClient()
         with patch.object(dc, "sender_id", return_value=None) as sender, patch.object(dc, "send") as send:
-            self.assertEqual(dc.send_test(odoo), (409, {"error": "No se encuentra tu ID de Discord en tu ficha de Odoo, "
-                                                                 "o tu usuario no puede leerlo"}))
+            self.assertEqual(
+                dc.send_test(odoo),
+                (409, {"error": "No se encuentra tu ID de Discord en tu ficha de Odoo, o tu usuario no puede leerlo"}),
+            )
             sender.assert_called_once_with(odoo)
         send.assert_not_called()
-        with patch.object(dc, "sender_id", return_value="555"), patch.object(dc, "request_link", return_value="L") as link, \
-                patch.object(dc, "send") as send:
+        with (
+            patch.object(dc, "sender_id", return_value="555"),
+            patch.object(dc, "request_link", return_value="L") as link,
+            patch.object(dc, "send") as send,
+        ):
             self.assertEqual(dc.send_test(odoo), (200, {"ok": True}))
             send.assert_called_once_with("555", dc.TEST_TEXT, "L")
             link.assert_called_once_with(odoo)
@@ -170,13 +221,19 @@ class DiscordTest(unittest.TestCase):
         odoo = ScriptedClient({"hr.employee": [{"id": 7, "x_studio_discord": "123"}]})
         odoo.labelled[("hr.employee", "discord")] = "x_studio_discord"
         for body in ({"employee": "7", "text": "hola"}, {"employee": True, "text": "hola"}):
-            self.assertEqual(dc.message_employee(odoo, body), (400, {"error": f"Empleado no válido: {body['employee']}"}))
+            self.assertEqual(
+                dc.message_employee(odoo, body), (400, {"error": f"Empleado no válido: {body['employee']}"})
+            )
         for text in (None, "  "):
-            self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": text}), (400, {"error": "El mensaje no tiene texto"}))
+            self.assertEqual(
+                dc.message_employee(odoo, {"employee": 7, "text": text}), (400, {"error": "El mensaje no tiene texto"})
+            )
         footer = "\n\n-# Este mensaje es automático: si tienes dudas, escribe a <@555>."
         with patch.object(dc, "send") as send, patch.object(dc, "sender_id", return_value=None) as sender:
-            self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": "hola"}),
-                             (409, {"error": "Tu ficha de Odoo no tiene tu ID de Discord: el aviso no diría a quién escribir"}))
+            self.assertEqual(
+                dc.message_employee(odoo, {"employee": 7, "text": "hola"}),
+                (409, {"error": "Tu ficha de Odoo no tiene tu ID de Discord: el aviso no diría a quién escribir"}),
+            )
             self.assertEqual(odoo.queries[0], ("hr.employee", "read", [[7], ["name", "x_studio_discord"]], None))
             sender.return_value = "555"
             status, body = dc.message_employee(odoo, {"employee": 7, "text": "x" * (dc.MESSAGE_MAX - len(footer) + 1)})
@@ -187,11 +244,14 @@ class DiscordTest(unittest.TestCase):
             send.assert_called_with("123", "hola" + footer, None)
             sender.assert_called_with(odoo)
             send.side_effect = dc.DiscordError("Discord no responde")
-            self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": "hola"}),
-                             (502, {"error": "Discord no responde"}))
+            self.assertEqual(
+                dc.message_employee(odoo, {"employee": 7, "text": "hola"}), (502, {"error": "Discord no responde"})
+            )
             odoo.rows["hr.employee"] = [{"id": 7, "x_studio_discord": "elena_dc"}]
-            self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": "hola"}),
-                             (409, {"error": "Su ficha de Odoo no tiene un ID de Discord numérico"}))
+            self.assertEqual(
+                dc.message_employee(odoo, {"employee": 7, "text": "hola"}),
+                (409, {"error": "Su ficha de Odoo no tiene un ID de Discord numérico"}),
+            )
             odoo.labelled.clear()
             self.assertEqual(dc.message_employee(odoo, {"employee": 7, "text": "hola"})[0], 409)
         self.assertEqual(send.call_count, 3)
@@ -199,15 +259,27 @@ class DiscordTest(unittest.TestCase):
     def test_a_notice_of_a_day_odoo_has_brings_the_filled_form_and_asks_to_check_it(self):
         odoo = ScriptedClient({"hr.employee": [{"id": 7, "x_studio_discord": "123"}]})
         odoo.labelled[("hr.employee", "discord")] = "x_studio_discord"
-        with patch.object(dc, "send") as send, patch.object(dc, "sender_id", return_value="555"), \
-                patch.object(dc, "notice_day", return_value={"x": 1}) as day, \
-                patch.object(dc, "prefilled_link", return_value="https://odoo.example/odoo/modificacion-fichaje/new?q") as filled:
+        with (
+            patch.object(dc, "send") as send,
+            patch.object(dc, "sender_id", return_value="555"),
+            patch.object(dc, "notice_day", return_value={"x": 1}) as day,
+            patch.object(
+                dc, "prefilled_link", return_value="https://odoo.example/odoo/modificacion-fichaje/new?q"
+            ) as filled,
+        ):
             dc.message_employee(odoo, {"employee": 7, "date": "2026-10-19", "text": "hola"})
         day.assert_called_once_with(odoo, 7, "2026-10-19")
         filled.assert_called_once_with(odoo, {"x": 1})
-        self.assertEqual(send.call_args.args, ("123", "hola\n\n-# Este mensaje es automático: si tienes dudas, escribe a "
-                                               "<@555>.\n-# El botón te deja la solicitud preparada: **revisa** bien las "
-                                               "horas antes de enviarla.", "https://odoo.example/odoo/modificacion-fichaje/new?q"))
+        self.assertEqual(
+            send.call_args.args,
+            (
+                "123",
+                "hola\n\n-# Este mensaje es automático: si tienes dudas, escribe a "
+                "<@555>.\n-# El botón te deja la solicitud preparada: **revisa** bien las "
+                "horas antes de enviarla.",
+                "https://odoo.example/odoo/modificacion-fichaje/new?q",
+            ),
+        )
 
 
 def local(day, hour, minute, second=0):
@@ -220,34 +292,59 @@ def punch(day, start, end=None, hours=None):
 
 class ProposalTest(unittest.TestCase):
     def test_an_open_punch_runs_from_its_check_in_to_the_hours_the_day_lacked(self):
-        day = {"date": "2026-10-19", "flags": ["open"], "target": 8.5,
-               "sessions": [punch(19, (8, 0, 30), (19, 10, 0), 2.0), punch(19, (12, 29, 14))]}
+        day = {
+            "date": "2026-10-19",
+            "flags": ["open"],
+            "target": 8.5,
+            "sessions": [punch(19, (8, 0, 30), (19, 10, 0), 2.0), punch(19, (12, 29, 14))],
+        }
         start, end, reason = dc.proposal(day)
         self.assertEqual((dc.clock(start), dc.clock(end)), ("12:29", "18:59"))
-        self.assertEqual(reason, "Fichaje incorrecto: lunes 19/10/2026, entrada a las 12:29 sin salida. "
-                                 "Corrección: de 12:29 a 18:59.")
+        self.assertEqual(
+            reason,
+            "Fichaje incorrecto: lunes 19/10/2026, entrada a las 12:29 sin salida. Corrección: de 12:29 a 18:59.",
+        )
 
     def test_a_long_day_proposes_its_longest_punch_and_never_past_the_day(self):
-        overnight = {"date": "2026-10-19", "flags": ["long"], "target": 8.5, "sessions": [
-            punch(19, (9, 7, 59), (19, 15, 31), 6.39), punch(19, (16, 10, 7), (20, 8, 59), 16.82)]}
+        overnight = {
+            "date": "2026-10-19",
+            "flags": ["long"],
+            "target": 8.5,
+            "sessions": [punch(19, (9, 7, 59), (19, 15, 31), 6.39), punch(19, (16, 10, 7), (20, 8, 59), 16.82)],
+        }
         start, end, reason = dc.proposal(overnight)
         self.assertEqual((dc.clock(start), dc.clock(end)), ("16:10", "18:16"))
-        self.assertEqual(reason, "Fichaje incorrecto: lunes 19/10/2026, de 16:10 a martes 20/10/2026 08:59 (16h 49m). "
-                                 "Corrección: de 16:10 a 18:16.")
-        same_day = {"date": "2026-10-19", "flags": ["long"], "target": 30, "sessions": [
-            punch(19, (8, 0), (19, 22, 0), 14.0)]}
-        self.assertEqual(dc.proposal(same_day)[2], "Fichaje incorrecto: lunes 19/10/2026, de 08:00 a 22:00 (14h). "
-                                                   "Corrección: de 08:00 a 23:59.")
-        unmeasured = {"date": "2026-10-19", "flags": ["open"], "target": 2, "sessions": [
-            punch(19, (8, 0), (19, 9, 0)), punch(19, (12, 0))]}
+        self.assertEqual(
+            reason,
+            "Fichaje incorrecto: lunes 19/10/2026, de 16:10 a martes 20/10/2026 08:59 (16h 49m). "
+            "Corrección: de 16:10 a 18:16.",
+        )
+        same_day = {
+            "date": "2026-10-19",
+            "flags": ["long"],
+            "target": 30,
+            "sessions": [punch(19, (8, 0), (19, 22, 0), 14.0)],
+        }
+        self.assertEqual(
+            dc.proposal(same_day)[2],
+            "Fichaje incorrecto: lunes 19/10/2026, de 08:00 a 22:00 (14h). Corrección: de 08:00 a 23:59.",
+        )
+        unmeasured = {
+            "date": "2026-10-19",
+            "flags": ["open"],
+            "target": 2,
+            "sessions": [punch(19, (8, 0), (19, 9, 0)), punch(19, (12, 0))],
+        }
         self.assertEqual(dc.clock(dc.proposal(unmeasured)[1]), "14:00")
         idle = dict(same_day, target=0)
         self.assertEqual(dc.clock(dc.proposal(idle)[1]), "08:00")
 
     def test_a_day_without_punches_leaves_the_period_and_the_correction_blank(self):
         empty = {"date": "2026-10-15", "flags": ["empty"], "target": 8, "sessions": []}
-        self.assertEqual(dc.proposal(empty), (None, None, "Fichaje incorrecto: jueves 15/10/2026, sin fichajes "
-                                                          "(jornada prevista de 8h). Corrección: "))
+        self.assertEqual(
+            dc.proposal(empty),
+            (None, None, "Fichaje incorrecto: jueves 15/10/2026, sin fichajes (jornada prevista de 8h). Corrección: "),
+        )
         self.assertIsNone(dc.proposal(dict(empty, flags=[])))
 
     def test_durations_drop_a_zero_part(self):
@@ -275,8 +372,10 @@ class ProposalTest(unittest.TestCase):
         query = parse_qs(urlsplit(link).query)
         self.assertEqual(query["desde"], [start.strftime("%Y-%m-%d %H:%M:%S")])
         self.assertEqual(query["hasta"], [(start + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")])
-        self.assertEqual(query["motivo"], ["Fichaje incorrecto: lunes 19/10/2026, entrada a las 08:00 sin salida. "
-                                           "Corrección: de 08:00 a 09:00."])
+        self.assertEqual(
+            query["motivo"],
+            ["Fichaje incorrecto: lunes 19/10/2026, entrada a las 08:00 sin salida. Corrección: de 08:00 a 09:00."],
+        )
         self.assertNotIn(".", urlsplit(link).query)
         self.assertNotIn("+", urlsplit(link).query)
         self.assertIn("%2E", urlsplit(link).query)

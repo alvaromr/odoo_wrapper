@@ -92,9 +92,13 @@ def numbers(version):
 
 
 def latest():
-    request = urllib.request.Request(LATEST, headers={
-        "Accept": "application/vnd.github+json", "User-Agent": USER_AGENT,  # pragma: no mutate - names ignore case
-    })
+    request = urllib.request.Request(
+        LATEST,
+        headers={
+            "Accept": "application/vnd.github+json",  # pragma: no mutate - names ignore case
+            "User-Agent": USER_AGENT,  # pragma: no mutate - as above
+        },
+    )
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         release = json.load(response)
     return release["tag_name"].removeprefix("v"), release["html_url"]
@@ -106,8 +110,13 @@ def ask():
         newer = numbers(version) > numbers(__version__)
     except (OSError, ValueError, KeyError) as error:
         log.warning(f"No se pudo buscar actualizaciones en GitHub: {error!r}")
-        return {"available": False, "current": __version__, "latest": None, "url": None,
-                "error": f"No se pudo consultar GitHub: {error}"}
+        return {
+            "available": False,
+            "current": __version__,
+            "latest": None,
+            "url": None,
+            "error": f"No se pudo consultar GitHub: {error}",
+        }
     return {"available": newer, "current": __version__, "latest": version, "url": url, "error": ""}
 
 
@@ -196,8 +205,12 @@ def install(args, port):
     python = "{}.{}".format(*sys.version_info[:2])  # pragma: no mutate - format reads only the first two
     command = [uv, "tool", "install", "--force", "--python", python, SOURCE]
     try:
-        tools = folders.get("UV_TOOL_DIR") or subprocess.run(
-            [uv, "tool", "dir"], env=env, capture_output=True, text=True, check=True, timeout=TIMEOUT).stdout.strip()
+        tools = (
+            folders.get("UV_TOOL_DIR")
+            or subprocess.run(
+                [uv, "tool", "dir"], env=env, capture_output=True, text=True, check=True, timeout=TIMEOUT
+            ).stdout.strip()
+        )
     except (OSError, subprocess.SubprocessError) as error:
         _installing.release()
         return 502, {"error": f"uv no responde: {error}"}
@@ -218,11 +231,17 @@ def install(args, port):
 
 
 def hand_over(command, folders, tools, args, port, skills):
-    plan = {"command": command, "env": folders, "port": port,
-            "new": [interpreter(tools, windowed=True), "-c", process.INSTALLED_BOOTSTRAP, *args],
-            "old": process.launch_command(args)}
-    helper = (f"import json, sys; sys.path.insert(0, {os.path.dirname(process.HERE)!r}); "
-              "from odoo_wrapper.updates import finish; finish(json.loads(sys.argv[1]))")
+    plan = {
+        "command": command,
+        "env": folders,
+        "port": port,
+        "new": [interpreter(tools, windowed=True), "-c", process.INSTALLED_BOOTSTRAP, *args],
+        "old": process.launch_command(args),
+    }
+    helper = (
+        f"import json, sys; sys.path.insert(0, {os.path.dirname(process.HERE)!r}); "
+        "from odoo_wrapper.updates import finish; finish(json.loads(sys.argv[1]))"
+    )
     base = getattr(sys, "_base_executable", sys.executable)  # pragma: no mutate - CPython always sets it
     detach([base, "-c", helper, json.dumps(plan)], os.environ)
     log.info("Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")
@@ -231,8 +250,15 @@ def hand_over(command, folders, tools, args, port, skills):
 
 
 def detach(command, env):
-    subprocess.Popen(command, env=env, creationflags=WINDOWS_DETACHED, stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    subprocess.Popen(
+        command,
+        env=env,
+        creationflags=WINDOWS_DETACHED,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
 
 
 def finish(plan):

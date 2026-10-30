@@ -45,7 +45,7 @@ def ec_codewords(data, count):
         if coef:
             for j, g in enumerate(gen):
                 rem[i + j] ^= mul(g, coef)
-    return rem[len(data):]
+    return rem[len(data) :]
 
 
 def codewords(payload):
@@ -54,7 +54,7 @@ def codewords(payload):
         raise ValueError("texto demasiado largo para un QR versión 5")
     version, total, ec = fitting
     bits = "0100" + f"{len(payload):08b}" + "".join(f"{b:08b}" for b in payload) + "0000"
-    data = [int(bits[i:i + 8], 2) for i in range(0, len(bits), 8)]
+    data = [int(bits[i : i + 8], 2) for i in range(0, len(bits), 8)]
     data += [PAD[i % 2] for i in range(total - len(data))]
     return version, data + ec_codewords(data, ec)
 

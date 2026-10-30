@@ -45,8 +45,12 @@ class MainTest(unittest.TestCase):
 
     def fails(self, *argv, code=1):
         out = io.StringIO()
-        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), logged(out), \
-                self.assertRaises(SystemExit) as caught:
+        with (
+            patch.object(sys, "argv", ["dash", *argv]),
+            redirect_stdout(out),
+            logged(out),
+            self.assertRaises(SystemExit) as caught,
+        ):
             d.main()
         self.assertEqual(caught.exception.code, code)
         return out.getvalue()
@@ -60,8 +64,9 @@ class MainTest(unittest.TestCase):
         self.mocks["cert"].assert_not_called()
         self.assertEqual(lan._local_only, lan.HOST_OPTION)
         self.assertNotIn("Sin configurar", out)
-        self.assertEqual([call.kwargs["target"] for call in self.mocks["thread"].call_args_list],
-                         [pr.watch_sources, cli.keep_alive])
+        self.assertEqual(
+            [call.kwargs["target"] for call in self.mocks["thread"].call_args_list], [pr.watch_sources, cli.keep_alive]
+        )
 
     def test_serves_the_whole_lan_over_tls_by_default(self):
         plain = self.server.socket
@@ -77,17 +82,22 @@ class MainTest(unittest.TestCase):
         self.assertIs(self.server.socket, context.wrap_socket.return_value)
         self.assertEqual(context.wrap_socket.call_args.kwargs, {"server_side": True})
         self.assertEqual(context.wrap_socket.call_args.args, (plain,))
-        self.assertEqual([call.kwargs for call in self.mocks["thread"].call_args_list], [
-            {"target": self.server.serve_forever, "daemon": True},
-            {"target": pr.watch_sources, "args": (lan.net_identity,), "daemon": True},
-            {"target": cli.keep_alive, "daemon": True},
-        ])
+        self.assertEqual(
+            [call.kwargs for call in self.mocks["thread"].call_args_list],
+            [
+                {"target": self.server.serve_forever, "daemon": True},
+                {"target": pr.watch_sources, "args": (lan.net_identity,), "daemon": True},
+                {"target": cli.keep_alive, "daemon": True},
+            ],
+        )
         self.assertIn("INFO Para entrar desde él, pulsa «Emparejar móvil» en http://localhost:8931/\n", out)
 
     def test_without_a_certificate_it_stays_on_this_machine(self):
         self.mocks["cert"].return_value = None
         out = self.main()
-        self.assertIn("WARNING Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador\n", out)
+        self.assertIn(
+            "WARNING Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador\n", out
+        )
         self.assertNotIn("escucha en https://", out)
         self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
         self.mocks["ssl"].SSLContext.assert_not_called()
@@ -101,7 +111,11 @@ class MainTest(unittest.TestCase):
     def test_help(self):
         for flag in ("-h", "--help"):
             out = io.StringIO()
-            with patch.object(sys, "argv", ["dash", flag]), redirect_stdout(out), self.assertRaises(SystemExit) as caught:
+            with (
+                patch.object(sys, "argv", ["dash", flag]),
+                redirect_stdout(out),
+                self.assertRaises(SystemExit) as caught,
+            ):
                 d.main()
             self.assertEqual(caught.exception.code, 0)
             self.assertIn("Uso: odoo-dashboard", out.getvalue())
@@ -109,8 +123,11 @@ class MainTest(unittest.TestCase):
 
     def test_refuses_a_busy_port(self):
         self.mocks["port_taken"].return_value = True
-        self.assertEqual(self.fails(), "ERROR Ya hay un dashboard escuchando en http://localhost:8931/. Recarga esa página; "
-                                       "para aplicar cambios de código basta con guardarlos (se reinicia solo).\n")
+        self.assertEqual(
+            self.fails(),
+            "ERROR Ya hay un dashboard escuchando en http://localhost:8931/. Recarga esa página; "
+            "para aplicar cambios de código basta con guardarlos (se reinicia solo).\n",
+        )
         self.mocks["port_taken"].side_effect = [False, True]
         self.assertEqual(self.fails("--host", "0.0.0.0"), "ERROR El puerto 8443 ya está ocupado por otro proceso\n")
 
@@ -144,20 +161,26 @@ class MainTest(unittest.TestCase):
         follow.assert_not_called()
         for error in (PermissionError("plist"), d.subprocess.CalledProcessError(1, ["systemctl"])):
             with patch.dict(os.environ, {pr.UPDATED_ENV: "1"}), patch.object(d.autostart, "follow", side_effect=error):
-                self.assertIn(f"WARNING No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
-                              "Ejecuta odoo-dashboard --autostart on\n", self.main())
+                self.assertIn(
+                    f"WARNING No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
+                    "Ejecuta odoo-dashboard --autostart on\n",
+                    self.main(),
+                )
 
     def test_host_flag_needs_a_value(self):
-        self.assertEqual(self.fails("--host"),
-                         "ERROR --host necesita una dirección (127.0.0.1 para no salir de este ordenador)\n")
+        self.assertEqual(
+            self.fails("--host"), "ERROR --host necesita una dirección (127.0.0.1 para no salir de este ordenador)\n"
+        )
         self.server.serve_forever.assert_not_called()
 
     def test_a_restart_child_waits_for_the_ports(self):
         with patch.dict(os.environ, {pr.RESTART_ENV: "1"}):
             self.main("--host", "0.0.0.0")
             self.assertNotIn(pr.RESTART_ENV, os.environ)
-        self.assertEqual([call.args for call in self.mocks["port_taken"].call_args_list],
-                         [(sv.PORT, pr.RESTART_GRACE), (lan.TLS_PORT, pr.RESTART_GRACE, "127.0.0.1")])
+        self.assertEqual(
+            [call.args for call in self.mocks["port_taken"].call_args_list],
+            [(sv.PORT, pr.RESTART_GRACE), (lan.TLS_PORT, pr.RESTART_GRACE, "127.0.0.1")],
+        )
         self.main("--host", "127.0.0.1")
         self.assertEqual(self.mocks["port_taken"].call_args.args, (sv.PORT, 0))
 
@@ -177,9 +200,16 @@ class MainTest(unittest.TestCase):
         sock.__enter__ = lambda s: s
         sock.__exit__ = lambda s, *a: None
         sock.connect_ex.return_value = 61
-        with patch.object(sys, "argv", ["dash", "--host", "127.0.0.1"]), patch.object(sys, "stdout", tty), patch.object(socket, "socket", return_value=sock), \
-                patch("http.server.ThreadingHTTPServer") as server, patch("odoo_wrapper.client.read_config", return_value=CONFIG), \
-                patch.object(threading, "Thread") as thread, patch.dict(sys.modules), logged():
+        with (
+            patch.object(sys, "argv", ["dash", "--host", "127.0.0.1"]),
+            patch.object(sys, "stdout", tty),
+            patch.object(socket, "socket", return_value=sock),
+            patch("http.server.ThreadingHTTPServer") as server,
+            patch("odoo_wrapper.client.read_config", return_value=CONFIG),
+            patch.object(threading, "Thread") as thread,
+            patch.dict(sys.modules),
+            logged(),
+        ):
             del sys.modules["odoo_wrapper.dashboard"]
             runpy.run_module("odoo_wrapper.dashboard", run_name="__main__")
         server.return_value.serve_forever.assert_called_once()

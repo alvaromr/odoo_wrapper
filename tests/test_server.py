@@ -168,8 +168,19 @@ class HandlerTest(unittest.TestCase):
         self.addCleanup(sv._login_fails.clear)
         self.addCleanup(dt.drop_data_cache)
 
-    def request(self, method, path, body=None, host="localhost:8931", origin=None, cookie="sid", device="",
-                ip="127.0.0.1", tls=False, length=True):
+    def request(
+        self,
+        method,
+        path,
+        body=None,
+        host="localhost:8931",
+        origin=None,
+        cookie="sid",
+        device="",
+        ip="127.0.0.1",
+        tls=False,
+        length=True,
+    ):
         h = sv.Handler.__new__(sv.Handler)
         h.command, h.path, h.request_version = method, path, "HTTP/1.1"
         h.requestline = f"{method} {path} HTTP/1.1"
@@ -177,8 +188,12 @@ class HandlerTest(unittest.TestCase):
         h.connection = FakeTLS() if tls else object()
         h.headers = http.client.HTTPMessage()
         cookies = [(sv.COOKIE_NAME, cookie), (sv.DEVICE_COOKIE, device)]
-        for key, value in (("Host", host), ("Origin", origin), ("User-Agent", "TestBrowser/1"),
-                           ("Cookie", "; ".join(f"{name}={value}" for name, value in cookies if value) or None)):
+        for key, value in (
+            ("Host", host),
+            ("Origin", origin),
+            ("User-Agent", "TestBrowser/1"),
+            ("Cookie", "; ".join(f"{name}={value}" for name, value in cookies if value) or None),
+        ):
             if value is not None:
                 h.headers[key] = value
         raw = b"" if body is None else body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -199,20 +214,29 @@ class HandlerTest(unittest.TestCase):
 
     def get(self, path, **kw):
         status, headers, payload = self.request("GET", path, **kw)
-        return status, headers, json.loads(payload) if headers["Content-Type"].startswith("application/json") else payload
+        return (
+            status,
+            headers,
+            json.loads(payload) if headers["Content-Type"].startswith("application/json") else payload,
+        )
 
     def post(self, path, body, **kw):
         status, headers, payload = self.request("POST", path, body, **kw)
         return status, headers, json.loads(payload)
 
     def test_pages_and_assets(self):
-        for path, marker, ctype in (("/", b"<html", "text/html"), ("/index.html", b"<html", "text/html"),
-                                    ("/style.css", b":root", "text/css"), ("/dashboard.css", b".hero", "text/css"),
-                                    ("/team.css", b".fix-grid", "text/css"), ("/login.css", b".clock", "text/css"),
-                                    ("/js/app.js", b"function", "text/javascript"),
-                                    ("/js/render.js", b"function renderHero", "text/javascript"),
-                                    ("/manifest.json", b'"start_url"', "application/manifest+json"),
-                                    ("/icon.svg", b"<svg", "image/svg+xml")):
+        for path, marker, ctype in (
+            ("/", b"<html", "text/html"),
+            ("/index.html", b"<html", "text/html"),
+            ("/style.css", b":root", "text/css"),
+            ("/dashboard.css", b".hero", "text/css"),
+            ("/team.css", b".fix-grid", "text/css"),
+            ("/login.css", b".clock", "text/css"),
+            ("/js/app.js", b"function", "text/javascript"),
+            ("/js/render.js", b"function renderHero", "text/javascript"),
+            ("/manifest.json", b'"start_url"', "application/manifest+json"),
+            ("/icon.svg", b"<svg", "image/svg+xml"),
+        ):
             status, headers, payload = self.get(path)
             self.assertEqual(status, 200, path)
             self.assertIn(marker, payload)
@@ -221,12 +245,22 @@ class HandlerTest(unittest.TestCase):
             self.assertEqual(headers["X-Frame-Options"], "DENY")
             self.assertEqual(headers["Cache-Control"], "no-store")
             self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
-            self.assertEqual(headers["Content-Security-Policy"],
-                             "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
-                             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; "
-                             "object-src 'none'")
-        for path in ("/js/nada.js", "/js/../server.py", "/js/", "/app.js", "/nada.css", "/js/style.css",
-                     "/../templates/style.css", "/dashboard.html"):
+            self.assertEqual(
+                headers["Content-Security-Policy"],
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+                "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; "
+                "object-src 'none'",
+            )
+        for path in (
+            "/js/nada.js",
+            "/js/../server.py",
+            "/js/",
+            "/app.js",
+            "/nada.css",
+            "/js/style.css",
+            "/../templates/style.css",
+            "/dashboard.html",
+        ):
             self.assertEqual(self.get(path)[0], 404, path)
 
     def test_no_page_carries_a_style_the_policy_would_refuse(self):
@@ -247,10 +281,12 @@ class HandlerTest(unittest.TestCase):
         theme = '<script src="/js/theme.js">'
         entries = {"/": "app.js", "/gestion": "team.js"}
         for path, entry in entries.items():
-            tags = re.findall(r'<script[^>]*>', self.get(path)[2].decode())
+            tags = re.findall(r"<script[^>]*>", self.get(path)[2].decode())
             self.assertEqual(tags, [theme, f'<script type="module" src="/js/{entry}">'], path)
-        self.assertEqual(re.findall(r'<script[^>]*>', self.get("/login")[2].decode()),
-                         [theme, '<script type="module" src="/js/login.js">'])
+        self.assertEqual(
+            re.findall(r"<script[^>]*>", self.get("/login")[2].decode()),
+            [theme, '<script type="module" src="/js/login.js">'],
+        )
         sources = {}
         for name in os.listdir(sv.SCRIPTS):
             with open(os.path.join(sv.SCRIPTS, name)) as f:
@@ -258,8 +294,7 @@ class HandlerTest(unittest.TestCase):
         for name in sources:
             if name in entries.values() or name in ("theme.js", "login.js"):
                 continue
-            self.assertTrue(
-                any(re.search(rf'from "\./{re.escape(name)}"', src) for src in sources.values()), name)
+            self.assertTrue(any(re.search(rf'from "\./{re.escape(name)}"', src) for src in sources.values()), name)
 
     def test_login_page_without_a_session_cookie(self):
         self.assertIn(b"Introduce tu usuario", self.get("/", cookie=None)[2])
@@ -273,9 +308,11 @@ class HandlerTest(unittest.TestCase):
 
     def test_the_permission_to_read_others_is_remembered_per_session(self):
         client = SimpleNamespace(session_id="sid", calls=0)
+
         def ask():
             client.calls += 1
             return True
+
         client.sees_others = ask
         self.assertTrue(sv.sees_others(client))
         self.assertTrue(sv.sees_others(client))
@@ -289,8 +326,11 @@ class HandlerTest(unittest.TestCase):
 
     def test_someone_elses_data(self):
         self.assertEqual(self.get("/api/data?employee=x")[0], 400)
-        with patch.object(sv, "new_client") as client, patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch, \
-                patch.object(sv.team, "requests_to_approve", return_value=[{"id": 552}]) as requests:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch,
+            patch.object(sv.team, "requests_to_approve", return_value=[{"id": 552}]) as requests,
+        ):
             client.return_value.sees_others.return_value = False
             self.assertEqual(self.get("/api/data?employee=9")[:3:2], (403, {"error": sv.NOT_TEAM}))
             client.assert_called_with("sid")
@@ -300,15 +340,19 @@ class HandlerTest(unittest.TestCase):
             sv._rights.clear()
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
-            self.assertEqual((payload["phone"], payload["state"], payload["requests"], payload["can_edit"], payload["sessions"]),
-                             (None, st.OTHER_STATE, [{"id": 552}], False, []))
+            self.assertEqual(
+                (payload["phone"], payload["state"], payload["requests"], payload["can_edit"], payload["sessions"]),
+                (None, st.OTHER_STATE, [{"id": 552}], False, []),
+            )
             requests.assert_called_with(client.return_value, 9)
             fetch.assert_called_with(client.return_value, fresh=True, employee=9)
 
     def test_the_own_request_link_needs_a_session_and_takes_only_the_date(self):
         self.assertEqual(self.get("/api/request?date=2026-10-19", cookie=None)[0], 401)
-        with patch.object(sv, "new_client") as client, \
-                patch.object(sv.discord, "own_request", return_value=(200, {"url": "L"})) as own:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.discord, "own_request", return_value=(200, {"url": "L"})) as own,
+        ):
             self.assertEqual(self.get("/api/request?date=2026-10-19&employee=9")[:3:2], (200, {"url": "L"}))
             own.assert_called_once_with(client.return_value, "2026-10-19")
             client.assert_called_once_with("sid")
@@ -316,27 +360,36 @@ class HandlerTest(unittest.TestCase):
     def test_the_update_check_needs_a_session_and_forces_a_check_only_when_fresh(self):
         self.assertEqual(self.get("/api/update", cookie=None)[0], 401)
         answer = {"available": True, "current": "1.0.0", "latest": "1.1.0", "url": "U", "error": ""}
-        with patch.object(sv.updates, "check", return_value=answer) as check, \
-                patch.object(sv.updates, "how", return_value="auto"):
+        with (
+            patch.object(sv.updates, "check", return_value=answer) as check,
+            patch.object(sv.updates, "how", return_value="auto"),
+        ):
             self.assertEqual(self.get("/api/update")[:3:2], (200, dict(answer, local=True, how="auto")))
             self.assertEqual(self.get("/api/update?fresh", ip="10.0.0.9")[2]["local"], False)
         self.assertEqual(check.call_args_list, [((False,),), ((True,),)])
 
     def test_only_the_machine_itself_installs_an_update(self):
         self.assertEqual(self.post("/api/update", {}, cookie=None)[0], 401)
-        with patch.object(sv.updates, "install", return_value=(200, {"ok": True})) as install, \
-                patch.object(sys, "argv", ["odoo-dashboard", "--host", "0.0.0.0", "--open"]):
-            self.assertEqual(self.post("/api/update", {}, ip="10.0.0.9")[:3:2],
-                             (403, {"error": "Solo se actualiza desde el propio ordenador"}))
+        with (
+            patch.object(sv.updates, "install", return_value=(200, {"ok": True})) as install,
+            patch.object(sys, "argv", ["odoo-dashboard", "--host", "0.0.0.0", "--open"]),
+        ):
+            self.assertEqual(
+                self.post("/api/update", {}, ip="10.0.0.9")[:3:2],
+                (403, {"error": "Solo se actualiza desde el propio ordenador"}),
+            )
             install.assert_not_called()
             self.assertEqual(self.post("/api/update", {})[:3:2], (200, {"ok": True}))
         install.assert_called_once_with(["--host", "0.0.0.0"], sv.PORT)
 
     def test_team_writes(self):
         self.assertEqual(self.post("/api/team/attendance", {}, cookie=None)[0], 401)
-        with patch.object(sv, "new_client") as client, patch.object(sv.corrections, "save_attendance", return_value=(200, {"ok": True})) as save, \
-                patch.object(sv.corrections, "approve_request", return_value=(409, {"error": "no"})) as approve, \
-                patch.object(sv.corrections, "delete_attendance", return_value=(200, {"ok": True})) as delete:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.corrections, "save_attendance", return_value=(200, {"ok": True})) as save,
+            patch.object(sv.corrections, "approve_request", return_value=(409, {"error": "no"})) as approve,
+            patch.object(sv.corrections, "delete_attendance", return_value=(200, {"ok": True})) as delete,
+        ):
             client.return_value.sees_others.return_value = False
             self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_TEAM}))
             self.assertEqual(self.post("/api/team/delete", {"id": 1})[:3:2], (403, {"error": sv.NOT_TEAM}))
@@ -361,8 +414,10 @@ class HandlerTest(unittest.TestCase):
 
     def test_a_discord_message_needs_a_session_that_reads_others_and_nothing_else(self):
         body = {"employee": 7, "text": "hola"}
-        with patch.object(sv, "new_client") as client, \
-                patch.object(sv.discord, "message_employee", return_value=(200, {"ok": True})) as message:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.discord, "message_employee", return_value=(200, {"ok": True})) as message,
+        ):
             client.return_value.sees_others.return_value = False
             self.assertEqual(self.post("/api/team/discord", body)[0], 403)
             message.assert_not_called()
@@ -373,8 +428,10 @@ class HandlerTest(unittest.TestCase):
             message.assert_called_once_with(client.return_value, body)
 
     def test_the_bot_token_is_kept_for_a_session_that_reads_others_and_never_sent_back(self):
-        with patch.object(sv, "new_client") as client, \
-                patch.object(sv.discord, "set_token", return_value=(200, {"bot": "Odoo"})) as set_token:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.discord, "set_token", return_value=(200, {"bot": "Odoo"})) as set_token,
+        ):
             client.return_value.sees_others.return_value = False
             self.assertEqual(self.post("/api/team/discord/token", {"token": "tok"})[0], 403)
             set_token.assert_not_called()
@@ -389,7 +446,10 @@ class HandlerTest(unittest.TestCase):
     def test_team_api(self):
         self.assertEqual(self.get("/api/team", cookie=None)[0], 401)
         self.assertEqual(self.get("/api/team?week=nope")[0], 400)
-        with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_team", return_value={"ok": 1}) as fetch:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.team, "fetch_team", return_value={"ok": 1}) as fetch,
+        ):
             client.return_value.sees_others.return_value = False
             status, _, payload = self.get("/api/team")
             self.assertEqual((status, payload), (403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"}))
@@ -397,8 +457,10 @@ class HandlerTest(unittest.TestCase):
             client.return_value.sees_others.return_value = True
             client.return_value.edits_punches.return_value = True
             sv._rights.clear()
-            self.assertEqual(self.get("/api/team?week=2026-09-24&fresh")[:3:2],
-                             (200, {"ok": 1, "can_edit": True, "can_message": False}))
+            self.assertEqual(
+                self.get("/api/team?week=2026-09-24&fresh")[:3:2],
+                (200, {"ok": 1, "can_edit": True, "can_message": False}),
+            )
             fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
             client.assert_called_with("sid")
             c.write_private(sv.discord.TOKEN_FILE, "tok")
@@ -406,14 +468,22 @@ class HandlerTest(unittest.TestCase):
             self.get("/api/team")
             fetch.assert_called_with(client.return_value, sv.team.monday_of(sv.date.today()), False)
             self.get("/api/team?month=2026-09")
-            fetch.assert_called_with(client.return_value, sv.date(2026, 8, 31), False, 5, sv.date(2026, 9, 1), sv.date(2026, 10, 1))
+            fetch.assert_called_with(
+                client.return_value, sv.date(2026, 8, 31), False, 5, sv.date(2026, 9, 1), sv.date(2026, 10, 1)
+            )
         self.assertEqual(self.get("/api/team?month=2026-13")[0], 400)
         self.assertEqual(self.get("/api/team?year=dos")[0], 400)
-        with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_year", return_value={"year": 2025}) as fetch:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.team, "fetch_year", return_value={"year": 2025}) as fetch,
+        ):
             client.return_value.sees_others.return_value = True
             self.assertEqual(self.get("/api/team?year=2025&fresh")[:3:2], (200, {"year": 2025, "can_message": True}))
             fetch.assert_called_with(client.return_value, 2025, True)
-        with patch.object(sv, "new_client") as client, patch.object(sv.team, "fetch_fixes", return_value={"employees": []}) as fixes:
+        with (
+            patch.object(sv, "new_client") as client,
+            patch.object(sv.team, "fetch_fixes", return_value={"employees": []}) as fixes,
+        ):
             client.return_value.sees_others.return_value = True
             self.assertEqual(self.get("/api/team?fixes")[:3:2], (200, {"employees": []}))
             fixes.assert_called_with(client.return_value, False)
@@ -428,8 +498,9 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/nada", {})[:3:2], (404, {"error": "not found"}))
         self.assertEqual(self.get("/api/data?employee=x")[:3:2], (400, {"error": "Empleado no válido: x"}))
         for period in ("week=nope", "month=2026-13", "year=dos"):
-            self.assertEqual(self.get(f"/api/team?{period}")[:3:2],
-                             (400, {"error": f"Periodo no válido: {period.split('=')[1]}"}))
+            self.assertEqual(
+                self.get(f"/api/team?{period}")[:3:2], (400, {"error": f"Periodo no válido: {period.split('=')[1]}"})
+            )
 
     def test_version_state_and_data(self):
         self.assertEqual(self.get("/api/version", cookie=None)[:3:2], (200, {"version": sv.process.source_version()}))
@@ -455,7 +526,10 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.get("/api/config", cookie=None)[:3:2], (200, dict(CONFIG, configured=True, local=True)))
         self.assertEqual(self.get("/api/config", cookie=None, ip="10.0.0.9")[2], {"configured": True, "local": False})
         os.remove(c.CONFIG_FILE)
-        self.assertEqual(self.get("/api/config", cookie=None)[2], {"url": "", "db": "", "user": "", "configured": False, "local": True})
+        self.assertEqual(
+            self.get("/api/config", cookie=None)[2],
+            {"url": "", "db": "", "user": "", "configured": False, "local": True},
+        )
 
     def test_data_errors(self):
         with patch.object(dt, "fetch_data", side_effect=OdooError("caído")):
@@ -496,8 +570,12 @@ class HandlerTest(unittest.TestCase):
             odoo.return_value.session_id = "fresh"
             odoo.return_value.device = "dev2" if totp else ""
             odoo.return_value.login.side_effect = (
-                TotpRequired("código") if totp and not body.get("code")
-                else None if body.get("password") == "pw" else AccessDenied("Usuario o contraseña incorrectos"))
+                TotpRequired("código")
+                if totp and not body.get("code")
+                else None
+                if body.get("password") == "pw"
+                else AccessDenied("Usuario o contraseña incorrectos")
+            )
             status, headers, payload = self.post("/api/login", body, cookie=None, **kw)
         return status, headers, payload, odoo, sleep
 
@@ -513,7 +591,10 @@ class HandlerTest(unittest.TestCase):
         odoo.return_value.login.assert_called_once_with("ana", "pw", "")
         self.assertEqual(odoo.return_value.user_agent, "TestBrowser/1")
         self.assertEqual(headers["Set-Cookie"].count("\n"), 0)
-        self.assertIn(f"{sv.COOKIE_NAME}=fresh; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.COOKIE_NAME]}; HttpOnly", headers["Set-Cookie"])
+        self.assertIn(
+            f"{sv.COOKIE_NAME}=fresh; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.COOKIE_NAME]}; HttpOnly",
+            headers["Set-Cookie"],
+        )
         self.assertIn("; Secure", headers["Set-Cookie"])
         self.assertEqual(c.read_config()["user"], "ana")
         self.assertEqual(self.get("/api/state", ip="10.0.0.9", cookie="fresh")[0], 200)
@@ -538,7 +619,10 @@ class HandlerTest(unittest.TestCase):
         odoo.return_value.login.assert_called_once_with("ana", "pw", "123456")
         session, device = headers["Set-Cookie"].split("\n")
         self.assertTrue(session.startswith(f"{sv.COOKIE_NAME}=fresh; "))
-        self.assertEqual(device, f"{sv.DEVICE_COOKIE}=dev2; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.DEVICE_COOKIE]}; HttpOnly; SameSite=Lax")
+        self.assertEqual(
+            device,
+            f"{sv.DEVICE_COOKIE}=dev2; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.DEVICE_COOKIE]}; HttpOnly; SameSite=Lax",
+        )
 
     def test_login_falls_back_to_the_configured_user(self):
         _, _, _, odoo, _ = self.login({"password": "pw"})
@@ -568,11 +652,16 @@ class HandlerTest(unittest.TestCase):
 
     def test_pairing_hands_the_laptop_session_to_the_phone(self):
         self.assertEqual(self.post("/api/pair", {}, cookie=None)[0], 401)
-        self.assertEqual(self.post("/api/pair", {}, ip="10.0.0.9")[:3:2],
-                         (403, {"error": "Solo se empareja desde el propio ordenador"}))
+        self.assertEqual(
+            self.post("/api/pair", {}, ip="10.0.0.9")[:3:2],
+            (403, {"error": "Solo se empareja desde el propio ordenador"}),
+        )
         self.assertEqual(self.post("/api/pair", {})[::2], (409, {"error": "sin red"}))
-        with patch.object(lan, "_local_only", ""), patch.object(lan, "lan_ip", return_value="10.0.0.2"), \
-                patch.object(lan, "bonjour_name", return_value="mac.local"):
+        with (
+            patch.object(lan, "_local_only", ""),
+            patch.object(lan, "lan_ip", return_value="10.0.0.2"),
+            patch.object(lan, "bonjour_name", return_value="mac.local"),
+        ):
             status, _, ip_pair = self.post("/api/pair", {})
             _, _, name_pair = self.post("/api/pair", {"name": True})
         self.assertEqual((status, ip_pair["expires_in"]), (200, sv.PAIR_TTL))
@@ -580,9 +669,15 @@ class HandlerTest(unittest.TestCase):
         self.assertTrue(name_pair["url"].startswith("https://mac.local:8443/pair?t="))
         self.assertTrue(ip_pair["qr"].startswith("<svg"))
         token = ip_pair["url"].split("t=")[1]
-        status, headers, body = self.request("GET", f"/pair?t={token}", host="10.0.0.2:8443", ip="10.0.0.9", cookie=None, tls=True)
+        status, headers, body = self.request(
+            "GET", f"/pair?t={token}", host="10.0.0.2:8443", ip="10.0.0.9", cookie=None, tls=True
+        )
         self.assertEqual((status, headers["Location"], headers["Content-Type"], body), (303, "/", "text/plain", b""))
-        self.assertIn(f"{sv.COOKIE_NAME}=sid; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.COOKIE_NAME]}; HttpOnly; SameSite=Lax; Secure", headers["Set-Cookie"])
+        self.assertIn(
+            f"{sv.COOKIE_NAME}=sid; Path=/; Max-Age={sv.COOKIE_MAX_AGE[sv.COOKIE_NAME]}; HttpOnly; SameSite=Lax"
+            "; Secure",
+            headers["Set-Cookie"],
+        )
         for spent in (f"/pair?t={token}", "/pair?t=nope", "/pair"):
             status, headers, _ = self.request("GET", spent, host="10.0.0.2:8443", ip="10.0.0.9", cookie=None)
             self.assertEqual((status, headers["Location"]), (303, "/login"), spent)

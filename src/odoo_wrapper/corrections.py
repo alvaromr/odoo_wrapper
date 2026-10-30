@@ -37,8 +37,11 @@ def lost_entry(client, employee_id, old_out, new_out):
     if not old_out or data.local(old_out).date() <= data.local(new_out).date():
         return None
     until = (datetime.strptime(old_out, STAMP) + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime(STAMP)
-    later = client.call_kw("hr.attendance", "search_count", [[("employee_id", "=", employee_id),
-                                                              ("check_in", ">=", old_out), ("check_in", "<=", until)]])
+    later = client.call_kw(
+        "hr.attendance",
+        "search_count",
+        [[("employee_id", "=", employee_id), ("check_in", ">=", old_out), ("check_in", "<=", until)]],
+    )
     return None if later else data.local(old_out).isoformat()
 
 
@@ -53,8 +56,11 @@ def save_attendance(client, body):
         return 400, {"error": "La salida tiene que ser posterior a la entrada"}
     if not record and not employee:
         return 400, {"error": "Falta el fichaje o la persona"}
-    punch = {"check_in": check_in, "check_out": check_out,
-             **({"attendance_reason_ids": [[REPLACE, 0, [reason]]]} if reason else {})}
+    punch = {
+        "check_in": check_in,
+        "check_out": check_out,
+        **({"attendance_reason_ids": [[REPLACE, 0, [reason]]]} if reason else {}),
+    }
     try:
         if record:
             before = client.call_kw("hr.attendance", "read", [[record], ["employee_id", "check_out"]])[0]

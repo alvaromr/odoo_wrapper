@@ -61,8 +61,16 @@ from itertools import groupby
 
 from . import discord, team
 from .client import (
-    STATE_DIR, OdooClient, OdooError, SessionExpired, TotpRequired, load_config, read_config, read_private,
-    save_config, write_private,
+    STATE_DIR,
+    OdooClient,
+    OdooError,
+    SessionExpired,
+    TotpRequired,
+    load_config,
+    read_config,
+    read_private,
+    save_config,
+    write_private,
 )
 from .discord import DiscordError
 from .sheets import Sheets, SheetsError
@@ -73,8 +81,20 @@ SHEET_FILE = os.path.join(STATE_DIR, "notices_sheet")
 WRITTEN_FILE = os.path.join(STATE_DIR, "notices_written")
 SHEET_URL = re.compile(r"/spreadsheets/d/([\w-]+)")
 KEEPALIVE_INTERVAL = 3600
-MONTHS = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre",
-          "Noviembre", "Diciembre")
+MONTHS = (
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+)
 NOTICE_KINDS = (
     ("Solicitud", lambda d: any(r["status"] != "new" for r in d["requests"])),
     ("Solicitud (borrador)", lambda d: bool(d["requests"])),
@@ -190,8 +210,10 @@ def toggle(client):
         print(f"CHECK-IN registrado a las {local_time(att['check_in']).strftime('%H:%M:%S')}")
     elif state == "checked_out":
         session_hours = result.get("last_attendance_worked_hours", 0)
-        print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
-              f"({session_hours:.2f}h esta sesión)")
+        print(
+            f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
+            f"({session_hours:.2f}h esta sesión)"
+        )
 
     print(f"Horas hoy: {hours_today:.2f}h")
 
@@ -199,8 +221,10 @@ def toggle(client):
 def check_in(client):
     open_att = client.open_attendance()
     if open_att:
-        print(f"Ya estás fichado desde las {local_time(open_att['check_in']).strftime('%H:%M:%S')}. "
-              "Usa 'checkout' para salir.")
+        print(
+            f"Ya estás fichado desde las {local_time(open_att['check_in']).strftime('%H:%M:%S')}. "
+            "Usa 'checkout' para salir."
+        )
         return
     normal, _ = client.sign_in_reasons()
     result = client.punch(normal and normal["id"])
@@ -217,8 +241,10 @@ def check_out(client):
     result = client.punch()
     att = result["attendance"]
     session_hours = result.get("last_attendance_worked_hours", 0)
-    print(f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
-          f"({session_hours:.2f}h esta sesión)")
+    print(
+        f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
+        f"({session_hours:.2f}h esta sesión)"
+    )
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 
@@ -250,16 +276,16 @@ def resume(client):
     closed = client.punch()
     result = client.punch(normal and normal["id"])
     att = result["attendance"]
-    print(f"VUELTA del descanso a las {local_time(att['check_in']).strftime('%H:%M:%S')}"
-          f" ({closed.get('last_attendance_worked_hours', 0):.2f}h de descanso)")
+    print(
+        f"VUELTA del descanso a las {local_time(att['check_in']).strftime('%H:%M:%S')}"
+        f" ({closed.get('last_attendance_worked_hours', 0):.2f}h de descanso)"
+    )
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 
 def history(client, days=7):
     client.load_employee()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     records = client.call_kw(
         "hr.attendance",
         "search_read",
@@ -332,11 +358,19 @@ def add_notices(client, sheets, month):
     written = book.setdefault(sheets.id, [])
     payload = team.build_team(client, *team.month_span(month))
     stop = min(payload["stop"], payload["generated_at"][:10])
-    found = sorted((date.fromisoformat(d["date"]), e["name"], kinds[0])
-                   for e in payload["employees"] for d in e["days"] if payload["start"] <= d["date"] < stop
-                   for kinds in [[kind for kind, holds in NOTICE_KINDS if holds(d)]] if kinds)
-    rows = [[employee, MONTHS[day.month - 1], day.strftime("%d/%m/%Y"), kind] for day, employee, kind in found
-            if (employee, (day - SHEET_EPOCH).days, kind) not in known]
+    found = sorted(
+        (date.fromisoformat(d["date"]), e["name"], kinds[0])
+        for e in payload["employees"]
+        for d in e["days"]
+        if payload["start"] <= d["date"] < stop
+        for kinds in [[kind for kind, holds in NOTICE_KINDS if holds(d)]]
+        if kinds
+    )
+    rows = [
+        [employee, MONTHS[day.month - 1], day.strftime("%d/%m/%Y"), kind]
+        for day, employee, kind in found
+        if (employee, (day - SHEET_EPOCH).days, kind) not in known
+    ]
     rows = [row for row in rows if row not in written]
     sheets.append(f"Avisos {month.year}!B4:E", rows)
     written += rows
@@ -404,8 +438,14 @@ def keep_alive():
         time.sleep(KEEPALIVE_INTERVAL)
 
 
-COMMANDS = {"status": status, "checkin": check_in, "checkout": check_out, "toggle": toggle,
-            "break": take_break, "resume": resume}
+COMMANDS = {
+    "status": status,
+    "checkin": check_in,
+    "checkout": check_out,
+    "toggle": toggle,
+    "break": take_break,
+    "resume": resume,
+}
 
 
 def discord_bot():

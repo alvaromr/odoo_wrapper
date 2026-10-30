@@ -28,11 +28,19 @@ class StateTest(unittest.TestCase):
         self.home = temp_state(self)
 
     def test_defaults_without_a_file(self):
-        self.assertEqual(st.read_state(3), {
-            "lunch": None, "lunch_minutes": st.LUNCH_DEFAULT,
-            "break_minutes": st.BREAK_DEFAULT, "lunch_button_from": 810, "lunch_button_to": 960,
-            "muted": False, "lunch_done": False, "punched_at": None,
-        })
+        self.assertEqual(
+            st.read_state(3),
+            {
+                "lunch": None,
+                "lunch_minutes": st.LUNCH_DEFAULT,
+                "break_minutes": st.BREAK_DEFAULT,
+                "lunch_button_from": 810,
+                "lunch_button_to": 960,
+                "muted": False,
+                "lunch_done": False,
+                "punched_at": None,
+            },
+        )
 
     def test_the_lunch_buttons_window_is_kept_and_a_broken_one_dropped(self):
         st.write_state(3, lunch_button_from=0, lunch_button_to=st.LAST_MINUTE)
@@ -59,8 +67,16 @@ class StateTest(unittest.TestCase):
     def test_lunch_stamp_and_flags_expire_with_the_day(self):
         yesterday = datetime.now().astimezone() - timedelta(days=1)
         with open(st.STATE_FILE, "w") as f:
-            json.dump({"3": {"lunch": yesterday.isoformat(), "lunch_day": yesterday.date().isoformat(),
-                             "muted": yesterday.date().isoformat()}}, f)
+            json.dump(
+                {
+                    "3": {
+                        "lunch": yesterday.isoformat(),
+                        "lunch_day": yesterday.date().isoformat(),
+                        "muted": yesterday.date().isoformat(),
+                    }
+                },
+                f,
+            )
         state = st.read_state(3)
         self.assertIsNone(state["lunch"])
         self.assertFalse(state["lunch_done"])

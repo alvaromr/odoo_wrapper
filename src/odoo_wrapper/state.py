@@ -32,10 +32,18 @@ LUNCH_DEFAULT = 30
 BREAK_DEFAULT = 15
 MINUTES_MAX = 240
 LAST_MINUTE = 24 * 60 - 1
-SETTINGS = {"lunch_minutes": LUNCH_DEFAULT, "break_minutes": BREAK_DEFAULT,
-            "lunch_button_from": 13 * 60 + 30, "lunch_button_to": 16 * 60}
-MINUTE_LIMITS = {"lunch_minutes": MINUTES_MAX, "break_minutes": MINUTES_MAX,
-                 "lunch_button_from": LAST_MINUTE, "lunch_button_to": LAST_MINUTE}
+SETTINGS = {
+    "lunch_minutes": LUNCH_DEFAULT,
+    "break_minutes": BREAK_DEFAULT,
+    "lunch_button_from": 13 * 60 + 30,
+    "lunch_button_to": 16 * 60,
+}
+MINUTE_LIMITS = {
+    "lunch_minutes": MINUTES_MAX,
+    "break_minutes": MINUTES_MAX,
+    "lunch_button_from": LAST_MINUTE,
+    "lunch_button_to": LAST_MINUTE,
+}
 OTHER_STATE = {"lunch": None, **SETTINGS, "muted": True, "lunch_done": False, "punched_at": None}
 _state_lock = threading.Lock()
 

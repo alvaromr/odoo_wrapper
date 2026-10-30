@@ -104,11 +104,14 @@ def mac_off():
 
 def linux_write():
     exec_start = " ".join(f'"{arg.translate(SYSTEMD_ESCAPES)}"' for arg in command())
-    write(unit_file(), (
-        "[Unit]\nDescription=Odoo dashboard\n\n"
-        f"[Service]\nExecStart={exec_start}\n\n"
-        "[Install]\nWantedBy=default.target\n"
-    ).encode())
+    write(
+        unit_file(),
+        (
+            "[Unit]\nDescription=Odoo dashboard\n\n"
+            f"[Service]\nExecStart={exec_start}\n\n"
+            "[Install]\nWantedBy=default.target\n"
+        ).encode(),
+    )
     systemctl("daemon-reload")
 
 

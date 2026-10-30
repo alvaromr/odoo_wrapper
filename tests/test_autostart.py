@@ -43,7 +43,10 @@ class CommandTest(AutostartCase):
     def test_windows_prefers_pythonw_beside_it(self):
         quiet = os.path.join(self.home, "pythonw.exe")
         open(quiet, "w").close()
-        with patch.object(sys, "platform", "win32"), patch.object(sys, "executable", os.path.join(self.home, "python.exe")):
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch.object(sys, "executable", os.path.join(self.home, "python.exe")),
+        ):
             self.assertEqual(au.command()[0], quiet)
             os.remove(quiet)
             self.assertEqual(au.command()[0], sys.executable)
@@ -56,9 +59,13 @@ class MacTest(AutostartCase):
         with open(path, "rb") as f:
             self.assertEqual(plistlib.load(f), {"Label": au.LABEL, "ProgramArguments": au.command(), "RunAtLoad": True})
         session = f"gui/{os.getuid()}"
-        self.assertEqual([(c.args, c.kwargs) for c in self.run_.call_args_list],
-                         [((["launchctl", "bootout", f"{session}/{au.LABEL}"],), {"capture_output": True}),
-                          ((["launchctl", "bootstrap", session, path],), {"capture_output": True})])
+        self.assertEqual(
+            [(c.args, c.kwargs) for c in self.run_.call_args_list],
+            [
+                ((["launchctl", "bootout", f"{session}/{au.LABEL}"],), {"capture_output": True}),
+                ((["launchctl", "bootstrap", session, path],), {"capture_output": True}),
+            ],
+        )
 
     def test_a_job_still_being_booted_out_is_waited_for_and_a_lasting_refusal_is_an_error(self):
         refused, loaded = SimpleNamespace(returncode=5), SimpleNamespace(returncode=0)
@@ -67,11 +74,15 @@ class MacTest(AutostartCase):
             self.on("darwin")
         self.assertEqual(sleep.call_args_list, [((au.BOOTSTRAP_PAUSE,),)] * 2)
         self.assertEqual(self.run_.call_count, 4)
-        self.run_.side_effect = [loaded] + [refused] * (au.BOOTSTRAP_TRIES - 1) + [subprocess.CalledProcessError(5, "launchctl")]
+        self.run_.side_effect = (
+            [loaded] + [refused] * (au.BOOTSTRAP_TRIES - 1) + [subprocess.CalledProcessError(5, "launchctl")]
+        )
         with patch.object(au.time, "sleep"), self.assertRaises(subprocess.CalledProcessError):
             self.on("darwin")
         self.assertEqual(self.run_.call_args.kwargs, {"capture_output": True, "check": True})
-        self.assertEqual(self.run_.call_args.args[0], ["launchctl", "bootstrap", f"gui/{os.getuid()}", au.launch_agent()])
+        self.assertEqual(
+            self.run_.call_args.args[0], ["launchctl", "bootstrap", f"gui/{os.getuid()}", au.launch_agent()]
+        )
 
     def test_off_removes_it_and_tolerates_its_absence(self):
         self.on("darwin")
@@ -99,9 +110,15 @@ class LinuxTest(AutostartCase):
         with open(au.unit_file()) as f:
             unit = f.read()
         exec_start = " ".join(f'"{arg.translate(au.SYSTEMD_ESCAPES)}"' for arg in au.command())
-        self.assertEqual(unit, f"[Unit]\nDescription=Odoo dashboard\n\n[Service]\nExecStart={exec_start}\n\n"
-                               "[Install]\nWantedBy=default.target\n")
-        self.assertEqual([c.args[0][2:] for c in self.run_.call_args_list], [["daemon-reload"], ["enable", au.UNIT], ["restart", au.UNIT]])
+        self.assertEqual(
+            unit,
+            f"[Unit]\nDescription=Odoo dashboard\n\n[Service]\nExecStart={exec_start}\n\n"
+            "[Install]\nWantedBy=default.target\n",
+        )
+        self.assertEqual(
+            [c.args[0][2:] for c in self.run_.call_args_list],
+            [["daemon-reload"], ["enable", au.UNIT], ["restart", au.UNIT]],
+        )
         self.assertTrue(all(c.kwargs["check"] for c in self.run_.call_args_list))
 
     def test_the_xdg_config_folder_is_respected(self):
@@ -110,7 +127,7 @@ class LinuxTest(AutostartCase):
             self.assertTrue(os.path.exists(os.path.join(self.home, "cfg", "systemd", "user", au.UNIT)))
 
     def test_arguments_are_escaped_for_systemd(self):
-        with patch.object(au, "command", return_value=['/a b/py', '50% "x" $HOME \\']):
+        with patch.object(au, "command", return_value=["/a b/py", '50% "x" $HOME \\']):
             self.on("linux")
         with open(au.unit_file()) as f:
             self.assertIn('ExecStart="/a b/py" "50%% \\"x\\" $$HOME \\\\"\n', f.read())
@@ -141,8 +158,16 @@ class LinuxTest(AutostartCase):
 class WindowsTest(AutostartCase):
     def setUp(self):
         super().setUp()
-        self.winreg = SimpleNamespace(HKEY_CURRENT_USER="HKCU", KEY_SET_VALUE=2, KEY_QUERY_VALUE=1, REG_SZ=1,
-                                      OpenKey=MagicMock(), SetValueEx=Mock(), DeleteValue=Mock(), QueryValueEx=Mock())
+        self.winreg = SimpleNamespace(
+            HKEY_CURRENT_USER="HKCU",
+            KEY_SET_VALUE=2,
+            KEY_QUERY_VALUE=1,
+            REG_SZ=1,
+            OpenKey=MagicMock(),
+            SetValueEx=Mock(),
+            DeleteValue=Mock(),
+            QueryValueEx=Mock(),
+        )
         patcher = patch.dict(sys.modules, {"winreg": self.winreg})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -153,8 +178,10 @@ class WindowsTest(AutostartCase):
         key = self.winreg.OpenKey.return_value.__enter__.return_value
         self.winreg.SetValueEx.assert_called_once_with(key, au.RUN_VALUE, 0, 1, subprocess.list2cmdline(au.command()))
         self.assertEqual(self.popen.call_args.args[0], au.command())
-        self.assertEqual(self.popen.call_args.kwargs, {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
-                                                       "stderr": subprocess.DEVNULL})
+        self.assertEqual(
+            self.popen.call_args.kwargs,
+            {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL},
+        )
 
     def test_off_deletes_the_value_and_tolerates_its_absence(self):
         self.off("win32")

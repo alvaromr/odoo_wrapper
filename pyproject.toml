@@ -28,11 +28,11 @@ odoo_wrapper = ["templates/*", "templates/js/*"]
 [tool.ruff]
 line-length = 120
 
+[tool.ruff.format]
+docstring-code-format = true
+
 [tool.ruff.lint]
 select = ["E", "W", "F", "B", "UP"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E501"]
 
 [tool.mypy]
 files = ["src/odoo_wrapper"]

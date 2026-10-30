@@ -43,8 +43,11 @@ class PortTest(unittest.TestCase):
         sock.__enter__ = lambda s: s
         sock.__exit__ = lambda s, *a: None
         clock = iter(range(0, 100))
-        with patch.object(socket, "socket", return_value=sock), patch.object(time, "sleep") as sleep, \
-                patch.object(time, "monotonic", side_effect=lambda: next(clock)):
+        with (
+            patch.object(socket, "socket", return_value=sock),
+            patch.object(time, "sleep") as sleep,
+            patch.object(time, "monotonic", side_effect=lambda: next(clock)),
+        ):
             sock.connect_ex.side_effect = [0, 0, 61]
             self.assertFalse(pr.port_taken(8931, grace=5))
             self.assertEqual(sleep.call_count, 2)
@@ -67,7 +70,11 @@ class OutputTest(unittest.TestCase):
     def test_anything_else_is_sent_to_the_log(self):
         home = temp_state(self)
         streams = (SimpleNamespace(isatty=lambda: False, fileno=lambda: 1), SimpleNamespace(fileno=lambda: 2))
-        with patch.object(sys, "stdout", streams[0]), patch.object(sys, "stderr", streams[1]), patch.object(os, "dup2") as dup2:
+        with (
+            patch.object(sys, "stdout", streams[0]),
+            patch.object(sys, "stderr", streams[1]),
+            patch.object(os, "dup2") as dup2,
+        ):
             pr.own_the_output()
         self.assertEqual([call.args[1] for call in dup2.call_args_list], [1, 2])
         self.assertTrue(all(isinstance(call.args[0], int) for call in dup2.call_args_list))
@@ -103,8 +110,11 @@ class OutputTest(unittest.TestCase):
         pr.log.debug("oculto")
         pr.log.info("hola")
         logging.getLogger("odoo_wrapper.lan").warning("sin red")
-        self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d INFO hola\n"
-                                         r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d WARNING sin red\n$")
+        self.assertRegex(
+            out.getvalue(),
+            r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d INFO hola\n"
+            r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d WARNING sin red\n$",
+        )
         self.assertEqual(logging.getLogger("odoo_wrapper").handlers[0].stream, out)
         with patch.object(sys, "stdout", out):
             pr.own_the_output()
@@ -119,8 +129,12 @@ class OutputTest(unittest.TestCase):
             self.assertTrue(sys.stdout.line_buffering)
             sys.stdout.close()
         private = os.path.join(home, "new")
-        with patch.object(sys, "stdout", None), patch.object(sys, "stderr", None), \
-                patch.object(pr, "STATE_DIR", private), patch.object(pr, "LOG_FILE", os.path.join(private, "x.log")):
+        with (
+            patch.object(sys, "stdout", None),
+            patch.object(sys, "stderr", None),
+            patch.object(pr, "STATE_DIR", private),
+            patch.object(pr, "LOG_FILE", os.path.join(private, "x.log")),
+        ):
             pr.own_the_output()
             sys.stdout.close()
         self.assertEqual(oct(os.stat(private).st_mode & 0o777), "0o700")
@@ -129,7 +143,9 @@ class OutputTest(unittest.TestCase):
     @unittest.skipIf("MUTANT_UNDER_TEST" in os.environ, "mutmut runs a copy of the package no subprocess can import")
     def test_the_launch_command_needs_no_pythonpath(self):
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-        done = subprocess.run(pr.launch_command(["--help"]), env=env, cwd=temp_state(self), capture_output=True, text=True)
+        done = subprocess.run(
+            pr.launch_command(["--help"]), env=env, cwd=temp_state(self), capture_output=True, text=True
+        )
         self.assertEqual(done.returncode, 0)
         self.assertIn("Uso: odoo-dashboard", done.stdout)
 
@@ -181,10 +197,15 @@ class WatchTest(unittest.TestCase):
             if calls["sleep"] >= len(stamp_values):
                 raise StopLoop
 
-        with patch.object(pr, "stamps", side_effect=stamp_values), patch.object(time, "sleep", side_effect=sleep), \
-                patch.object(pr, "NET_INTERVAL", interval), patch.object(os, "execve", side_effect=StopLoop) as execv, \
-                patch.object(subprocess, "Popen") as popen, patch.object(os, "_exit", side_effect=StopLoop), \
-                logged() as out:
+        with (
+            patch.object(pr, "stamps", side_effect=stamp_values),
+            patch.object(time, "sleep", side_effect=sleep),
+            patch.object(pr, "NET_INTERVAL", interval),
+            patch.object(os, "execve", side_effect=StopLoop) as execv,
+            patch.object(subprocess, "Popen") as popen,
+            patch.object(os, "_exit", side_effect=StopLoop),
+            logged() as out,
+        ):
             with self.assertRaises(StopLoop):
                 pr.watch_sources(Mock(side_effect=identities))
         popen.assert_not_called()
@@ -236,23 +257,36 @@ class WatchTest(unittest.TestCase):
         execv.assert_called_once()
 
     def test_a_restart_into_a_new_install_runs_its_interpreter_and_package(self):
-        with patch.object(os, "execve", side_effect=StopLoop) as execve, patch.object(subprocess, "Popen") as popen, \
-                patch.object(os, "_exit", side_effect=StopLoop), self.assertRaises(StopLoop):
+        with (
+            patch.object(os, "execve", side_effect=StopLoop) as execve,
+            patch.object(subprocess, "Popen") as popen,
+            patch.object(os, "_exit", side_effect=StopLoop),
+            self.assertRaises(StopLoop),
+        ):
             pr.restart(["--host", "0.0.0.0"], installed="/tools/odoo-wrapper/bin/python")
         popen.assert_not_called()
         command = ["/tools/odoo-wrapper/bin/python", "-c", pr.INSTALLED_BOOTSTRAP, "--host", "0.0.0.0"]
         self.assertEqual(execve.call_args.args[:2], (command[0], command))
         self.assertEqual(execve.call_args.args[2][pr.UPDATED_ENV], "1")
-        with patch.object(sys, "platform", "win32"), patch.object(subprocess, "Popen") as popen, \
-                patch.object(os, "_exit", side_effect=StopLoop), self.assertRaises(StopLoop):
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch.object(subprocess, "Popen") as popen,
+            patch.object(os, "_exit", side_effect=StopLoop),
+            self.assertRaises(StopLoop),
+        ):
             pr.restart([], installed="C:\\tools\\python.exe")
         self.assertEqual(popen.call_args.args[0][:3], ["C:\\tools\\python.exe", "-c", pr.INSTALLED_BOOTSTRAP])
-        self.assertEqual((popen.call_args.kwargs["env"][pr.UPDATED_ENV], popen.call_args.kwargs["env"][pr.RESTART_ENV]),
-                         ("1", "1"))
+        self.assertEqual(
+            (popen.call_args.kwargs["env"][pr.UPDATED_ENV], popen.call_args.kwargs["env"][pr.RESTART_ENV]), ("1", "1")
+        )
 
     def test_windows_spawns_a_child_and_exits(self):
-        with patch.object(sys, "platform", "win32"), patch.object(subprocess, "Popen") as popen, \
-                patch.object(os, "execve") as execv, patch.object(os, "_exit", side_effect=StopLoop) as exit_:
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch.object(subprocess, "Popen") as popen,
+            patch.object(os, "execve") as execv,
+            patch.object(os, "_exit", side_effect=StopLoop) as exit_,
+        ):
             with self.assertRaises(StopLoop):
                 pr.restart(["--host", "0.0.0.0"])
         execv.assert_not_called()

@@ -34,7 +34,7 @@ TIMEOUT = 30
 HINTS = {
     400: "la hoja no tiene la pestaña o el rango que se le pide",
     403: "esta cuenta de Google no tiene permiso: la hoja debe estar compartida con ella como editor, la sesión "
-         "de gws incluir Google Sheets y el proyecto tener activada su API",
+    "de gws incluir Google Sheets y el proyecto tener activada su API",
     404: "no existe esa hoja de cálculo, o esta cuenta de Google no puede verla",
 }
 
@@ -91,14 +91,17 @@ class Sheets:
             self._authorize()
         quoted = urllib.parse.quote(cells, safe="")  # pragma: no mutate - letters are never quoted: safe="XXXX" is ""
         url = f"{API}/{self.id}/values/{quoted}{verb}?{urllib.parse.urlencode(query)}"
-        headers = {"Authorization": f"Bearer {self.token}",  # pragma: no mutate - names ignore case
-                   "Content-Type": "application/json"}  # pragma: no mutate - as above
+        headers = {
+            "Authorization": f"Bearer {self.token}",  # pragma: no mutate - names ignore case
+            "Content-Type": "application/json",  # pragma: no mutate - as above
+        }
         data = json.dumps({"values": rows}).encode() if rows else None
         try:
             return send(self.opener, urllib.request.Request(url, data=data, headers=headers))
         except urllib.error.HTTPError as error:
             raise SheetsError(
-                f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})") from error
+                f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})"
+            ) from error
 
     def get(self, cells):
         return self._call(cells, valueRenderOption="UNFORMATTED_VALUE").get("values", [])

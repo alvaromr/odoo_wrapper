@@ -142,8 +142,18 @@ def leave_rows(client, employee_ids, since, until):
             ]
             + ([("request_date_from", "<", until)] if until else [])
         ],
-        {"fields": ["employee_id", "request_date_from", "request_date_to", "holiday_status_id", "number_of_days",
-                    "number_of_hours", "date_from", "date_to"]},
+        {
+            "fields": [
+                "employee_id",
+                "request_date_from",
+                "request_date_to",
+                "holiday_status_id",
+                "number_of_days",
+                "number_of_hours",
+                "date_from",
+                "date_to",
+            ]
+        },
     )
 
 
@@ -165,10 +175,15 @@ def absences_from(holidays, leaves):
             continue
         name = leave["holiday_status_id"][1] if leave["holiday_status_id"] else "Ausencia"
         if leave["number_of_days"] < 1:
-            partial.append({
-                "date": days[0].isoformat(), "type": name, "hours": leave["number_of_hours"],
-                "from": local(leave["date_from"]).isoformat(), "to": local(leave["date_to"]).isoformat(),
-            })
+            partial.append(
+                {
+                    "date": days[0].isoformat(),
+                    "type": name,
+                    "hours": leave["number_of_hours"],
+                    "from": local(leave["date_from"]).isoformat(),
+                    "to": local(leave["date_to"]).isoformat(),
+                }
+            )
             continue
         for d in days:
             absences[d.isoformat()] = name
@@ -222,11 +237,22 @@ def drop_data_cache(session_id=None):
 def fetch_contracts(client, ids, monday, end):
     try:
         rows = client.call_kw(
-            "hr.contract", "search_read",
-            [[("employee_id", "in", ids), ("state", "in", ["open", "close"]), ("date_start", "<", end.isoformat()),
-              "|", ("date_end", "=", False), ("date_end", ">=", monday.isoformat())]],
-            {"fields": ["employee_id", "date_start", "date_end", "resource_calendar_id"],
-             "context": {"active_test": False}},
+            "hr.contract",
+            "search_read",
+            [
+                [
+                    ("employee_id", "in", ids),
+                    ("state", "in", ["open", "close"]),
+                    ("date_start", "<", end.isoformat()),
+                    "|",
+                    ("date_end", "=", False),
+                    ("date_end", ">=", monday.isoformat()),
+                ]
+            ],
+            {
+                "fields": ["employee_id", "date_start", "date_end", "resource_calendar_id"],
+                "context": {"active_test": False},
+            },
         )
     except SessionExpired:
         raise
@@ -241,9 +267,11 @@ def fetch_contracts(client, ids, monday, end):
 def calendar_on(contracts, fallback):
     if not contracts:
         return lambda iso: fallback
+
     def pick(iso):
         c = next((c for c in contracts if c["date_start"] <= iso and (not c["date_end"] or iso <= c["date_end"])), None)
         return c and c["resource_calendar_id"] and c["resource_calendar_id"][0]
+
     return pick
 
 
@@ -259,6 +287,7 @@ def contract_hours(client, schedule, contracts, monday0, end):
 
     def hours_on(day, chosen):
         return chosen["hours"][day.weekday()] if chosen else 0
+
     overrides = {}
     for i in range((end - monday0).days):
         day = monday0 + timedelta(days=i)

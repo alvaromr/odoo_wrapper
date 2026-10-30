@@ -97,10 +97,14 @@ def refusal(error):
 
 
 def call(token, path, body=None):
-    headers = {"Authorization": f"Bot {token}", "User-Agent": USER_AGENT,  # pragma: no mutate - names ignore case
-               "Content-Type": "application/json"}  # pragma: no mutate - as above
-    request = urllib.request.Request(API + path, data=None if body is None else json.dumps(body).encode(),
-                                     headers=headers)
+    headers = {
+        "Authorization": f"Bot {token}",  # pragma: no mutate - names ignore case
+        "User-Agent": USER_AGENT,  # pragma: no mutate - as above
+        "Content-Type": "application/json",  # pragma: no mutate - as above
+    }
+    request = urllib.request.Request(
+        API + path, data=None if body is None else json.dumps(body).encode(), headers=headers
+    )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             return json.load(response)
@@ -135,15 +139,20 @@ def discord_id(client, employee_id):
 
 
 def sender_id(client):
-    mine = client.call_kw("hr.employee", "search_read", [[("user_id", "=", client.session_info()["uid"])]],
-                          {"fields": ["id"], "limit": 1})
+    mine = client.call_kw(
+        "hr.employee", "search_read", [[("user_id", "=", client.session_info()["uid"])]], {"fields": ["id"], "limit": 1}
+    )
     return discord_id(client, mine[0]["id"]) if mine else None
 
 
 def request_link(client):
     try:
-        found = client.call_kw("approval.category", "search_read", [[("name", "ilike", team.REQUEST_CATEGORY)]],
-                               {"fields": ["id"], "limit": 1})
+        found = client.call_kw(
+            "approval.category",
+            "search_read",
+            [[("name", "ilike", team.REQUEST_CATEGORY)]],
+            {"fields": ["id"], "limit": 1},
+        )
     except SessionExpired:
         raise
     except OdooError:
@@ -181,8 +190,14 @@ def proposal(day):
         correction = f"de {clock(start)} a {clock(end)}."
         return start, end, f"Fichaje incorrecto: {day_name(start)}, {what}. Corrección: {correction}"
     if "empty" in day["flags"]:
-        return None, None, (f"Fichaje incorrecto: {day_name(today)}, sin fichajes (jornada prevista de "
-                            f"{duration(target)}). Corrección: ")
+        return (
+            None,
+            None,
+            (
+                f"Fichaje incorrecto: {day_name(today)}, sin fichajes (jornada prevista de "
+                f"{duration(target)}). Corrección: "
+            ),
+        )
     return None
 
 
@@ -229,8 +244,11 @@ def send(user_id, text, link=None):
         raise DiscordError("No hay bot de Discord en este equipo: guárdalo con odoo discord")
     channel = call(token, "/users/@me/channels", {"recipient_id": user_id})
     button = {"type": BUTTON, "style": LINK_STYLE, "label": LINK_LABEL, "url": link}
-    call(token, f"/channels/{channel['id']}/messages",
-         {"content": text, **({"components": [{"type": ACTION_ROW, "components": [button]}]} if link else {})})
+    call(
+        token,
+        f"/channels/{channel['id']}/messages",
+        {"content": text, **({"components": [{"type": ACTION_ROW, "components": [button]}]} if link else {})},
+    )
 
 
 def send_test(client):

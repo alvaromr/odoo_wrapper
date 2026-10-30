@@ -10,7 +10,17 @@ import urllib.request
 from unittest.mock import patch
 
 from helpers import (
-    CONFIG, DEVICE_HEADER, EMPLOYEE, REST, ROTATED_HEADER, SESSION_HEADER, TOTP_PAGE, client, kw, temp_state, utc,
+    CONFIG,
+    DEVICE_HEADER,
+    EMPLOYEE,
+    REST,
+    ROTATED_HEADER,
+    SESSION_HEADER,
+    TOTP_PAGE,
+    client,
+    kw,
+    temp_state,
+    utc,
 )
 from odoo_wrapper import client as c
 
@@ -27,7 +37,9 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(c.read_config(), {})
         with self.assertRaises(c.OdooError) as caught:
             c.load_config()
-        self.assertEqual(str(caught.exception), "Falta configurar Odoo. Inicia sesión con `odoo login` o desde el dashboard")
+        self.assertEqual(
+            str(caught.exception), "Falta configurar Odoo. Inicia sesión con `odoo login` o desde el dashboard"
+        )
 
     def test_save_and_load(self):
         c.save_config("https://odoo.example/", "db", "u")
@@ -75,18 +87,29 @@ class RpcTest(unittest.TestCase):
         self.assertEqual(c.set_cookies(headers), {"td_id": "a=b"})
 
     def test_a_trusted_device_skips_the_code(self):
-        odoo = client({"result": {}, "cookies": [SESSION_HEADER]},
-                      {"status": 303, "cookies": [ROTATED_HEADER]}, {"result": {"uid": 9}}, session_id="")
+        odoo = client(
+            {"result": {}, "cookies": [SESSION_HEADER]},
+            {"status": 303, "cookies": [ROTATED_HEADER]},
+            {"result": {"uid": 9}},
+            session_id="",
+        )
         odoo.device = "dev1"
         self.assertEqual(odoo.login("u", "p"), "rotated")
         url, fields, cookie = odoo.opener.calls[1]
-        self.assertEqual((url, fields, cookie), ("https://odoo.example/web/login/totp", None, "session_id=abc123; td_id=dev1"))
+        self.assertEqual(
+            (url, fields, cookie), ("https://odoo.example/web/login/totp", None, "session_id=abc123; td_id=dev1")
+        )
         self.assertEqual(odoo.opener.calls[2][2], "session_id=rotated")
         self.assertEqual((odoo.uid, odoo.device), (9, "dev1"))
 
     def test_the_code_is_asked_for_and_the_device_remembered(self):
-        odoo = client({"result": {}, "cookies": [SESSION_HEADER]}, {"page": TOTP_PAGE},
-                      {"status": 303, "cookies": [ROTATED_HEADER, DEVICE_HEADER]}, {"result": {"uid": 9}}, session_id="")
+        odoo = client(
+            {"result": {}, "cookies": [SESSION_HEADER]},
+            {"page": TOTP_PAGE},
+            {"status": 303, "cookies": [ROTATED_HEADER, DEVICE_HEADER]},
+            {"result": {"uid": 9}},
+            session_id="",
+        )
         with self.assertRaises(c.TotpRequired) as caught:
             odoo.login("u", "p")
         self.assertEqual(str(caught.exception), "Odoo pide el código de verificación en dos pasos")
@@ -96,13 +119,20 @@ class RpcTest(unittest.TestCase):
         self.assertEqual((odoo.uid, odoo.session_id, odoo.device), (9, "rotated", "dev2"))
 
     def test_login_with_the_code_in_hand(self):
-        odoo = client({"result": {}, "cookies": [SESSION_HEADER]}, {"page": TOTP_PAGE},
-                      {"status": 303, "cookies": [ROTATED_HEADER, DEVICE_HEADER]}, {"result": {"uid": 9}}, session_id="")
+        odoo = client(
+            {"result": {}, "cookies": [SESSION_HEADER]},
+            {"page": TOTP_PAGE},
+            {"status": 303, "cookies": [ROTATED_HEADER, DEVICE_HEADER]},
+            {"result": {"uid": 9}},
+            session_id="",
+        )
         self.assertEqual(odoo.login("u", "p", "123456"), "rotated")
         self.assertEqual(odoo.opener.calls[2][1]["totp_token"], "123456")
 
     def test_a_wrong_code_is_access_denied(self):
-        odoo = client({"result": {}, "cookies": [SESSION_HEADER]}, {"page": TOTP_PAGE}, {"page": TOTP_PAGE}, session_id="")
+        odoo = client(
+            {"result": {}, "cookies": [SESSION_HEADER]}, {"page": TOTP_PAGE}, {"page": TOTP_PAGE}, session_id=""
+        )
         with self.assertRaises(c.AccessDenied) as caught:
             odoo.login("u", "p", "000000")
         self.assertEqual(str(caught.exception), "Código de verificación incorrecto")
@@ -112,14 +142,18 @@ class RpcTest(unittest.TestCase):
         for answer in ({"status": 303}, {"page": "<html>sin formulario</html>"}):
             with self.assertRaises(c.OdooError) as caught:
                 client({"result": {}, "cookies": [SESSION_HEADER]}, answer, session_id="").login("u", "p")
-            self.assertEqual(str(caught.exception), "Autenticación fallida: Odoo no devolvió el formulario de verificación")
+            self.assertEqual(
+                str(caught.exception), "Autenticación fallida: Odoo no devolvió el formulario de verificación"
+            )
 
     def test_redirects_are_kept_not_followed(self):
         handler = c.KeepRedirects()
         for method in ("http_error_301", "http_error_302", "http_error_303", "http_error_307", "http_error_308"):
             self.assertEqual(getattr(handler, method)(None, "response", 303, "", {}), "response")
         opener = c.OdooClient("https://odoo.example", "db").opener
-        self.assertEqual([type(h) for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)], [c.KeepRedirects])
+        self.assertEqual(
+            [type(h) for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)], [c.KeepRedirects]
+        )
 
     def test_wrong_credentials_are_access_denied(self):
         error = {"error": {"code": 200, "data": {"name": "odoo.exceptions.AccessDenied", "message": "Access Denied"}}}
@@ -173,8 +207,10 @@ class RpcTest(unittest.TestCase):
 
     def test_a_new_client_trims_the_url_and_knows_nothing_yet(self):
         odoo = c.OdooClient("https://odoX/", "db", "sid", device="dev")
-        self.assertEqual((odoo.url, odoo.device, odoo.uid, odoo.employee_id, odoo.employee_name, odoo.calendar_id),
-                         ("https://odoX", "dev", None, None, None, None))
+        self.assertEqual(
+            (odoo.url, odoo.device, odoo.uid, odoo.employee_id, odoo.employee_name, odoo.calendar_id),
+            ("https://odoX", "dev", None, None, None, None),
+        )
         self.assertEqual(c.OdooClient("https://odoX", "db").session_id, "")
 
     def test_call_kw_shape(self):
@@ -202,11 +238,15 @@ class RpcTest(unittest.TestCase):
     def test_edits_punches_asks_odoo_for_write_create_and_unlink_on_attendances(self):
         odoo = client(kw(True), kw(True), kw(True))
         self.assertTrue(odoo.edits_punches())
-        self.assertEqual([(p["model"], p["method"], p["args"]) for _, p, _ in odoo.opener.calls],
-                         [("hr.attendance", "check_access_rights", [op]) for op in ("write", "create", "unlink")])
+        self.assertEqual(
+            [(p["model"], p["method"], p["args"]) for _, p, _ in odoo.opener.calls],
+            [("hr.attendance", "check_access_rights", [op]) for op in ("write", "create", "unlink")],
+        )
         self.assertFalse(client(kw(True), kw(False)).edits_punches())
         self.assertFalse(client(kw(True), kw(True), kw(False)).edits_punches())
-        self.assertFalse(client({"error": {"code": 200, "message": "Odoo Server Error", "data": {"message": "no"}}}).edits_punches())
+        self.assertFalse(
+            client({"error": {"code": 200, "message": "Odoo Server Error", "data": {"message": "no"}}}).edits_punches()
+        )
         with self.assertRaises(c.SessionExpired):
             client({"error": {"code": 100}}).edits_punches()
 
@@ -216,9 +256,22 @@ class RpcTest(unittest.TestCase):
         self.assertTrue(odoo.opener.calls[0][0].endswith("/web/session/destroy"))
 
     def test_the_requests_sent_to_odoo_are_exactly_these(self):
-        odoo = client({"result": {"uid": 3}}, kw([1]), kw(True), kw(True), kw(True), kw([EMPLOYEE]),
-                      kw([{"id": 1, "check_in": utc(5)}]), kw([{"attendance_reason_ids": [3]}]), kw([EMPLOYEE]),
-                      {"result": {}}, {"result": {}}, kw([REST]), kw({}), {"result": None})
+        odoo = client(
+            {"result": {"uid": 3}},
+            kw([1]),
+            kw(True),
+            kw(True),
+            kw(True),
+            kw([EMPLOYEE]),
+            kw([{"id": 1, "check_in": utc(5)}]),
+            kw([{"attendance_reason_ids": [3]}]),
+            kw([EMPLOYEE]),
+            {"result": {}},
+            {"result": {}},
+            kw([REST]),
+            kw({}),
+            {"result": None},
+        )
         odoo.session_info()
         odoo.sees_others()
         odoo.edits_punches()
@@ -232,24 +285,42 @@ class RpcTest(unittest.TestCase):
 
         def call(model, method, args, kwargs):
             return "/web/dataset/call_kw", {"model": model, "method": method, "args": args, "kwargs": kwargs}
-        self.assertEqual([(url.removeprefix("https://odoo.example"), params) for url, params, _ in odoo.opener.calls], [
-            ("/web/session/get_session_info", {}),
-            call("hr.attendance", "search", [[["employee_id.user_id", "!=", 3]]], {"limit": 1}),
-            *[call("hr.attendance", "check_access_rights", [op], {"raise_exception": False})
-              for op in ("write", "create", "unlink")],
-            call("hr.employee", "search_read", [[["user_id", "=", 3]]],
-                 {"fields": ["id", "name", "resource_calendar_id"], "limit": 1}),
-            call("hr.attendance", "search_read", [[["employee_id", "=", 7], ["check_out", "=", False]]],
-                 {"fields": ["id", "check_in"], "limit": 1}),
-            call("hr.attendance", "search_read", [[["id", "=", 1]]], {"fields": ["attendance_reason_ids"]}),
-            call("hr.employee", "read", [[7], ["name", "resource_calendar_id"]], {}),
-            ("/hr_attendance/systray_check_in_out", {"attendance_reason_id": 5}),
-            ("/hr_attendance/systray_check_in_out", {}),
-            call("hr.attendance.reason", "search_read", [[]],
-                 {"fields": ["name", "is_rest", "action_type", "show_on_attendance_screen"]}),
-            call("hr.employee", "fields_get", [], {"attributes": ["string"]}),
-            ("/web/session/destroy", {}),
-        ])
+
+        self.assertEqual(
+            [(url.removeprefix("https://odoo.example"), params) for url, params, _ in odoo.opener.calls],
+            [
+                ("/web/session/get_session_info", {}),
+                call("hr.attendance", "search", [[["employee_id.user_id", "!=", 3]]], {"limit": 1}),
+                *[
+                    call("hr.attendance", "check_access_rights", [op], {"raise_exception": False})
+                    for op in ("write", "create", "unlink")
+                ],
+                call(
+                    "hr.employee",
+                    "search_read",
+                    [[["user_id", "=", 3]]],
+                    {"fields": ["id", "name", "resource_calendar_id"], "limit": 1},
+                ),
+                call(
+                    "hr.attendance",
+                    "search_read",
+                    [[["employee_id", "=", 7], ["check_out", "=", False]]],
+                    {"fields": ["id", "check_in"], "limit": 1},
+                ),
+                call("hr.attendance", "search_read", [[["id", "=", 1]]], {"fields": ["attendance_reason_ids"]}),
+                call("hr.employee", "read", [[7], ["name", "resource_calendar_id"]], {}),
+                ("/hr_attendance/systray_check_in_out", {"attendance_reason_id": 5}),
+                ("/hr_attendance/systray_check_in_out", {}),
+                call(
+                    "hr.attendance.reason",
+                    "search_read",
+                    [[]],
+                    {"fields": ["name", "is_rest", "action_type", "show_on_attendance_screen"]},
+                ),
+                call("hr.employee", "fields_get", [], {"attributes": ["string"]}),
+                ("/web/session/destroy", {}),
+            ],
+        )
 
 
 class EmployeeTest(unittest.TestCase):
@@ -271,8 +342,10 @@ class EmployeeTest(unittest.TestCase):
         odoo.load_other(9)
         self.assertEqual((odoo.employee_id, odoo.employee_name, odoo.calendar_id), (9, "Bea", None))
         _, params, _ = odoo.opener.calls[0]
-        self.assertEqual((params["model"], params["method"], params["args"]),
-                         ("hr.employee", "read", [[9], ["name", "resource_calendar_id"]]))
+        self.assertEqual(
+            (params["model"], params["method"], params["args"]),
+            ("hr.employee", "read", [[9], ["name", "resource_calendar_id"]]),
+        )
 
     def test_no_employee(self):
         with self.assertRaises(c.OdooError) as caught:
@@ -308,10 +381,12 @@ class EmployeeTest(unittest.TestCase):
         self.assertEqual([p for _, p, _ in odoo.opener.calls], [{"attendance_reason_id": 5}, {}])
 
     def test_sign_in_reasons(self):
-        rows = [{"id": 3, "name": "Descanso", "is_rest": True, "action_type": "sign_in", "show_on_attendance_screen": True},
-                {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True},
-                {"id": 8, "name": "Oculto", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": False},
-                {"id": 9, "name": "Salida", "is_rest": True, "action_type": "sign_out", "show_on_attendance_screen": True}]
+        rows = [
+            {"id": 3, "name": "Descanso", "is_rest": True, "action_type": "sign_in", "show_on_attendance_screen": True},
+            {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True},
+            {"id": 8, "name": "Oculto", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": False},
+            {"id": 9, "name": "Salida", "is_rest": True, "action_type": "sign_out", "show_on_attendance_screen": True},
+        ]
         odoo = client(kw(rows))
         normal, rest = odoo.sign_in_reasons()
         self.assertEqual((normal["id"], rest["id"]), (5, 3))

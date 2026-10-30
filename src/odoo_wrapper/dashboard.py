@@ -87,9 +87,9 @@ Ficheros, en {STATE_DIR}:
 
 AUTOSTART_DONE = {
     "on": "El dashboard arrancará solo cada vez que inicies sesión, y ya se ha lanzado: "
-          f"http://localhost:{server.PORT}/\nSi ya había otro en marcha lanzado a mano, sigue ese.",
+    f"http://localhost:{server.PORT}/\nSi ya había otro en marcha lanzado a mano, sigue ese.",
     "off": "El dashboard ya no arrancará al iniciar sesión; el que esté en marcha sigue hasta que lo pares o "
-           "cierres sesión.",
+    "cierres sesión.",
 }
 log = logging.getLogger(__name__)
 
@@ -117,8 +117,10 @@ def follow_update():
     try:
         autostart.follow()
     except (OSError, subprocess.CalledProcessError) as error:
-        log.warning(f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
-                    "Ejecuta odoo-dashboard --autostart on")
+        log.warning(
+            f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
+            "Ejecuta odoo-dashboard --autostart on"
+        )
 
 
 def main():
@@ -140,8 +142,10 @@ def main():
     exposed = lan.expose(host)
     grace = process.RESTART_GRACE if os.environ.pop(process.RESTART_ENV, None) else 0
     if process.port_taken(server.PORT, grace):
-        log.error(f"Ya hay un dashboard escuchando en http://localhost:{server.PORT}/. Recarga esa página; "
-                  "para aplicar cambios de código basta con guardarlos (se reinicia solo).")
+        log.error(
+            f"Ya hay un dashboard escuchando en http://localhost:{server.PORT}/. Recarga esa página; "
+            "para aplicar cambios de código basta con guardarlos (se reinicia solo)."
+        )
         sys.exit(1)
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
     if exposed and process.port_taken(lan.TLS_PORT, grace, probe_host):
@@ -159,7 +163,9 @@ def main():
         tls = ThreadingHTTPServer((host, lan.TLS_PORT), server.Handler)
         tls.socket = context.wrap_socket(tls.socket, server_side=True)
         threading.Thread(target=tls.serve_forever, daemon=True).start()
-        log.info(f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/")
+        log.info(
+            f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/"
+        )
         log.info(f"Para entrar desde él, pulsa «Emparejar móvil» en {url}")
     elif exposed:
         log.warning("Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador")

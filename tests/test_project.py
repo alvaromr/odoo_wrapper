@@ -28,8 +28,12 @@ MAX_LINES = 1000
 
 
 def sources():
-    return [os.path.join(folder, name) for folder in (PACKAGE, SCRIPTS) for name in sorted(os.listdir(folder))
-            if name.endswith((".py", ".js", ".css", ".html"))]
+    return [
+        os.path.join(folder, name)
+        for folder in (PACKAGE, SCRIPTS)
+        for name in sorted(os.listdir(folder))
+        if name.endswith((".py", ".js", ".css", ".html"))
+    ]
 
 
 def files():
@@ -42,8 +46,9 @@ class ProjectTest(unittest.TestCase):
     def test_the_client_imports_nothing_from_the_package(self):
         with open(os.path.join(PACKAGE, "client.py"), encoding="utf-8") as f:
             tree = ast.parse(f.read())
-        imported = [("." * node.level) + (node.module or "") for node in ast.walk(tree)
-                    if isinstance(node, ast.ImportFrom)]
+        imported = [
+            ("." * node.level) + (node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+        ]
         imported += [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
         self.assertTrue(imported)
         self.assertEqual([name for name in imported if name.startswith((".", "odoo_wrapper"))], [])
@@ -56,8 +61,9 @@ class ProjectTest(unittest.TestCase):
                     text = f.read()
             except (UnicodeDecodeError, OSError):
                 continue
-            found += [f"{os.path.relpath(path, ROOT)}: {kind}" for kind, pattern in SECRETS.items()
-                      if pattern.search(text)]
+            found += [
+                f"{os.path.relpath(path, ROOT)}: {kind}" for kind, pattern in SECRETS.items() if pattern.search(text)
+            ]
         self.assertEqual(found, [])
 
     def test_the_secret_patterns_match_what_they_name(self):

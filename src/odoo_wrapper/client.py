@@ -143,9 +143,7 @@ class OdooClient:
             raise OdooDown(f"Odoo no responde ({error.reason})") from error
 
     def post(self, endpoint, params):
-        data = json.dumps(
-            {"jsonrpc": "2.0", "method": "call", "params": params, "id": 1}
-        ).encode()
+        data = json.dumps({"jsonrpc": "2.0", "method": "call", "params": params, "id": 1}).encode()
         headers = {"Content-Type": "application/json"}  # pragma: no mutate - header names are case-insensitive
         if self.session_id:
             headers["Cookie"] = f"{SESSION_COOKIE}={self.session_id}"  # pragma: no mutate - as above
@@ -223,8 +221,10 @@ class OdooClient:
 
     def edits_punches(self):
         try:
-            return all(self.call_kw("hr.attendance", "check_access_rights", [op], {"raise_exception": False})
-                       for op in ("write", "create", "unlink"))
+            return all(
+                self.call_kw("hr.attendance", "check_access_rights", [op], {"raise_exception": False})
+                for op in ("write", "create", "unlink")
+            )
         except SessionExpired:
             raise
         except OdooError:
@@ -308,8 +308,9 @@ class OdooClient:
         return next((name for name, f in fields.items() if f["string"].strip().lower() == label), None)
 
     def offered_reasons(self):
-        rows = [r for r in self.attendance_reasons()
-                if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]]
+        rows = [
+            r for r in self.attendance_reasons() if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]
+        ]
         return sorted(rows, key=lambda r: r["is_rest"])
 
     def sign_in_reasons(self):

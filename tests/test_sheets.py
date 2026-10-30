@@ -41,8 +41,10 @@ class Opener:
 
 class CredentialsTest(unittest.TestCase):
     def export(self, stdout=EXPORTED_OUTPUT, which="/bin/gws", **run):
-        with patch.object(sh.shutil, "which", return_value=which) as which, \
-                patch.object(sh.subprocess, "run", return_value=SimpleNamespace(stdout=stdout), **run) as ran:
+        with (
+            patch.object(sh.shutil, "which", return_value=which) as which,
+            patch.object(sh.subprocess, "run", return_value=SimpleNamespace(stdout=stdout), **run) as ran,
+        ):
             self.which, self.ran = which, ran
             return sh.credentials()
 
@@ -89,8 +91,10 @@ class SheetsTest(unittest.TestCase):
         self.assertEqual(sheets.get("Avisos Totales!D4:D"), [])
         trade, read, again = sheets.opener.requests
         self.assertEqual((trade.full_url, trade.get_method()), (sh.TOKEN_URL, "POST"))
-        self.assertEqual(dict(urllib.parse.parse_qsl(trade.data.decode())), {
-            "client_id": "cid", "client_secret": "s3cret", "refresh_token": "r3fresh", "grant_type": "refresh_token"})
+        self.assertEqual(
+            dict(urllib.parse.parse_qsl(trade.data.decode())),
+            {"client_id": "cid", "client_secret": "s3cret", "refresh_token": "r3fresh", "grant_type": "refresh_token"},
+        )
         self.assertEqual(read.full_url, VALUES + "Avisos%202026%21B4%3AE?valueRenderOption=UNFORMATTED_VALUE")
         self.assertEqual((read.get_method(), read.get_header("Authorization")), ("GET", "Bearer tok"))
         self.assertEqual(again.get_header("Authorization"), "Bearer tok")
@@ -101,7 +105,9 @@ class SheetsTest(unittest.TestCase):
         self.assertEqual((fresh.token, type(fresh.opener)), (None, urllib.request.OpenerDirector))
         sheets = self.sheets(TOKEN, {"range": "x"})
         sheets.get("Hoja/2!A1")
-        self.assertEqual(sheets.opener.requests[1].full_url, VALUES + "Hoja%2F2%21A1?valueRenderOption=UNFORMATTED_VALUE")
+        self.assertEqual(
+            sheets.opener.requests[1].full_url, VALUES + "Hoja%2F2%21A1?valueRenderOption=UNFORMATTED_VALUE"
+        )
 
     def test_rows_are_appended_as_typed_over_the_empty_rows_and_none_asks_nothing(self):
         sheets = self.sheets(TOKEN, {"updates": {"updatedRows": 1}})
@@ -109,23 +115,31 @@ class SheetsTest(unittest.TestCase):
         self.assertEqual(sheets.opener.requests, [])
         sheets.append("Avisos Totales!B4:D", [["Íñigo Peña", 2, "Septiembre"]])
         post = sheets.opener.requests[1]
-        self.assertEqual(post.full_url, VALUES + "Avisos%20Totales%21B4%3AD:append"
-                                                 "?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE")
+        self.assertEqual(
+            post.full_url,
+            VALUES + "Avisos%20Totales%21B4%3AD:append?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE",
+        )
         self.assertEqual((post.get_method(), post.get_header("Content-type")), ("POST", "application/json"))
         self.assertEqual(json.loads(post.data), {"values": [["Íñigo Peña", 2, "Septiembre"]]})
 
     def test_a_token_google_will_not_give_asks_to_sign_in_again(self):
-        for reply in (refused(400, '{"error": "invalid_grant", "error_description": "Token has been revoked."}'),
-                      {"token_type": "Bearer"}, ["tok"]):
-            self.assertEqual(self.failure(reply), "Google ya no acepta la sesión de gws. Ejecuta: gws auth login -s sheets")
+        for reply in (
+            refused(400, '{"error": "invalid_grant", "error_description": "Token has been revoked."}'),
+            {"token_type": "Bearer"},
+            ["tok"],
+        ):
+            self.assertEqual(
+                self.failure(reply), "Google ya no acepta la sesión de gws. Ejecuta: gws auth login -s sheets"
+            )
 
     def test_what_google_refuses_comes_with_what_it_means_here_and_its_own_words(self):
         said = '{"error": {"code": %d, "message": "Google dice", "status": "X"}}'
         for code, hint in sh.HINTS.items():
             self.assertEqual(self.failure(TOKEN, refused(code, said % code)), f"Google Sheets: {hint} (Google dice)")
         self.assertEqual(self.failure(TOKEN, refused(500, "<html>")), "Google Sheets: no admite la petición (HTTP 500)")
-        self.assertEqual(self.failure(TOKEN, refused(429, '{"error": "lento"}')),
-                         "Google Sheets: no admite la petición (HTTP 429)")
+        self.assertEqual(
+            self.failure(TOKEN, refused(429, '{"error": "lento"}')), "Google Sheets: no admite la petición (HTTP 429)"
+        )
 
     def test_google_out_of_reach_or_answering_something_else_is_said_plainly(self):
         self.assertEqual(self.failure(urllib.error.URLError("sin red")), "Google no responde (sin red)")

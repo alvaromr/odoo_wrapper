@@ -53,9 +53,7 @@ INSTALLED_BOOTSTRAP = "from odoo_wrapper.dashboard import main; main()"
 BOOTSTRAP = f"import sys; sys.path.insert(0, {os.path.dirname(HERE)!r}); {INSTALLED_BOOTSTRAP}"
 TEMPLATES = os.path.join(HERE, "templates")
 WATCHED = [os.path.join(HERE, name) for name in sorted(os.listdir(HERE)) if name.endswith(".py")]
-SOURCES = WATCHED + sorted(
-    os.path.join(folder, name) for folder, _, names in os.walk(TEMPLATES) for name in names
-)
+SOURCES = WATCHED + sorted(os.path.join(folder, name) for folder, _, names in os.walk(TEMPLATES) for name in names)
 LOG_FILE = os.path.join(STATE_DIR, "dashboard.log")
 LOG_MAX = 1_000_000
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"

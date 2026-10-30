@@ -126,14 +126,19 @@ def fetch_team(client, monday, fresh=False, weeks=1, start=None, stop=None):
 
 
 def fetch_year(client, year, fresh=False):
-    return data.cached((client.session_id, "year", year), fresh,
-                       lambda: year_payload(build_team(client, *year_span(year)), year), data.VIEW_TTL)
+    return data.cached(
+        (client.session_id, "year", year),
+        fresh,
+        lambda: year_payload(build_team(client, *year_span(year)), year),
+        data.VIEW_TTL,
+    )
 
 
 def month_row(month, employee, today):
     days = [d for d in employee["days"] if d["date"][:7] == month]
-    weeks = [w for w in employee["weeks"]
-             if (date.fromisoformat(w["monday"]) + timedelta(days=3)).isoformat()[:7] == month]
+    weeks = [
+        w for w in employee["weeks"] if (date.fromisoformat(w["monday"]) + timedelta(days=3)).isoformat()[:7] == month
+    ]
     schedule = employee["target"] is not None
     return {
         "month": month,
@@ -150,33 +155,53 @@ def month_row(month, employee, today):
 
 def fetch_fixes(client, fresh=False):
     def build():
-        first = client.call_kw("hr.attendance", "search_read", [[("employee_id.active", "=", True)]],
-                               {"fields": ["check_in"], "order": "check_in asc", "limit": 1})
+        first = client.call_kw(
+            "hr.attendance",
+            "search_read",
+            [[("employee_id.active", "=", True)]],
+            {"fields": ["check_in"], "order": "check_in asc", "limit": 1},
+        )
         today = datetime.now().astimezone().date()
         monday = monday_of(data.local(first[0]["check_in"]).date() if first else today)
         return fixes_payload(build_team(client, monday, (monday_of(today) - monday).days // 7 + 1))
+
     return data.cached((client.session_id, "fixes"), fresh, build, data.VIEW_TTL)
 
 
 def fixes_payload(payload):
     def items(e):
-        return [{"date": d["date"], "kind": kind, "hours": d["hours"], "target": d["target"],
-                 "sessions": [{k: s[k] for k in ("id", "in", "out", "hours")} for s in d["sessions"]]}
-                for d in e["days"] for kind in d["flags"]]
-    rows = [dict({k: e[k] for k in ("id", "name")}, items=items(e))
-            for e in payload["employees"]]
-    return {"generated_at": payload["generated_at"], "limits": payload["limits"],
-            "employees": [r for r in rows if r["items"]]}
+        return [
+            {
+                "date": d["date"],
+                "kind": kind,
+                "hours": d["hours"],
+                "target": d["target"],
+                "sessions": [{k: s[k] for k in ("id", "in", "out", "hours")} for s in d["sessions"]],
+            }
+            for d in e["days"]
+            for kind in d["flags"]
+        ]
+
+    rows = [dict({k: e[k] for k in ("id", "name")}, items=items(e)) for e in payload["employees"]]
+    return {
+        "generated_at": payload["generated_at"],
+        "limits": payload["limits"],
+        "employees": [r for r in rows if r["items"]],
+    }
 
 
 def year_payload(payload, year):
     today = payload["generated_at"][:10]
     months = [f"{year}-{m:02d}" for m in range(1, 13)]
-    return dict(payload, year=year, employees=[
-        {k: v for k, v in e.items() if k not in ("days", "weeks")}
-        | {"months": [month_row(m, e, today) for m in months]}
-        for e in payload["employees"]
-    ])
+    return dict(
+        payload,
+        year=year,
+        employees=[
+            {k: v for k, v in e.items() if k not in ("days", "weeks")}
+            | {"months": [month_row(m, e, today) for m in months]}
+            for e in payload["employees"]
+        ],
+    )
 
 
 def plain_text(markup):
@@ -187,25 +212,37 @@ def fetch_requests(client, user_ids, monday=None, end=None, states=REQUEST_STATE
     span = [("date_start", ">=", odoo_time(monday)), ("date_start", "<", odoo_time(end))] if monday else []
     try:
         rows = client.call_kw(
-            "approval.request", "search_read",
-            [[("category_id.name", "ilike", REQUEST_CATEGORY), ("request_owner_id", "in", user_ids),
-              ("request_status", "in", list(states))] + span],
-            {"fields": ["request_owner_id", "date_start", "date_end", "reason", "request_status", "user_status"],
-             "order": "date_start asc"},
+            "approval.request",
+            "search_read",
+            [
+                [
+                    ("category_id.name", "ilike", REQUEST_CATEGORY),
+                    ("request_owner_id", "in", user_ids),
+                    ("request_status", "in", list(states)),
+                ]
+                + span
+            ],
+            {
+                "fields": ["request_owner_id", "date_start", "date_end", "reason", "request_status", "user_status"],
+                "order": "date_start asc",
+            },
         )
     except SessionExpired:
         raise
     except OdooError:
         return []
-    return [{
-        "id": r.get("id"),
-        "user": r["request_owner_id"][0],
-        "can_approve": r.get("user_status") == "pending",
-        "from": data.local(r["date_start"]).isoformat(),
-        "to": data.local(r["date_end"]).isoformat() if r["date_end"] else None,
-        "status": r["request_status"],
-        "reason": plain_text(r["reason"]),
-    } for r in rows]
+    return [
+        {
+            "id": r.get("id"),
+            "user": r["request_owner_id"][0],
+            "can_approve": r.get("user_status") == "pending",
+            "from": data.local(r["date_start"]).isoformat(),
+            "to": data.local(r["date_end"]).isoformat() if r["date_end"] else None,
+            "status": r["request_status"],
+            "reason": plain_text(r["reason"]),
+        }
+        for r in rows
+    ]
 
 
 def requests_to_approve(client, employee_id):
@@ -218,14 +255,24 @@ def day_row(day, target, absence, sessions, requests, today):
     requests = [r for r in requests if r["from"][:10] == day.isoformat()]
     past = day < today
     hours = sum(s["hours"] or 0 for s in mine)
-    flags = [flag for flag, hit in (
-        ("open", past and any(not s["out"] for s in mine)),
-        ("empty", past and target > 0 and not mine),
-        ("long", hours > LONG_DAY),
-    ) if hit]
-    return {"date": day.isoformat(), "hours": hundredths(hours), "target": hundredths(target), "absence": absence,
-            "sessions": mine, "flags": flags,
-            "requests": [{k: v for k, v in r.items() if k != "user"} for r in requests]}
+    flags = [
+        flag
+        for flag, hit in (
+            ("open", past and any(not s["out"] for s in mine)),
+            ("empty", past and target > 0 and not mine),
+            ("long", hours > LONG_DAY),
+        )
+        if hit
+    ]
+    return {
+        "date": day.isoformat(),
+        "hours": hundredths(hours),
+        "target": hundredths(target),
+        "absence": absence,
+        "sessions": mine,
+        "flags": flags,
+        "requests": [{k: v for k, v in r.items() if k != "user"} for r in requests],
+    }
 
 
 def week_row(monday, days, schedule, today):
@@ -239,15 +286,26 @@ def week_row(monday, days, schedule, today):
         target = hundredths(sum(d["target"] for d in days))
         judged = monday + timedelta(days=7) <= today and not any(d["flags"] for d in days)
         short = hours <= target - UNDER_MARGIN  # pragma: no mutate - hours and target are hundredths, never 1/60 apart
-        flags = [flag for flag, hit in (
-            ("under", judged and short),
-            ("over", judged and hours > target + OVER_MARGIN),
-        ) if hit]
+        flags = [
+            flag
+            for flag, hit in (
+                ("under", judged and short),
+                ("over", judged and hours > target + OVER_MARGIN),
+            )
+            if hit
+        ]
         past = [d for d in days if d["date"] < today.isoformat()]
         balance = hundredths(sum(d["hours"] - d["target"] for d in past))
         due = hundredths(sum(d["target"] for d in past))
-    return {"monday": monday.isoformat(), "hours": hours, "target": target, "balance": balance, "due": due,
-            "flags": flags, "suspect": suspect}
+    return {
+        "monday": monday.isoformat(),
+        "hours": hours,
+        "target": target,
+        "balance": balance,
+        "due": due,
+        "flags": flags,
+        "suspect": suspect,
+    }
 
 
 def employee_row(employee, schedule_on, absences, sessions, requests, monday, today, weeks=1, start=None, stop=None):
@@ -271,20 +329,26 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
         expected = day_schedule["hours"][day.weekday()] if day_schedule else 0
         target = 0 if iso in full or iso < employee["since"] else max(0, expected - partial.get(iso, 0))
         days.append(day_row(day, target, full.get(iso), sessions_on.get(iso, []), requests_on.get(iso, []), today))
-    week_rows = [week_row(monday + timedelta(weeks=w), days[7 * w:7 * w + 7], schedule, today) for w in range(weeks)]
+    week_rows = [week_row(monday + timedelta(weeks=w), days[7 * w : 7 * w + 7], schedule, today) for w in range(weeks)]
     start, stop = (start or monday).isoformat(), (stop or monday + timedelta(weeks=weeks)).isoformat()
     inside = [d for d in days if start <= d["date"] < stop]
-    return {"id": employee["id"], "name": employee["name"], "discord": employee.get("discord"),
-            "hours": hundredths(sum(d["hours"] for d in inside)),
-            "target": hundredths(sum(d["target"] for d in inside)) if schedule else None,
-            "balance": hundredths(sum(d["hours"] - d["target"] for d in inside if d["date"] < today.isoformat()))
-            if schedule else None,
-            "due": hundredths(sum(d["target"] for d in inside if d["date"] < today.isoformat())) if schedule else None,
-            "flags": [flag for flag in ("under", "over") if any(flag in w["flags"] for w in week_rows)],
-            "suspect": any("long" in d["flags"] for d in inside),
-            "flagged_days": sum(bool(d["flags"]) for d in inside),
-            "pending": sum(r["status"] == "pending" for d in inside for r in d["requests"]),
-            "weeks": week_rows, "days": days}
+    return {
+        "id": employee["id"],
+        "name": employee["name"],
+        "discord": employee.get("discord"),
+        "hours": hundredths(sum(d["hours"] for d in inside)),
+        "target": hundredths(sum(d["target"] for d in inside)) if schedule else None,
+        "balance": hundredths(sum(d["hours"] - d["target"] for d in inside if d["date"] < today.isoformat()))
+        if schedule
+        else None,
+        "due": hundredths(sum(d["target"] for d in inside if d["date"] < today.isoformat())) if schedule else None,
+        "flags": [flag for flag in ("under", "over") if any(flag in w["flags"] for w in week_rows)],
+        "suspect": any("long" in d["flags"] for d in inside),
+        "flagged_days": sum(bool(d["flags"]) for d in inside),
+        "pending": sum(r["status"] == "pending" for d in inside for r in d["requests"]),
+        "weeks": week_rows,
+        "days": days,
+    }
 
 
 def read_employees(client, ids, fields):
@@ -306,22 +370,35 @@ def discord_of(client, employee_id):
 
 def first_punches(client, ids):
     rows = client.call_kw(
-        "hr.attendance", "read_group",
-        [[("employee_id", "in", ids), ("worked_hours", ">=", data.MIN_SESSION)],
-         ["employee_id", "check_in:min"], ["employee_id"]],
+        "hr.attendance",
+        "read_group",
+        [
+            [("employee_id", "in", ids), ("worked_hours", ">=", data.MIN_SESSION)],
+            ["employee_id", "check_in:min"],
+            ["employee_id"],
+        ],
         {"lazy": True},
     )
-    return {r["employee_id"][0]: monday_of(data.local(r["check_in"]).date()).isoformat()
-            for r in rows if r["employee_id"]}
+    return {
+        r["employee_id"][0]: monday_of(data.local(r["check_in"]).date()).isoformat() for r in rows if r["employee_id"]
+    }
 
 
 def build_team(client, monday, weeks=1, start=None, stop=None):
     now = datetime.now().astimezone()
     today, end = now.date(), monday + timedelta(weeks=weeks)
     roster = client.call_kw(
-        "hr.attendance", "read_group",
-        [[("check_in", ">=", odoo_time(monday - timedelta(weeks=LOOKBACK_WEEKS))), ("check_in", "<", odoo_time(end)),
-          ("employee_id.active", "=", True)], ["employee_id"], ["employee_id"]],
+        "hr.attendance",
+        "read_group",
+        [
+            [
+                ("check_in", ">=", odoo_time(monday - timedelta(weeks=LOOKBACK_WEEKS))),
+                ("check_in", "<", odoo_time(end)),
+                ("employee_id.active", "=", True),
+            ],
+            ["employee_id"],
+            ["employee_id"],
+        ],
         {"lazy": True},
     )
     seen = [row["employee_id"][0] for row in roster if row["employee_id"]]
@@ -332,20 +409,27 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
         e["since"] = since.get(e["id"], monday_of(today).isoformat())
     calendar_of = {e["id"]: e["resource_calendar_id"] and e["resource_calendar_id"][0] for e in employees}
     contracts = data.fetch_contracts(client, ids, monday, end)
-    calendar_ids = sorted({cid for cid in calendar_of.values() if cid}
-                          | data.contract_calendars(c for cs in contracts.values() for c in cs))
+    calendar_ids = sorted(
+        {cid for cid in calendar_of.values() if cid}
+        | data.contract_calendars(c for cs in contracts.values() for c in cs)
+    )
     blocks = client.call_kw(
-        "resource.calendar.attendance", "search_read", [[("calendar_id", "in", calendar_ids)]],
+        "resource.calendar.attendance",
+        "search_read",
+        [[("calendar_id", "in", calendar_ids)]],
         {"fields": ["calendar_id", "dayofweek", "hour_from", "hour_to", "day_period"]},
     )
     schedules = {cid: data.schedule_from([b for b in blocks if b["calendar_id"][0] == cid]) for cid in calendar_ids}
     reason_by_id = {r["id"]: r for r in client.attendance_reasons()}
     records = client.call_kw(
-        "hr.attendance", "search_read",
+        "hr.attendance",
+        "search_read",
         [[("employee_id", "in", ids), ("check_in", ">=", odoo_time(monday)), ("check_in", "<", odoo_time(end))]],
-        {"fields": ["employee_id", "check_in", "check_out", "worked_hours"]
-                   + (["attendance_reason_ids"] if reason_by_id else []),
-         "order": "check_in asc"},
+        {
+            "fields": ["employee_id", "check_in", "check_out", "worked_hours"]
+            + (["attendance_reason_ids"] if reason_by_id else []),
+            "order": "check_in asc",
+        },
     )
     holidays = data.holiday_rows(client, monday.isoformat(), end.isoformat(), calendar_ids)
     leaves = data.leave_rows(client, ids, monday.isoformat(), end.isoformat())
@@ -361,11 +445,15 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
             [h for h in holidays if not h["calendar_id"] or h["calendar_id"][0] in own],
             [leave for leave in leaves if leave["employee_id"][0] == employee["id"]],
         )
-        sessions = [data.session_of(r, reason_by_id) for r in records
-                    if r["employee_id"][0] == employee["id"] and data.real_punch(r)]
+        sessions = [
+            data.session_of(r, reason_by_id)
+            for r in records
+            if r["employee_id"][0] == employee["id"] and data.real_punch(r)
+        ]
         mine = [r for r in requests if user_of[employee["id"]] and r["user"] == user_of[employee["id"]]]
-        return employee_row(employee, lambda iso: schedules.get(pick(iso)), absences, sessions, mine, monday, today,
-                            weeks, start, stop)
+        return employee_row(
+            employee, lambda iso: schedules.get(pick(iso)), absences, sessions, mine, monday, today, weeks, start, stop
+        )
 
     return {
         "week": monday.isoformat(),

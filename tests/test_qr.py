@@ -73,7 +73,18 @@ DECODED_BY_VISION = {
 
 class VersionTest(unittest.TestCase):
     def test_the_payload_length_picks_the_version(self):
-        for length, version in ((0, 1), (17, 1), (18, 2), (32, 2), (33, 3), (53, 3), (54, 4), (78, 4), (79, 5), (106, 5)):
+        for length, version in (
+            (0, 1),
+            (17, 1),
+            (18, 2),
+            (32, 2),
+            (33, 3),
+            (53, 3),
+            (54, 4),
+            (78, 4),
+            (79, 5),
+            (106, 5),
+        ):
             self.assertEqual(qr.codewords(b"x" * length)[0], version, length)
             self.assertEqual(len(qr.matrix("x" * length)), version * 4 + 17, length)
 

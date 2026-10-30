@@ -160,8 +160,8 @@ secret anywhere under the repo, a size cap for source files and every module nam
 
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
-`node --test tests/app.test.mjs` (the page's logic). Ruff leaves line length free in `tests/`, whose fixtures
-read best on one line; the code keeps to 120 columns. mypy checks the bodies of functions without annotations,
+`node --test tests/app.test.mjs` (the page's logic). `ruff format` lays out every Python file, tests included,
+in 120 columns (`pyproject.toml`); run it rather than wrapping by hand. mypy checks the bodies of functions without annotations,
 which is all the package has; annotate only what it cannot infer.
 
 Mutation testing runs now and then rather than on every commit: it takes minutes, and its working copy,
