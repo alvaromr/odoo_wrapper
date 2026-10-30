@@ -14,6 +14,10 @@
   environment variable, which a login entry cannot always carry.
 - The same watcher polls the network identity the caller hands it (name and LAN IP) every NET_INTERVAL
   seconds and restarts on a change, so the phone certificate follows DHCP changes and renames.
+- A watcher that fails logs why, with its traceback, and restarts the dashboard FAILED_PAUSE seconds later.
+  A restart into a half-saved lan.py once killed it on its first step: the dashboard kept serving that code,
+  every page an error, and with no watcher no later save could replace it. The pause keeps a failure that
+  persists from restarting in a tight loop.
 - It refuses to start when something already listens on the port. Never patch the ports to dodge that: a
   stale instance once survived 13 days on another port serving outdated code. Find the process holding the
   port instead (lsof -nP -iTCP:8931 -sTCP:LISTEN; ss -ltnp on Linux; netstat -ano on Windows). It may be an
@@ -63,6 +67,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 LOG_DATE = "%Y-%m-%d %H:%M:%S"
 WATCH_INTERVAL = 2
 NET_INTERVAL = 30
+FAILED_PAUSE = 30
 RESTART_ENV = "ODOO_DASHBOARD_RESTART"
 UPDATED_ENV = "ODOO_DASHBOARD_UPDATED"
 RESTART_GRACE = 5
@@ -130,6 +135,16 @@ def port_taken(port: int, grace: float = 0, host: str = "127.0.0.1") -> bool:
 
 
 def watch_sources(net_identity: Callable[[], str] = lambda: "") -> None:
+    """Watch for changes and restart on one, or log why the watch failed and restart after FAILED_PAUSE."""
+    try:
+        watch_changes(net_identity)
+    except Exception:
+        log.exception(f"El vigilante de cambios ha fallado: reiniciando en {FAILED_PAUSE} s…")
+        time.sleep(FAILED_PAUSE)
+        restart(relaunch_args())
+
+
+def watch_changes(net_identity: Callable[[], str]) -> None:
     """Restart when a source file or the network identity changes, unless an install holds the watch."""
     initial, net, checked_net = stamps(), net_identity(), time.monotonic()
     while True:

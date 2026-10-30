@@ -184,7 +184,7 @@ class OutputTest(unittest.TestCase):
         self.assertTrue(any(name.endswith(".js") for name in names))
 
 
-class StopLoop(Exception):
+class StopLoop(BaseException):
     pass
 
 
@@ -247,6 +247,21 @@ class WatchTest(unittest.TestCase):
         execv.assert_not_called()
         execv, _ = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1"], 30)
         execv.assert_not_called()
+
+    def test_a_failing_watcher_logs_why_and_restarts_after_a_pause(self):
+        with (
+            patch.object(time, "sleep") as sleep,
+            patch.object(os, "execve", side_effect=StopLoop) as execv,
+            patch.object(sys, "argv", ["dash", "--open"]),
+            logged() as out,
+            self.assertRaises(StopLoop),
+        ):
+            pr.watch_sources(Mock(side_effect=NameError("name '_local_only' is not defined")))
+        sleep.assert_called_once_with(pr.FAILED_PAUSE)
+        execv.assert_called_once_with(sys.executable, pr.launch_command([]), dict(os.environ))
+        log = out.getvalue()
+        self.assertTrue(log.startswith("ERROR El vigilante de cambios ha fallado: reiniciando en 30 s…\n"))
+        self.assertIn("NameError: name '_local_only' is not defined", log)
 
     def test_a_held_watcher_restarts_nothing_until_released(self):
         pr.hold()
