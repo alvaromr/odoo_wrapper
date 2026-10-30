@@ -36,7 +36,8 @@ def odoo_stamp(iso):
 def lost_entry(client, employee_id, old_out, new_out):
     if not old_out or data.local(old_out).date() <= data.local(new_out).date():
         return None
-    until = (datetime.strptime(old_out, STAMP) + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime(STAMP)
+    out = datetime.strptime(old_out, STAMP).replace(tzinfo=timezone.utc)
+    until = (out + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime(STAMP)
     later = client.call_kw(
         "hr.attendance",
         "search_count",

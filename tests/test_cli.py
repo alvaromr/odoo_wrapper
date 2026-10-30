@@ -589,9 +589,9 @@ class MainTest(unittest.TestCase):
             patch.object(sys, "stdin", stdin),
             redirect_stdout(out),
             redirect_stderr(err),
+            self.assertRaises(SystemExit) as caught,
         ):
-            with self.assertRaises(SystemExit) as caught:
-                cli.main()
+            cli.main()
         return caught.exception.code, out.getvalue(), err.getvalue()
 
     def test_usage(self):

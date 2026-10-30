@@ -206,9 +206,9 @@ class WatchTest(unittest.TestCase):
             patch.object(subprocess, "Popen") as popen,
             patch.object(os, "_exit", side_effect=StopLoop),
             logged() as out,
+            self.assertRaises(StopLoop),
         ):
-            with self.assertRaises(StopLoop):
-                pr.watch_sources(Mock(side_effect=identities))
+            pr.watch_sources(Mock(side_effect=identities))
         popen.assert_not_called()
         return execv, out.getvalue()
 
@@ -287,9 +287,9 @@ class WatchTest(unittest.TestCase):
             patch.object(subprocess, "Popen") as popen,
             patch.object(os, "execve") as execv,
             patch.object(os, "_exit", side_effect=StopLoop) as exit_,
+            self.assertRaises(StopLoop),
         ):
-            with self.assertRaises(StopLoop):
-                pr.restart(["--host", "0.0.0.0"])
+            pr.restart(["--host", "0.0.0.0"])
         execv.assert_not_called()
         popen.assert_called_once()
         self.assertEqual(popen.call_args.args[0], pr.launch_command(["--host", "0.0.0.0"]))

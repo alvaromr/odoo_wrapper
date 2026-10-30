@@ -107,7 +107,7 @@ def main():
     tracer = trace.Trace(count=1, trace=0)
     result = tracer.runfunc(run_tests)
     hits = {}
-    for (path, line), _ in tracer.results().counts.items():
+    for path, line in tracer.results().counts:
         hits.setdefault(path, set()).add(line)
     complete = result.wasSuccessful()
     for name in sorted(os.listdir(PACKAGE)):

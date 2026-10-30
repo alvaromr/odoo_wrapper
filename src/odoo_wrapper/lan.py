@@ -5,7 +5,7 @@
   expose() records which it is so phone_access and net_identity know whether there is anything to advertise.
   The server's session guard applies to both sockets alike; the LAN one gets its session by pairing, never by
   password (server.py), which is what lets it be the default.
-- _local_only is why nothing listens on the LAN, empty when something does: the option, or a certificate that
+- _lan["off"] is why nothing listens on the LAN, empty when something does: the option, or a certificate that
   could not be made. phone_access hands it to the page as {off: why}, each reason ending in how to fix it, so the
   page says it where the QR would be: with the LAN as the default, a dashboard without its QR gave no reason.
 - The self-signed cert needs the openssl CLI: Python's ssl can use a certificate but cannot create one.
@@ -60,18 +60,16 @@ CERT_FAILED = (
     "fallado: {error}. Comprueba que funciona escribiendo «openssl version» en la terminal y después " + RELAUNCH + "."
 )
 log = logging.getLogger(__name__)
-_local_only = HOST_OPTION
+_lan = {"off": HOST_OPTION}
 
 
 def expose(host):
-    global _local_only
-    _local_only = HOST_OPTION if host in LOOPBACK else ""
-    return not _local_only
+    _lan["off"] = HOST_OPTION if host in LOOPBACK else ""
+    return not _lan["off"]
 
 
 def local_only(why):
-    global _local_only
-    _local_only = why
+    _lan["off"] = why
     log.warning(why)
 
 
@@ -98,7 +96,7 @@ def bonjour_name():
 
 
 def net_identity():
-    return "" if _local_only else f"{bonjour_name()}|{lan_ip()}"
+    return "" if _lan["off"] else f"{bonjour_name()}|{lan_ip()}"
 
 
 def ensure_cert():
@@ -149,8 +147,8 @@ def qr_or_empty(text):
 
 
 def phone_access():
-    if _local_only:
-        return {"off": _local_only}
+    if _lan["off"]:
+        return {"off": _lan["off"]}
     return {"url": f"https://{lan_ip()}:{TLS_PORT}/", "name_url": f"https://{bonjour_name()}:{TLS_PORT}/"}
 
 
@@ -164,13 +162,17 @@ def hostname_of(value):
     return value.split(":")[0]
 
 
+def is_address(name, family):
+    try:
+        socket.inet_pton(family, name)
+    except OSError:
+        return False
+    return True
+
+
 def is_local_name(name):
-    if name == "localhost" or name.endswith(".local"):
-        return True
-    for family in (socket.AF_INET, socket.AF_INET6):
-        try:
-            socket.inet_pton(family, name)
-            return True
-        except OSError:
-            continue
-    return False
+    return (
+        name == "localhost"
+        or name.endswith(".local")
+        or any(is_address(name, family) for family in (socket.AF_INET, socket.AF_INET6))
+    )

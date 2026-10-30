@@ -61,6 +61,7 @@ MIN_SESSION = 1 / 60
 LONG_HOURS = 12
 DATA_TTL = 45
 VIEW_TTL = 300
+SATURDAY = 5
 _data_lock = threading.Lock()
 _data_cache: dict = {}
 
@@ -83,7 +84,7 @@ def schedule_from(blocks):
             start, end = float(block["hour_from"]), float(block["hour_to"])
         except (KeyError, TypeError, ValueError):
             continue
-        if not 0 <= day <= 6 or end <= start:
+        if day not in range(7) or end <= start:
             continue
         if block.get("day_period") == "lunch":
             lunch_from[day] = start
@@ -163,14 +164,14 @@ def absences_from(holidays, leaves):
         d0, d1 = local(h["date_from"]).date(), local(h["date_to"]).date()
         for i in range((d1 - d0).days + 1):
             d = d0 + timedelta(days=i)
-            if d.weekday() < 5:
+            if d.weekday() < SATURDAY:
                 absences[d.isoformat()] = h["name"]
     partial = []
     for leave in leaves:
         d0 = date.fromisoformat(leave["request_date_from"])
         d1 = date.fromisoformat(leave["request_date_to"])
         days = [d0 + timedelta(days=i) for i in range((d1 - d0).days + 1)]
-        days = [d for d in days if d.weekday() < 5 and d.isoformat() not in absences]
+        days = [d for d in days if d.weekday() < SATURDAY and d.isoformat() not in absences]
         if not days:
             continue
         name = leave["holiday_status_id"][1] if leave["holiday_status_id"] else "Ausencia"
@@ -266,7 +267,7 @@ def fetch_contracts(client, ids, monday, end):
 
 def calendar_on(contracts, fallback):
     if not contracts:
-        return lambda iso: fallback
+        return lambda _iso: fallback
 
     def pick(iso):
         c = next((c for c in contracts if c["date_start"] <= iso and (not c["date_end"] or iso <= c["date_end"])), None)

@@ -34,7 +34,7 @@ class MainTest(unittest.TestCase):
             "ssl": patch.object(d, "ssl", Mock()),
             "bonjour": patch.object(lan, "bonjour_name", return_value="mac.local"),
             "ip": patch.object(lan, "lan_ip", return_value="10.0.0.2"),
-            "local_only": patch.object(lan, "_local_only", lan.HOST_OPTION),
+            "local_only": patch.dict(lan._lan, off=lan.HOST_OPTION),
         }
         self.mocks = {name: p.start() for name, p in patches.items()}
         for p in patches.values():
@@ -65,7 +65,7 @@ class MainTest(unittest.TestCase):
         self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
         self.server.serve_forever.assert_called_once()
         self.mocks["cert"].assert_not_called()
-        self.assertEqual(lan._local_only, lan.HOST_OPTION)
+        self.assertEqual(lan._lan["off"], lan.HOST_OPTION)
         self.assertNotIn("Sin configurar", out)
         self.assertEqual(
             [call.kwargs["target"] for call in self.mocks["thread"].call_args_list], [pr.watch_sources, cli.keep_alive]
@@ -78,7 +78,7 @@ class MainTest(unittest.TestCase):
         self.mocks["cert"].assert_called_once()
         self.mocks["ssl"].SSLContext.return_value.load_cert_chain.assert_called_once_with("c.pem", "k.pem")
         self.assertEqual(self.mocks["server"].call_args_list[1].args, (("0.0.0.0", lan.TLS_PORT), sv.Handler))
-        self.assertEqual(lan._local_only, "")
+        self.assertEqual(lan._lan["off"], "")
         ssl = self.mocks["ssl"]
         ssl.SSLContext.assert_called_once_with(ssl.PROTOCOL_TLS_SERVER)
         context = ssl.SSLContext.return_value

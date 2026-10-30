@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 
 API = "https://sheets.googleapis.com/v4/spreadsheets"
-TOKEN_URL = "https://oauth2.googleapis.com/token"
+TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - a URL, not a password
 EXPORT = ("auth", "export", "--unmasked")
 CREDENTIALS = ("client_id", "client_secret", "refresh_token")
 LOGIN = "gws auth login -s sheets"

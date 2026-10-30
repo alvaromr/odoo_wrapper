@@ -14,6 +14,9 @@ text" rather than a broken /api/data.
 SPEC = ((1, 19, 7), (2, 34, 10), (3, 55, 15), (4, 80, 20), (5, 108, 26))
 FORMAT = "111011111000100"
 PAD = (0xEC, 0x11)
+FINDER_EDGE = 3
+FINDER_GAP = 2
+TIMING = 6
 
 EXP = [0] * 512
 LOG = [0] * 256
@@ -66,10 +69,10 @@ def skeleton(version):
         for r in range(-1, 8):  # pragma: no mutate - row 8 holds format and timing cells, written later
             for c in range(-1, 8):  # pragma: no mutate - as above, for column 8
                 if 0 <= r0 + r < size and 0 <= c0 + c < size:
-                    ring = max(abs(r - 3), abs(c - 3))
-                    mod[r0 + r][c0 + c] = ring != 2 and ring <= 3
+                    ring = max(abs(r - FINDER_EDGE), abs(c - FINDER_EDGE))
+                    mod[r0 + r][c0 + c] = ring != FINDER_GAP and ring <= FINDER_EDGE
     for i in range(8, size - 8):
-        mod[6][i] = mod[i][6] = i % 2 == 0
+        mod[TIMING][i] = mod[i][TIMING] = i % 2 == 0
     if version > 1:
         centre = size - 7
         for r in range(centre - 2, centre + 3):
@@ -92,7 +95,7 @@ def place(mod, size, stream):
     col = size - 1
     upward = True
     while col > 0:  # pragma: no mutate - col skips 0: it turns odd past the timing column and ends at -1
-        if col == 6:
+        if col == TIMING:
             col -= 1
         rows = reversed(range(size)) if upward else range(size)
         for row in rows:

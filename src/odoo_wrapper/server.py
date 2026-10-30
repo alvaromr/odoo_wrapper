@@ -105,7 +105,7 @@ import ssl
 import string
 import threading
 import time
-from datetime import date
+from datetime import date, datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
@@ -250,7 +250,8 @@ def team_period(params):
     year = int(params["year"]) if params.get("year") else None
     if params.get("month"):
         return year, team.month_span(date.fromisoformat(f"{params['month']}-01"))
-    return year, (team.monday_of(date.fromisoformat(params["week"]) if params.get("week") else date.today()),)
+    week = date.fromisoformat(params["week"]) if params.get("week") else datetime.now().astimezone().date()
+    return year, (team.monday_of(week),)
 
 
 def revoke_pairings(session_id):

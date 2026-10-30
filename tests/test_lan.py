@@ -68,7 +68,7 @@ class CertTest(unittest.TestCase):
         which = patch.object(shutil, "which", side_effect=lambda path: path if path == "openssl" else None)
         which.start()
         self.addCleanup(which.stop)
-        local_only = patch.object(lan, "_local_only", "")
+        local_only = patch.dict(lan._lan, off="")
         local_only.start()
         self.addCleanup(local_only.stop)
 
@@ -175,14 +175,14 @@ class CertTest(unittest.TestCase):
 
 class PhoneTest(unittest.TestCase):
     def test_why_and_how_when_nothing_listens_on_the_lan(self):
-        with patch.object(lan, "_local_only", "sin red"):
+        with patch.dict(lan._lan, off="sin red"):
             self.assertEqual(lan.phone_access(), {"off": "sin red"})
         lan.expose("127.0.0.1")
         self.assertEqual(lan.phone_access(), {"off": lan.HOST_OPTION})
 
     def test_urls(self):
         with (
-            patch.object(lan, "_local_only", ""),
+            patch.dict(lan._lan, off=""),
             patch.object(lan, "lan_ip", return_value="10.0.0.2"),
             patch.object(lan, "bonjour_name", return_value="mac.local"),
         ):

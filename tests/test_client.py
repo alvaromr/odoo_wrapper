@@ -182,18 +182,19 @@ class RpcTest(unittest.TestCase):
 
     def test_a_network_failure_is_odoo_down(self):
         odoo = client()
-        with patch.object(odoo.opener, "open", side_effect=urllib.error.URLError("Connection refused")):
-            with self.assertRaises(c.OdooDown) as caught:
-                odoo.call_kw("m", "read", [])
+        with (
+            patch.object(odoo.opener, "open", side_effect=urllib.error.URLError("Connection refused")),
+            self.assertRaises(c.OdooDown) as caught,
+        ):
+            odoo.call_kw("m", "read", [])
         self.assertEqual(str(caught.exception), "Odoo no responde (Connection refused)")
 
     def test_a_non_json_response_is_odoo_down(self):
         odoo = client()
         garbled = io.BytesIO(b"<html>Bad Gateway</html>")
         garbled.headers = http.client.HTTPMessage()
-        with patch.object(odoo.opener, "open", return_value=garbled):
-            with self.assertRaises(c.OdooDown) as caught:
-                odoo.call_kw("m", "read", [])
+        with patch.object(odoo.opener, "open", return_value=garbled), self.assertRaises(c.OdooDown) as caught:
+            odoo.call_kw("m", "read", [])
         self.assertEqual(str(caught.exception), "Odoo no responde (respuesta no válida)")
 
     def test_each_request_is_a_json_rpc_call_and_the_form_names_its_browser(self):

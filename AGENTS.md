@@ -102,8 +102,9 @@ Read the header of a module before touching it.
 - Functional over imperative where it reads better; no inline comments — the code should not need them. The
   why lives in each module's header (docstring or top comment block), nowhere else. The exceptions are the
   comments that tell a tool to let one line be, each with its reason: `# pragma: no mutate - <reason>` of an
-  equivalent mutant, `// Stryker disable next-line` in the JS (see How to verify changes), and
-  `biome-ignore <rule>: <reason>`; a rule switched off for a whole file says why in `biome.jsonc`.
+  equivalent mutant, `// Stryker disable next-line` in the JS (see How to verify changes), `# noqa: <rule> -
+  <reason>` and `biome-ignore <rule>: <reason>`. A rule switched off for a whole file or the whole project says
+  why beside it, in `pyproject.toml` or `biome.jsonc`.
 - Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.

@@ -43,10 +43,10 @@ class Opener:
 class CredentialsTest(unittest.TestCase):
     def export(self, stdout=EXPORTED_OUTPUT, which="/bin/gws", **run):
         with (
-            patch.object(sh.shutil, "which", return_value=which) as which,
+            patch.object(sh.shutil, "which", return_value=which) as found,
             patch.object(sh.subprocess, "run", return_value=SimpleNamespace(stdout=stdout), **run) as ran,
         ):
-            self.which, self.ran = which, ran
+            self.which, self.ran = found, ran
             return sh.credentials()
 
     def test_gws_is_asked_for_its_credentials_by_the_path_it_was_found_at(self):

@@ -72,7 +72,7 @@ class TotpRequired(OdooError):
 
 
 class KeepRedirects(urllib.request.HTTPRedirectHandler):
-    def http_error_302(self, req, fp, code, msg, headers):
+    def http_error_302(self, _req, fp, _code, _msg, _headers):
         return fp
 
     http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302

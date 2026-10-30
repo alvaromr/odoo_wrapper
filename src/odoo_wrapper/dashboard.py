@@ -91,6 +91,7 @@ AUTOSTART_DONE = {
     "off": "El dashboard ya no arrancará al iniciar sesión; el que esté en marcha sigue hasta que lo pares o "
     "cierres sesión.",
 }
+ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the phone reaches it on the LAN, by default (lan.py)
 log = logging.getLogger(__name__)
 
 
@@ -138,7 +139,7 @@ def main():
             log.error("--host necesita una dirección (127.0.0.1 para no salir de este ordenador)")
             sys.exit(1)
     else:
-        host = "0.0.0.0"
+        host = ALL_INTERFACES
     exposed = lan.expose(host)
     grace = process.RESTART_GRACE if os.environ.pop(process.RESTART_ENV, None) else 0
     if process.port_taken(server.PORT, grace):
@@ -147,7 +148,7 @@ def main():
             "para aplicar cambios de código basta con guardarlos (se reinicia solo)."
         )
         sys.exit(1)
-    probe_host = "127.0.0.1" if host == "0.0.0.0" else host
+    probe_host = "127.0.0.1" if host == ALL_INTERFACES else host
     if exposed and process.port_taken(lan.TLS_PORT, grace, probe_host):
         log.error(f"El puerto {lan.TLS_PORT} ya está ocupado por otro proceso")
         sys.exit(1)

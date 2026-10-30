@@ -85,7 +85,7 @@ def write_to_the_log_file():
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
     if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > LOG_MAX:
         os.replace(LOG_FILE, LOG_FILE + ".1")
-    file = open(LOG_FILE, "a", buffering=1)
+    file = open(LOG_FILE, "a", buffering=1)  # noqa: SIM115 - it stays open as the process's output
     if sys.stdout is None:
         sys.stdout = sys.stderr = file
         return
@@ -97,14 +97,16 @@ def source_version():
     return max((os.path.getmtime(p) for p in SOURCES if os.path.exists(p)), default=0)
 
 
+def mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
 def stamps():
-    marks = {}
-    for path in WATCHED:
-        try:
-            marks[path] = os.path.getmtime(path)
-        except OSError:
-            pass
-    return marks
+    marks = {path: mtime(path) for path in WATCHED}
+    return {path: mark for path, mark in marks.items() if mark is not None}
 
 
 def port_taken(port, grace=0, host="127.0.0.1"):

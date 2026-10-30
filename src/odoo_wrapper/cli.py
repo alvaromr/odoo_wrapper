@@ -49,6 +49,7 @@ from a scheduled task, without an agent in between.
   place in the repo.
 """
 
+import contextlib
 import getpass
 import json
 import os
@@ -431,10 +432,8 @@ def cli_client():
 
 def keep_alive():
     while True:
-        try:
+        with contextlib.suppress(OdooError, OSError):
             cli_client().session_info()
-        except (OdooError, OSError):
-            pass
         time.sleep(KEEPALIVE_INTERVAL)
 
 
@@ -462,18 +461,18 @@ def run(cmd):
         return
     client = cli_client()
     if cmd == "history":
-        arg = sys.argv[2] if len(sys.argv) > 2 else "7"
+        arg = (sys.argv[2:3] or ["7"])[0]
         if not arg.isdigit() or not int(arg):
             raise OdooError(f"history espera un número de días, no «{arg}»")
         history(client, int(arg))
     elif cmd == "notices":
-        notices(client, date.today())
+        notices(client, datetime.now().astimezone().date())
     else:
         COMMANDS[cmd](client)
 
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+    if not sys.argv[1:] or sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)
         sys.exit(0)
 
