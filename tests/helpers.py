@@ -1,4 +1,5 @@
-"""Shared test scaffolding: fixtures, the scripted Odoo stand-ins and the throwaway state directory.
+"""Shared test scaffolding: fixtures, the scripted Odoo stand-ins, the throwaway state directory and the log
+captured as `LEVEL message` lines.
 
 Nothing here touches the network or the real ~/.odoo_dashboard: temp_state points every module that
 writes there at a temporary directory for the duration of one test.
@@ -7,10 +8,12 @@ writes there at a temporary directory for the duration of one test.
 import http.client
 import io
 import json
+import logging
 import os
 import sys
 import tempfile
 import urllib.parse
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -122,6 +125,22 @@ class ScriptedClient:
 
     def punch(self, reason_id=None):
         self.punches.append(reason_id)
+
+
+@contextmanager
+def logged(out=None):
+    out = out or io.StringIO()
+    handler = logging.StreamHandler(out)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    package = logging.getLogger("odoo_wrapper")
+    saved = package.handlers, package.level
+    package.handlers = [handler]
+    package.setLevel(logging.INFO)
+    try:
+        yield out
+    finally:
+        package.handlers = saved[0]
+        package.setLevel(saved[1])
 
 
 def temp_state(test):

@@ -12,11 +12,10 @@ import re
 import sys
 import time
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import CONFIG, temp_state
+from helpers import CONFIG, logged, temp_state
 from odoo_wrapper import client as c
 from odoo_wrapper import data as dt, lan, server as sv, state as st
 from odoo_wrapper.client import AccessDenied, OdooDown, OdooError, SessionExpired, TotpRequired
@@ -453,10 +452,10 @@ class HandlerTest(unittest.TestCase):
         with patch.object(dt, "fetch_data", side_effect=OdooDown("Odoo no responde (Connection refused)")):
             status, _, payload = self.get("/api/data")
         self.assertEqual((status, payload["error"]), (502, "Odoo no responde (Connection refused)"))
-        with patch.object(dt, "fetch_data", side_effect=RuntimeError), redirect_stderr(io.StringIO()), \
-                redirect_stdout(io.StringIO()) as out:
+        with patch.object(dt, "fetch_data", side_effect=RuntimeError("roto")), logged() as out:
             self.assertEqual(self.get("/api/data")[:3:2], (500, {"error": "Error interno del dashboard"}))
-        self.assertIn(" Error interno atendiendo GET /api/data:\n", out.getvalue())
+        self.assertTrue(out.getvalue().startswith("ERROR Error interno atendiendo GET /api/data\nTraceback"))
+        self.assertTrue(out.getvalue().endswith("RuntimeError: roto\n"))
 
     def test_an_expired_session_is_forgotten_and_the_cookie_cleared(self):
         with patch.object(dt, "fetch_data", side_effect=SessionExpired("caducada")):
@@ -679,7 +678,7 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual((status, payload["error"]), (502, "Odoo: caído"))
         with patch.object(sv, "new_client", side_effect=SessionExpired("caducada")):
             self.assertEqual(self.post("/api/attendance", {"action": "checkin"})[0], 401)
-        with patch.object(sv, "new_client", side_effect=RuntimeError), redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+        with patch.object(sv, "new_client", side_effect=RuntimeError), logged():
             self.assertEqual(self.post("/api/attendance", {"action": "checkin"})[0], 500)
 
     def test_attendance_dispatches_to_data_punch(self):

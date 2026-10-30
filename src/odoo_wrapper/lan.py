@@ -25,6 +25,7 @@
   network changes.
 """
 
+import logging
 import os
 import re
 import shutil
@@ -32,7 +33,7 @@ import socket
 import subprocess
 from urllib.parse import urlsplit
 
-from . import process, qr
+from . import qr
 from .client import STATE_DIR
 
 TLS_PORT = 8443
@@ -53,6 +54,7 @@ NO_OPENSSL = ("Para que el móvil se conecte de forma segura hace falta el progr
 CERT_FAILED = ("Para que el móvil se conecte de forma segura se crea un certificado con el programa openssl, y ha "
                "fallado: {error}. Comprueba que funciona escribiendo «openssl version» en la terminal y después "
                + RELAUNCH + ".")
+log = logging.getLogger(__name__)
 _local_only = HOST_OPTION
 
 
@@ -65,7 +67,7 @@ def expose(host):
 def local_only(why):
     global _local_only
     _local_only = why
-    process.say(why)
+    log.warning(why)
 
 
 def lan_ip():
@@ -115,7 +117,7 @@ def ensure_cert():
     except (OSError, subprocess.CalledProcessError) as error:
         return local_only(CERT_FAILED.format(error=error))
     os.chmod(key, 0o600)
-    process.say(f"Certificado creado para {names}")
+    log.info(f"Certificado creado para {names}")
     return cert, key
 
 

@@ -1,17 +1,17 @@
 """Unit tests for the process plumbing: log, port check, source watcher and restart."""
 
 import io
+import logging
 import os
 import socket
 import subprocess
 import sys
 import time
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from helpers import temp_state
+from helpers import logged, temp_state
 from odoo_wrapper import process as pr
 
 
@@ -54,6 +54,11 @@ class PortTest(unittest.TestCase):
 
 
 class OutputTest(unittest.TestCase):
+    def setUp(self):
+        restore = logged()
+        restore.__enter__()
+        self.addCleanup(restore.__exit__, None, None, None)
+
     def test_a_terminal_keeps_its_output(self):
         with patch.object(sys, "stdout", SimpleNamespace(isatty=lambda: True)), patch.object(os, "dup2") as dup2:
             pr.own_the_output()
@@ -90,15 +95,20 @@ class OutputTest(unittest.TestCase):
             pr.own_the_output()
         self.assertEqual(os.path.getsize(log + ".1"), pr.LOG_MAX + 1)
 
-    def test_messages_carry_a_timestamp(self):
+    def test_messages_carry_a_timestamp_and_their_level_from_info_up(self):
         out = io.StringIO()
-        with redirect_stdout(out):
-            pr.say("hola")
-        self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d hola\n$")
-        stream = Mock()
-        with patch.object(sys, "stdout", stream):
-            pr.say("hola")
-        stream.flush.assert_called_once_with()
+        out.isatty = lambda: True
+        with patch.object(sys, "stdout", out):
+            pr.own_the_output()
+        pr.log.debug("oculto")
+        pr.log.info("hola")
+        logging.getLogger("odoo_wrapper.lan").warning("sin red")
+        self.assertRegex(out.getvalue(), r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d INFO hola\n"
+                                         r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d WARNING sin red\n$")
+        self.assertEqual(logging.getLogger("odoo_wrapper").handlers[0].stream, out)
+        with patch.object(sys, "stdout", out):
+            pr.own_the_output()
+        self.assertEqual(len(logging.getLogger("odoo_wrapper").handlers), 1)
 
     def test_no_streams_at_all_take_the_log(self):
         home = temp_state(self)
@@ -174,7 +184,7 @@ class WatchTest(unittest.TestCase):
         with patch.object(pr, "stamps", side_effect=stamp_values), patch.object(time, "sleep", side_effect=sleep), \
                 patch.object(pr, "NET_INTERVAL", interval), patch.object(os, "execve", side_effect=StopLoop) as execv, \
                 patch.object(subprocess, "Popen") as popen, patch.object(os, "_exit", side_effect=StopLoop), \
-                redirect_stdout(io.StringIO()) as out:
+                logged() as out:
             with self.assertRaises(StopLoop):
                 pr.watch_sources(Mock(side_effect=identities))
         popen.assert_not_called()
@@ -188,12 +198,12 @@ class WatchTest(unittest.TestCase):
 
     def test_every_changed_source_is_named(self):
         _, out = self.watch([{"a.py": 1, "b.py": 1}, {}], ["", ""], 30)
-        self.assertIn(" Cambio en a.py, b.py: reiniciando…\n", out)
+        self.assertEqual("INFO Cambio en a.py, b.py: reiniciando…\n", out)
 
     def test_the_network_is_checked_once_its_interval_has_passed(self):
         with patch.object(time, "monotonic", return_value=5.0):
             execv, out = self.watch([{"a.py": 1}, {"a.py": 1}], ["mac|1", "mac|2"], 0)
-        self.assertIn(" Cambio de red: reiniciando…\n", out)
+        self.assertEqual("INFO Cambio de red: reiniciando…\n", out)
         execv.assert_called_once()
 
     def test_the_launch_command_runs_the_bootstrap_with_its_arguments(self):

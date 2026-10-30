@@ -96,13 +96,13 @@ API
 """
 
 import json
+import logging
 import os
 import secrets
 import ssl
 import string
 import threading
 import time
-import traceback
 from datetime import date
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
@@ -138,6 +138,7 @@ CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsa
                   "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
+log = logging.getLogger(__name__)
 _sessions: dict = {}
 _rights: dict = {}
 _pairings: dict = {}
@@ -286,8 +287,7 @@ class Handler(BaseHTTPRequestHandler):
         except OdooError as error:
             self._send(502, {"error": f"Odoo: {error}"})
         except Exception:
-            process.say(f"Error interno atendiendo {self.command} {self.path}:")
-            traceback.print_exc()
+            log.exception(f"Error interno atendiendo {self.command} {self.path}")
             self._send(500, {"error": "Error interno del dashboard"})
 
     def do_GET(self):

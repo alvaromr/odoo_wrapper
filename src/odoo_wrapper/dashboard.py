@@ -18,6 +18,7 @@ encoder in qr.py,
 and what the Odoo side offers in AGENTS.md § Odoo API notes.
 """
 
+import logging
 import os
 import ssl
 import subprocess
@@ -90,6 +91,7 @@ AUTOSTART_DONE = {
     "off": "El dashboard ya no arrancará al iniciar sesión; el que esté en marcha sigue hasta que lo pares o "
            "cierres sesión.",
 }
+log = logging.getLogger(__name__)
 
 
 def option(name):
@@ -111,11 +113,11 @@ def switch_autostart(choice):
 
 
 def follow_update():
-    process.say(f"Actualizado a la versión {__version__}, en {sys.executable}")
+    log.info(f"Actualizado a la versión {__version__}, en {sys.executable}")
     try:
         autostart.follow()
     except (OSError, subprocess.CalledProcessError) as error:
-        process.say(f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
+        log.warning(f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
                     "Ejecuta odoo-dashboard --autostart on")
 
 
@@ -131,25 +133,25 @@ def main():
     if "--host" in sys.argv:
         host = option("--host")
         if host is None:
-            print("ERROR: --host necesita una dirección (127.0.0.1 para no salir de este ordenador)")
+            log.error("--host necesita una dirección (127.0.0.1 para no salir de este ordenador)")
             sys.exit(1)
     else:
         host = "0.0.0.0"
     exposed = lan.expose(host)
     grace = process.RESTART_GRACE if os.environ.pop(process.RESTART_ENV, None) else 0
     if process.port_taken(server.PORT, grace):
-        print(f"ERROR: ya hay un dashboard escuchando en http://localhost:{server.PORT}/")
-        print("Recarga esa página; para aplicar cambios de código basta con guardarlos (se reinicia solo).")
+        log.error(f"Ya hay un dashboard escuchando en http://localhost:{server.PORT}/. Recarga esa página; "
+                  "para aplicar cambios de código basta con guardarlos (se reinicia solo).")
         sys.exit(1)
     probe_host = "127.0.0.1" if host == "0.0.0.0" else host
     if exposed and process.port_taken(lan.TLS_PORT, grace, probe_host):
-        print(f"ERROR: el puerto {lan.TLS_PORT} ya está ocupado por otro proceso")
+        log.error(f"El puerto {lan.TLS_PORT} ya está ocupado por otro proceso")
         sys.exit(1)
     http = ThreadingHTTPServer(("127.0.0.1", server.PORT), server.Handler)
     url = f"http://localhost:{server.PORT}/"
-    process.say(f"Dashboard en {url} (Ctrl+C para parar)")
+    log.info(f"Dashboard en {url} (Ctrl+C para parar)")
     if not read_config():
-        process.say(f"Sin configurar: abre {url} e inicia sesión en Odoo")
+        log.info(f"Sin configurar: abre {url} e inicia sesión en Odoo")
     chain = exposed and lan.ensure_cert()
     if chain:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -157,10 +159,10 @@ def main():
         tls = ThreadingHTTPServer((host, lan.TLS_PORT), server.Handler)
         tls.socket = context.wrap_socket(tls.socket, server_side=True)
         threading.Thread(target=tls.serve_forever, daemon=True).start()
-        process.say(f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/")
-        process.say(f"Para entrar desde él, pulsa «Emparejar móvil» en {url}")
+        log.info(f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/")
+        log.info(f"Para entrar desde él, pulsa «Emparejar móvil» en {url}")
     elif exposed:
-        process.say("Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador")
+        log.warning("Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador")
     threading.Thread(target=process.watch_sources, args=(lan.net_identity,), daemon=True).start()
     threading.Thread(target=cli.keep_alive, daemon=True).start()
     if "--open" in sys.argv:

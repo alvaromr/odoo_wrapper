@@ -6,11 +6,10 @@ import shutil
 import socket
 import subprocess
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from helpers import temp_state
+from helpers import logged, temp_state
 from odoo_wrapper import lan
 
 
@@ -73,11 +72,11 @@ class CertTest(unittest.TestCase):
                 f.write("pem")
 
     def test_generates_once_per_identity(self):
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()) as out:
+        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged() as out:
             cert, key = lan.ensure_cert()
             again = lan.ensure_cert()
         self.assertEqual(run.call_count, 1)
-        self.assertIn(" Certificado creado para DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1\n", out.getvalue())
+        self.assertEqual("INFO Certificado creado para DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1\n", out.getvalue())
         self.assertTrue(cert.startswith(self.home) and key.startswith(self.home))
         self.assertIn("mac.local-10.0.0.2", cert)
         self.assertIn("mac.local-10.0.0.2", key)
@@ -88,12 +87,12 @@ class CertTest(unittest.TestCase):
                                      "-keyout", key, "-out", cert], check=True, capture_output=True)
         self.assertEqual(oct(os.stat(key).st_mode & 0o777), "0o600")
         os.remove(key)
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):
+        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged():
             self.assertEqual(lan.ensure_cert(), (cert, key))
         self.assertEqual(run.call_count, 1)
 
     def test_a_new_identity_gets_its_own_pair_and_a_known_one_is_reused(self):
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):
+        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged():
             first = lan.ensure_cert()
             lan.lan_ip.return_value = "10.0.0.3"
             second = lan.ensure_cert()
@@ -105,34 +104,34 @@ class CertTest(unittest.TestCase):
 
     def test_a_failing_openssl_leaves_no_certificate_and_says_why(self):
         out = io.StringIO()
-        with patch.object(subprocess, "run", side_effect=OSError("no openssl")), redirect_stdout(out):
+        with patch.object(subprocess, "run", side_effect=OSError("no openssl")), logged(out):
             self.assertIsNone(lan.ensure_cert())
-        self.assertIn("no openssl", out.getvalue())
+        self.assertEqual(out.getvalue(), f"WARNING {lan.CERT_FAILED.format(error='no openssl')}\n")
         self.assertEqual(lan.phone_access(), {"off": lan.CERT_FAILED.format(error="no openssl")})
 
     def test_openssl_is_looked_up_in_the_git_for_windows_folders_too(self):
         bundled = lan.OPENSSL_CANDIDATES[1]
         shutil.which.side_effect = lambda path: path if path == bundled else None
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, redirect_stdout(io.StringIO()):
+        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged():
             lan.ensure_cert()
         self.assertEqual(run.call_args[0][0][0], bundled)
         shutil.which.side_effect = lambda path: None
         out = io.StringIO()
-        with patch.object(subprocess, "run") as run, redirect_stdout(out):
+        with patch.object(subprocess, "run") as run, logged(out):
             lan.lan_ip.return_value = "10.0.0.3"
             self.assertIsNone(lan.ensure_cert())
         run.assert_not_called()
-        self.assertIn("Git for Windows", out.getvalue())
+        self.assertEqual(out.getvalue(), f"WARNING {lan.NO_OPENSSL}\n")
         self.assertEqual(lan.phone_access(), {"off": lan.NO_OPENSSL})
 
     def test_slug_strips_unsafe_characters(self):
         with patch.object(lan, "bonjour_name", return_value="Ana’s Mac.local"), \
-                patch.object(subprocess, "run", side_effect=self.openssl), redirect_stdout(io.StringIO()):
+                patch.object(subprocess, "run", side_effect=self.openssl), logged():
             cert, key = lan.ensure_cert()
         self.assertEqual(os.path.basename(cert), "cert-Ana_s_Mac.local-10.0.0.2.pem")
         private = os.path.join(self.home, "new")
         with patch.object(lan, "STATE_DIR", private), patch.object(subprocess, "run", side_effect=self.openssl), \
-                redirect_stdout(io.StringIO()):
+                logged():
             lan.ensure_cert()
         self.assertEqual(oct(os.stat(private).st_mode & 0o777), "0o700")
         allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")

@@ -50,6 +50,7 @@
 """
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -60,7 +61,6 @@ import time
 import urllib.request
 
 from . import __version__, process
-from .process import say
 
 REPO = "alvaromr/odoo_wrapper"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -81,6 +81,7 @@ HANDOVER_GRACE = 30
 WINDOWS_DETACHED = 0x00000008 | 0x00000200
 CHECK_TTL = 6 * 3600
 FRESH_MIN = 60
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _installing = threading.Lock()
 _last: dict = {"at": None, "answer": None}
@@ -104,7 +105,7 @@ def ask():
         version, url = latest()
         newer = numbers(version) > numbers(__version__)
     except (OSError, ValueError, KeyError) as error:
-        say(f"No se pudo buscar actualizaciones en GitHub: {error!r}")
+        log.warning(f"No se pudo buscar actualizaciones en GitHub: {error!r}")
         return {"available": False, "current": __version__, "latest": None, "url": None,
                 "error": f"No se pudo consultar GitHub: {error}"}
     return {"available": newer, "current": __version__, "latest": version, "url": url, "error": ""}
@@ -140,7 +141,7 @@ def update_skills():
     else:
         failure = "" if done.returncode == 0 else f"{done.stderr}\n{done.stdout}".strip()[-OUTPUT_TAIL:]
     if failure:
-        say(f"No se pudieron actualizar las skills de Claude Code: {failure}")
+        log.warning(f"No se pudieron actualizar las skills de Claude Code: {failure}")
     return failure
 
 
@@ -209,9 +210,9 @@ def install(args, port):
     if failure:
         process.release()
         _installing.release()
-        say(f"uv no pudo instalar la actualización: {failure}")
+        log.error(f"uv no pudo instalar la actualización: {failure}")
         return 502, {"error": f"uv no pudo instalarla: {failure}"}
-    say(f"Actualización instalada en {installed}: reiniciando…")
+    log.info(f"Actualización instalada en {installed}: reiniciando…")
     threading.Timer(RESTART_DELAY, process.restart, [args, installed]).start()
     return 200, {"ok": True, "skills": skills}
 
@@ -224,7 +225,7 @@ def hand_over(command, folders, tools, args, port, skills):
               "from odoo_wrapper.updates import finish; finish(json.loads(sys.argv[1]))")
     base = getattr(sys, "_base_executable", sys.executable)  # pragma: no mutate - CPython always sets it
     detach([base, "-c", helper, json.dumps(plan)], os.environ)
-    say("Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")
+    log.info("Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")
     threading.Timer(RESTART_DELAY, os._exit, [0]).start()
     return 202, {"ok": True, "skills": skills}
 
@@ -240,8 +241,8 @@ def finish(plan):
     env = {**os.environ, **plan["env"]}
     failure = run_uv(plan["command"], env, plan["new"][0])
     if failure:
-        say(f"uv no pudo instalar la actualización: {failure}. Vuelve a arrancar la versión anterior")
+        log.error(f"uv no pudo instalar la actualización: {failure}. Vuelve a arrancar la versión anterior")
         detach(plan["old"], env)
         return
-    say("Actualización instalada: arranca la versión nueva")
+    log.info("Actualización instalada: arranca la versión nueva")
     detach(plan["new"], {**env, process.UPDATED_ENV: "1"})

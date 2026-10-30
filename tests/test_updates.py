@@ -67,13 +67,13 @@ class UpdatesTest(unittest.TestCase):
         failures = (none_yet, urllib.error.URLError("sin red"), TimeoutError("timed out"), b"<html>",
                     release("v1.x"), {"message": "Not Found"})
         for failure in failures:
-            with self.github(failure), patch.object(up, "say") as say:
+            with self.github(failure), patch.object(up, "log") as log:
                 answer = up.ask()
             self.assertEqual((answer["available"], answer["current"], answer["latest"], answer["url"]),
                              (False, __version__, None, None))
             self.assertTrue(answer["error"].startswith("No se pudo consultar GitHub: "), failure)
-            self.assertTrue(say.call_args.args[0].startswith("No se pudo buscar actualizaciones en GitHub: "), failure)
-            say.assert_called_once()
+            self.assertTrue(log.warning.call_args.args[0].startswith("No se pudo buscar actualizaciones en GitHub: "), failure)
+            self.assertEqual(len(log.method_calls), 1)
 
     def test_an_answer_is_kept_for_hours_and_a_forced_check_reuses_one_younger_than_a_minute(self):
         clock = [1000.0]
@@ -120,11 +120,14 @@ class InstallTest(unittest.TestCase):
         patches = [patch.object(up.sys, "prefix", self.prefix), patch.object(up, "find", return_value=self.uv),
                    patch.object(up, "update_skills", return_value=""),
                    patch.object(up.threading, "Timer"), patch.object(up.process, "hold"),
-                   patch.object(up.process, "release"), patch.object(up, "say")]
-        self.skills, self.timer, self.hold, self.release, self.say = [p.start() for p in patches][2:]
+                   patch.object(up.process, "release"), patch.object(up, "log")]
+        self.skills, self.timer, self.hold, self.release, self.log = [p.start() for p in patches][2:]
         for p in patches:
             self.addCleanup(p.stop)
         self.addCleanup(lambda: up._installing.locked() and up._installing.release())
+
+    def logged(self):
+        return [(level, *args) for level, args, _ in self.log.method_calls]
 
     def with_receipt(self, text):
         with open(os.path.join(self.prefix, up.RECEIPT), "w", encoding="utf-8") as f:
@@ -179,11 +182,9 @@ class InstallTest(unittest.TestCase):
             with patch.object(up, "find", return_value=claude), self.uv_answers(*answers):
                 self.assertEqual(self.update_skills(), failure)
             self.assertEqual(len(self.runs), calls)
-            if failure:
-                self.say.assert_called_once_with(f"No se pudieron actualizar las skills de Claude Code: {failure}")
-            else:
-                self.say.assert_not_called()
-            self.say.reset_mock()
+            logged = [("warning", f"No se pudieron actualizar las skills de Claude Code: {failure}")] if failure else []
+            self.assertEqual(self.logged(), logged)
+            self.log.reset_mock()
         self.runs = []
         with patch.object(up, "find", return_value=self.uv) as find, self.uv_answers(listed, Ran()):
             self.update_skills()
@@ -229,7 +230,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(kwargs, {"env": dict(os.environ, UV_TOOL_DIR=self.tools), "capture_output": True, "text": True,
                                   "timeout": up.INSTALL_TIMEOUT})
         up.find.assert_called_with("uv")
-        self.say.assert_called_once_with(f"Actualización instalada en {self.installed}: reiniciando…")
+        self.assertEqual(self.logged(), [("info", f"Actualización instalada en {self.installed}: reiniciando…")])
         self.hold.assert_called_once_with()
         self.release.assert_not_called()
         self.timer.assert_called_once_with(up.RESTART_DELAY, up.process.restart, [["--host", "0.0.0.0"], self.installed])
@@ -254,7 +255,8 @@ class InstallTest(unittest.TestCase):
             with self.uv_answers(*answers, creates=creates):
                 status, body = up.install([], 8931)
             self.assertEqual((status, body), (502, {"error": f"uv no pudo instalarla: {said}"}))
-            self.say.assert_called_with(f"uv no pudo instalar la actualización: {said}")
+            self.assertEqual(self.logged(), [("error", f"uv no pudo instalar la actualización: {said}")])
+            self.log.reset_mock()
             self.release.assert_called_once_with()
             self.release.reset_mock()
             self.timer.assert_not_called()
@@ -286,14 +288,14 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs, {"env": os.environ, "creationflags": up.WINDOWS_DETACHED,
                                                   "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
                                                   "stderr": subprocess.DEVNULL, "close_fds": True})
-        self.say.assert_called_once_with("Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")
+        self.assertEqual(self.logged(), [("info", "Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")])
         self.timer.assert_called_once_with(up.RESTART_DELAY, os._exit, [0])
 
     def test_the_helper_starts_the_new_dashboard_or_the_old_one_if_uv_failed(self):
         plan = {"command": [self.uv, "tool", "install"], "env": {"UV_TOOL_DIR": self.tools}, "port": 8931,
                 "new": [self.installed, "-c", "new"], "old": ["old-python", "-c", "old"]}
-        said = ("Actualización instalada: arranca la versión nueva",
-                "uv no pudo instalar la actualización: boom. Vuelve a arrancar la versión anterior")
+        said = (("info", "Actualización instalada: arranca la versión nueva"),
+                ("error", "uv no pudo instalar la actualización: boom. Vuelve a arrancar la versión anterior"))
         for answer, started, updated, words in ((Ran(), plan["new"], "1", said[0]),
                                                 (Ran(1, stderr="boom"), plan["old"], None, said[1])):
             self.runs = []
@@ -302,7 +304,8 @@ class InstallTest(unittest.TestCase):
                 up.finish(plan)
             port.assert_called_once_with(8931, up.HANDOVER_GRACE)
             self.assertEqual(self.runs[0][1]["env"], dict(os.environ, UV_TOOL_DIR=self.tools))
-            self.say.assert_called_with(words)
+            self.assertEqual(self.logged(), [words])
+            self.log.reset_mock()
             self.assertEqual(popen.call_args.args[0], started)
             self.assertEqual(popen.call_args.kwargs["env"].get(up.process.UPDATED_ENV), updated)
             self.assertEqual(popen.call_args.kwargs["env"]["UV_TOOL_DIR"], self.tools)

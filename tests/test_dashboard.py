@@ -11,7 +11,7 @@ from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from helpers import CONFIG, temp_state
+from helpers import CONFIG, logged, temp_state
 from odoo_wrapper import dashboard as d
 from odoo_wrapper import cli, lan, process as pr, server as sv
 
@@ -39,20 +39,21 @@ class MainTest(unittest.TestCase):
 
     def main(self, *argv):
         out = io.StringIO()
-        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out):
+        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), logged(out):
             d.main()
         return out.getvalue()
 
     def fails(self, *argv, code=1):
         out = io.StringIO()
-        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), self.assertRaises(SystemExit) as caught:
+        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), logged(out), \
+                self.assertRaises(SystemExit) as caught:
             d.main()
         self.assertEqual(caught.exception.code, code)
         return out.getvalue()
 
     def test_loopback_only(self):
         out = self.main("--host", "127.0.0.1")
-        self.assertIn("http://localhost:8931/", out)
+        self.assertEqual(out, "INFO Dashboard en http://localhost:8931/ (Ctrl+C para parar)\n")
         self.assertNotIn("móvil", out)
         self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
         self.server.serve_forever.assert_called_once()
@@ -65,8 +66,7 @@ class MainTest(unittest.TestCase):
     def test_serves_the_whole_lan_over_tls_by_default(self):
         plain = self.server.socket
         out = self.main()
-        self.assertIn("https://mac.local:8443/", out)
-        self.assertIn("https://10.0.0.2:8443/", out)
+        self.assertIn("INFO Móvil: escucha en https://mac.local:8443/ y https://10.0.0.2:8443/\n", out)
         self.mocks["cert"].assert_called_once()
         self.mocks["ssl"].SSLContext.return_value.load_cert_chain.assert_called_once_with("c.pem", "k.pem")
         self.assertEqual(self.mocks["server"].call_args_list[1].args, (("0.0.0.0", lan.TLS_PORT), sv.Handler))
@@ -82,12 +82,12 @@ class MainTest(unittest.TestCase):
             {"target": pr.watch_sources, "args": (lan.net_identity,), "daemon": True},
             {"target": cli.keep_alive, "daemon": True},
         ])
-        self.assertIn("Para entrar desde él, pulsa «Emparejar móvil» en http://localhost:8931/", out)
+        self.assertIn("INFO Para entrar desde él, pulsa «Emparejar móvil» en http://localhost:8931/\n", out)
 
     def test_without_a_certificate_it_stays_on_this_machine(self):
         self.mocks["cert"].return_value = None
         out = self.main()
-        self.assertIn(" Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador\n", out)
+        self.assertIn("WARNING Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador\n", out)
         self.assertNotIn("escucha en https://", out)
         self.mocks["server"].assert_called_once_with(("127.0.0.1", sv.PORT), sv.Handler)
         self.mocks["ssl"].SSLContext.assert_not_called()
@@ -109,10 +109,10 @@ class MainTest(unittest.TestCase):
 
     def test_refuses_a_busy_port(self):
         self.mocks["port_taken"].return_value = True
-        self.assertEqual(self.fails(), "ERROR: ya hay un dashboard escuchando en http://localhost:8931/\nRecarga esa página; "
+        self.assertEqual(self.fails(), "ERROR Ya hay un dashboard escuchando en http://localhost:8931/. Recarga esa página; "
                                        "para aplicar cambios de código basta con guardarlos (se reinicia solo).\n")
         self.mocks["port_taken"].side_effect = [False, True]
-        self.assertIn("8443", self.fails("--host", "0.0.0.0"))
+        self.assertEqual(self.fails("--host", "0.0.0.0"), "ERROR El puerto 8443 ya está ocupado por otro proceso\n")
 
     def test_autostart_switches_and_says_what_it_did(self):
         with patch.object(d.autostart, "set_autostart") as switch:
@@ -138,18 +138,18 @@ class MainTest(unittest.TestCase):
             out = self.main()
             self.assertNotIn(pr.UPDATED_ENV, os.environ)
         follow.assert_called_once_with()
-        self.assertIn(f"Actualizado a la versión {d.__version__}", out)
+        self.assertIn(f"INFO Actualizado a la versión {d.__version__}", out)
         with patch.object(d.autostart, "follow") as follow:
             self.main()
         follow.assert_not_called()
         for error in (PermissionError("plist"), d.subprocess.CalledProcessError(1, ["systemctl"])):
             with patch.dict(os.environ, {pr.UPDATED_ENV: "1"}), patch.object(d.autostart, "follow", side_effect=error):
-                self.assertIn(f"No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
+                self.assertIn(f"WARNING No se pudo mover el arranque al iniciar sesión a esta instalación: {error}. "
                               "Ejecuta odoo-dashboard --autostart on\n", self.main())
 
     def test_host_flag_needs_a_value(self):
         self.assertEqual(self.fails("--host"),
-                         "ERROR: --host necesita una dirección (127.0.0.1 para no salir de este ordenador)\n")
+                         "ERROR --host necesita una dirección (127.0.0.1 para no salir de este ordenador)\n")
         self.server.serve_forever.assert_not_called()
 
     def test_a_restart_child_waits_for_the_ports(self):
@@ -168,7 +168,7 @@ class MainTest(unittest.TestCase):
     def test_unconfigured_still_starts_and_says_where_to_log_in(self):
         self.mocks["read_config"].return_value = {}
         out = self.main("--host", "0.0.0.0")
-        self.assertIn("Sin configurar: abre http://localhost:8931/", out)
+        self.assertIn("INFO Sin configurar: abre http://localhost:8931/", out)
         self.server.serve_forever.assert_called_once()
 
     def test_module_entry_point(self):
@@ -179,7 +179,7 @@ class MainTest(unittest.TestCase):
         sock.connect_ex.return_value = 61
         with patch.object(sys, "argv", ["dash", "--host", "127.0.0.1"]), patch.object(sys, "stdout", tty), patch.object(socket, "socket", return_value=sock), \
                 patch("http.server.ThreadingHTTPServer") as server, patch("odoo_wrapper.client.read_config", return_value=CONFIG), \
-                patch.object(threading, "Thread") as thread, patch.dict(sys.modules):
+                patch.object(threading, "Thread") as thread, patch.dict(sys.modules), logged():
             del sys.modules["odoo_wrapper.dashboard"]
             runpy.run_module("odoo_wrapper.dashboard", run_name="__main__")
         server.return_value.serve_forever.assert_called_once()
