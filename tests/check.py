@@ -5,7 +5,9 @@
 supports (MIN_PYTHON, read from .python-version, which pyproject.toml's requires-python must match; Ruff takes
 its target from requires-python itself), the same suite measuring every line and branch on COVERAGE_PYTHON (branches need 3.14),
 and the page's suite with its coverage under Node NODE_MIN or newer. Every step runs even after one fails, so a
-single run lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it before each commit.
+single run lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it before each commit, and
+the gate installs that hook itself (git's core.hooksPath) the first time it runs in a clone, so no clone goes
+without it.
 
 The tools come from uv at the versions pinned here: uvx for Ruff and mypy, `uv run` for each Python. Nothing is
 installed in the repo and nothing reaches the package, whose only requirement is still Python's standard
@@ -17,6 +19,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HOOKS = ".githooks"
 RUFF = "ruff@0.14.3"
 MYPY = "mypy@1.18.2"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
@@ -53,7 +56,19 @@ def run(name, command):
     return False
 
 
+def install_hook():
+    inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
+    hooks = subprocess.run(["git", "config", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True)
+    if inside.stdout.strip() == "true" and hooks.stdout.strip() != HOOKS:
+        subprocess.run(["git", "config", "core.hooksPath", HOOKS], cwd=ROOT, check=True)
+        print(f"hook installed: git runs {HOOKS}/pre-commit before each commit")
+
+
 def main():
+    try:
+        install_hook()
+    except OSError:
+        print("FAIL hook: git is not installed")
     try:
         node = node_major()
     except (OSError, subprocess.CalledProcessError, ValueError):

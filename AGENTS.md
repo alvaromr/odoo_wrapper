@@ -148,12 +148,15 @@ A tag is never moved or reused; a broken release is fixed by the next one.
 
 ## How to verify changes
 
-Start with the gate, one command that needs uv and Node ≥ 22 and installs nothing in the repo:
+Start with the gate, one command that needs uv and Node ≥ 22 and installs nothing in the repo but its own
+pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
 python3 tests/check.py                   # Ruff, mypy, both suites, both coverages; its header lists each step
-git config core.hooksPath .githooks      # once per clone: the pre-commit hook runs the gate before each commit
 ```
+
+The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
+secret anywhere under the repo, a size cap for source files and every module named in the map above.
 
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
