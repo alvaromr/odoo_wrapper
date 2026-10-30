@@ -44,20 +44,21 @@ OPENSSL_CANDIDATES = (
     r"C:\Program Files\Git\usr\bin\openssl.exe",
     r"C:\Program Files\Git\mingw64\bin\openssl.exe",
 )
-RELAUNCH = "cierra el dashboard (Ctrl+C en la terminal donde se lanzó) y vuelve a lanzarlo"
 HOST_OPTION = (
-    "El dashboard se lanzó con la opción --host 127.0.0.1, que lo deja solo en este ordenador. "
-    f"Para usarlo desde el móvil, {RELAUNCH} sin esa opción."
+    "El dashboard se lanzó con la opción --host 127.0.0.1, que lo deja solo en este ordenador. Para usarlo "
+    "desde el móvil, cierra el dashboard (Ctrl+C en la terminal donde se lanzó) y vuelve a lanzarlo sin esa "
+    "opción."
 )
 NO_OPENSSL = (
     "Para que el móvil se conecte de forma segura hace falta el programa openssl, y este ordenador no lo "
     "tiene. En macOS viene con el sistema y, si falta, se instala con Homebrew («brew install openssl»); "
-    "en Windows lo incluye Git for Windows (git-scm.com); en Linux es el paquete openssl. "
-    f"Cuando esté instalado, {RELAUNCH}."
+    "en Windows lo incluye Git for Windows (git-scm.com); en Linux es el paquete openssl. Cuando esté "
+    "instalado, cierra el dashboard (Ctrl+C en la terminal donde se lanzó) y vuelve a lanzarlo."
 )
 CERT_FAILED = (
     "Para que el móvil se conecte de forma segura se crea un certificado con el programa openssl, y ha "
-    "fallado: {error}. Comprueba que funciona escribiendo «openssl version» en la terminal y después " + RELAUNCH + "."
+    "fallado: {error}. Comprueba que funciona escribiendo «openssl version» en la terminal y después cierra "
+    "el dashboard (Ctrl+C en la terminal donde se lanzó) y vuelve a lanzarlo."
 )
 log = logging.getLogger(__name__)
 _lan = {"off": HOST_OPTION}
