@@ -210,7 +210,7 @@ def notice_day(client, employee, iso):
         monday = team.monday_of(date.fromisoformat(iso))
     except (TypeError, ValueError):
         return None
-    found = next((e for e in team.fetch_team(client, monday)["employees"] if e["id"] == employee), None)
+    found = next((e for e in team.fetch_team(client, (monday,))["employees"] if e["id"] == employee), None)
     return next((d for d in found["days"] if d["date"] == iso), None) if found else None
 
 
@@ -262,12 +262,19 @@ def send_test(client):
     return 200, {"ok": True}
 
 
+def unfit_message(employee, text):
+    if type(employee) is not int:
+        return f"Empleado no válido: {employee}"
+    if not isinstance(text, str) or not text.strip():
+        return "El mensaje no tiene texto"
+    return ""
+
+
 def message_employee(client, body):
     employee, text = body.get("employee"), body.get("text")
-    if type(employee) is not int:
-        return 400, {"error": f"Empleado no válido: {employee}"}
-    if not isinstance(text, str) or not text.strip():
-        return 400, {"error": "El mensaje no tiene texto"}
+    unfit = unfit_message(employee, text)
+    if unfit:
+        return 400, {"error": unfit}
     user = discord_id(client, employee)
     if not user:
         return 409, {"error": "Su ficha de Odoo no tiene un ID de Discord numérico"}

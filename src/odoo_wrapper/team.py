@@ -120,9 +120,14 @@ def year_span(year):
     return monday, (monday_of(stop - timedelta(days=1)) - monday).days // 7 + 1, start, stop
 
 
-def fetch_team(client, monday, fresh=False, weeks=1, start=None, stop=None):
+def fetch_team(client, span, fresh=False):
+    monday, weeks, start, stop = period(*span)
     key = (client.session_id, monday.isoformat(), weeks, start and start.isoformat())
     return data.cached(key, fresh, lambda: build_team(client, monday, weeks, start, stop), data.VIEW_TTL)
+
+
+def period(monday, weeks=1, start=None, stop=None):
+    return monday, weeks, start, stop
 
 
 def fetch_year(client, year, fresh=False):
@@ -250,7 +255,8 @@ def requests_to_approve(client, employee_id):
     return [r for r in fetch_requests(client, [user[0]], states=("pending",)) if r["can_approve"]] if user else []
 
 
-def day_row(day, target, absence, sessions, requests, today):
+def day_row(day, target, absence, punches, today):
+    sessions, requests = punches
     mine = [s for s in sessions if s["in"][:10] == day.isoformat()]
     requests = [r for r in requests if r["from"][:10] == day.isoformat()]
     past = day < today
@@ -308,7 +314,9 @@ def week_row(monday, days, schedule, today):
     }
 
 
-def employee_row(employee, schedule_on, absences, sessions, requests, monday, today, weeks=1, start=None, stop=None):
+def employee_row(employee, schedule_on, punches, span, today):
+    absences, sessions, requests = punches
+    monday, weeks, start, stop = period(*span)
     full = {a["date"]: a["type"] for a in absences if "hours" not in a}
     partial: dict = {}
     for a in absences:
@@ -328,7 +336,7 @@ def employee_row(employee, schedule_on, absences, sessions, requests, monday, to
         day_schedule = schedule_on(iso)
         expected = day_schedule["hours"][day.weekday()] if day_schedule else 0
         target = 0 if iso in full or iso < employee["since"] else max(0, expected - partial.get(iso, 0))
-        days.append(day_row(day, target, full.get(iso), sessions_on.get(iso, []), requests_on.get(iso, []), today))
+        days.append(day_row(day, target, full.get(iso), (sessions_on.get(iso, []), requests_on.get(iso, [])), today))
     week_rows = [week_row(monday + timedelta(weeks=w), days[7 * w : 7 * w + 7], schedule, today) for w in range(weeks)]
     start, stop = (start or monday).isoformat(), (stop or monday + timedelta(weeks=weeks)).isoformat()
     inside = [d for d in days if start <= d["date"] < stop]
@@ -452,7 +460,11 @@ def build_team(client, monday, weeks=1, start=None, stop=None):
         ]
         mine = [r for r in requests if user_of[employee["id"]] and r["user"] == user_of[employee["id"]]]
         return employee_row(
-            employee, lambda iso: schedules.get(pick(iso)), absences, sessions, mine, monday, today, weeks, start, stop
+            employee,
+            lambda iso: schedules.get(pick(iso)),
+            (absences, sessions, mine),
+            (monday, weeks, start, stop),
+            today,
         )
 
     return {

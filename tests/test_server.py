@@ -465,15 +465,15 @@ class HandlerTest(unittest.TestCase):
                 self.get("/api/team?week=2026-09-24&fresh")[:3:2],
                 (200, {"ok": 1, "can_edit": True, "can_message": False}),
             )
-            fetch.assert_called_with(client.return_value, sv.date(2026, 9, 21), True)
+            fetch.assert_called_with(client.return_value, (sv.date(2026, 9, 21),), True)
             client.assert_called_with("sid")
             c.write_private(sv.discord.TOKEN_FILE, "tok")
             self.assertIs(self.get("/api/team?week=2026-09-24")[2]["can_message"], True)
             self.get("/api/team")
-            fetch.assert_called_with(client.return_value, sv.team.monday_of(sv.date.today()), False)
+            fetch.assert_called_with(client.return_value, (sv.team.monday_of(sv.date.today()),), False)
             self.get("/api/team?month=2026-09")
             fetch.assert_called_with(
-                client.return_value, sv.date(2026, 8, 31), False, 5, sv.date(2026, 9, 1), sv.date(2026, 10, 1)
+                client.return_value, (sv.date(2026, 8, 31), 5, sv.date(2026, 9, 1), sv.date(2026, 10, 1)), False
             )
         self.assertEqual(self.get("/api/team?month=2026-13")[0], 400)
         self.assertEqual(self.get("/api/team?year=dos")[0], 400)

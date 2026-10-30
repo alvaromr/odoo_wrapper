@@ -96,6 +96,7 @@ API
   session's own user a test message.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -137,6 +138,10 @@ PAGES = {
 SCRIPTS = f"{process.TEMPLATES}/js"
 MANIFEST = f"{process.TEMPLATES}/manifest.json"
 ICON = f"{process.TEMPLATES}/icon.svg"
+FILES = {
+    "/manifest.json": (MANIFEST, "application/manifest+json; charset=utf-8"),
+    "/icon.svg": (ICON, "image/svg+xml"),
+}
 COOKIE_NAME = "odoo_dash"
 DEVICE_COOKIE = "odoo_td"
 COOKIE_MAX_AGE = {COOKIE_NAME: 60 * 60 * 24 * 400, DEVICE_COOKIE: 60 * 60 * 24 * 90}
@@ -241,6 +246,13 @@ def spend_pairing(token):
     return pairing[0] if pairing and pairing[1] >= time.monotonic() else ""
 
 
+def team_period(params):
+    year = int(params["year"]) if params.get("year") else None
+    if params.get("month"):
+        return year, team.month_span(date.fromisoformat(f"{params['month']}-01"))
+    return year, (team.monday_of(date.fromisoformat(params["week"]) if params.get("week") else date.today()),)
+
+
 def revoke_pairings(session_id):
     for token in [token for token, (owner, _) in list(_pairings.items()) if owner == session_id]:
         _pairings.pop(token, None)  # pragma: no mutate - as in new_pairing()
@@ -313,115 +325,106 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get(self):
         self.path, _, query = self.path.partition("?")
+        asset = self._asset()
+        if asset:
+            with open(asset[0], "rb") as f:
+                self._send(200, f.read(), asset[1])
+            return
+        self._route(GET_ROUTES, query)
+
+    def _asset(self):
+        name = self.path[1:]
         if self.path in PAGES:
-            page = PAGES[self.path] if session_cookie(self.headers) else LOGIN_TEMPLATE
-            with open(page, "rb") as f:
-                self._send(200, f.read(), "text/html; charset=utf-8")
-        elif self.path.endswith(".css") and self.path[1:] in os.listdir(process.TEMPLATES):
-            with open(os.path.join(process.TEMPLATES, self.path[1:]), "rb") as f:
-                self._send(200, f.read(), "text/css; charset=utf-8")
-        elif self.path == "/manifest.json":
-            with open(MANIFEST, "rb") as f:
-                self._send(200, f.read(), "application/manifest+json; charset=utf-8")
-        elif self.path == "/icon.svg":
-            with open(ICON, "rb") as f:
-                self._send(200, f.read(), "image/svg+xml")
-        elif self.path == "/pair":
-            session_id = spend_pairing(dict(parse_qsl(query)).get("t"))
-            cookies = [(COOKIE_NAME, session_id)] if session_id else []
-            self._send(303, b"", "text/plain", cookies=cookies, location="/" if session_id else "/login")
-        elif self.path.startswith("/js/") and self.path[4:] in os.listdir(SCRIPTS):
-            with open(os.path.join(SCRIPTS, self.path[4:]), "rb") as f:
-                self._send(200, f.read(), "text/javascript; charset=utf-8")
-        elif self.path == "/api/version":
-            self._send(200, {"version": process.source_version()})
-        elif self.path == "/api/config":
-            config, local = read_config(), self._local()
-            shown = CONFIG_KEYS if local else ()
-            self._send(200, dict({key: config.get(key, "") for key in shown}, configured=bool(config), local=local))
-        elif self.path == "/api/state":
-            if not self._authorized():
-                self._send(401, {"error": "no autorizado"})
-                return
-            self._send(200, state.read_state(_sessions[self.session]))
-        elif self.path == "/api/request":
-            if not self._authorized():
-                self._send(401, {"error": "no autorizado"})
-                return
-            self._send(*discord.own_request(new_client(self.session), dict(parse_qsl(query)).get("date")))
-        elif self.path == "/api/update":
-            if not self._authorized():
-                self._send(401, {"error": "no autorizado"})
-                return
-            answer = updates.check("fresh" in dict(parse_qsl(query, keep_blank_values=True)))
-            self._send(200, dict(answer, local=self._local(), how=updates.how()))
-        elif self.path == "/api/data":
-            if not self._authorized():
-                self._send(401, {"error": "no autorizado"})
-                return
-            params = dict(parse_qsl(query, keep_blank_values=True))
-            employee = params.get("employee")
-            if not employee:
-                client = new_client(self.session)
-                payload = data.fetch_data(client, fresh="fresh" in params)
-                self._send(
-                    200,
-                    dict(
-                        payload,
-                        phone=lan.phone_access(),
-                        state=state.read_state(client.uid),
-                        can_edit=bool(payload.get("team")) and edits_punches(client),
-                    ),
-                )
-                return
-            if not employee.isdigit():
-                self._send(400, {"error": f"Empleado no válido: {employee}"})
-                return
-            client = new_client(self.session)
-            if not sees_others(client):
-                self._send(403, {"error": NOT_TEAM})
-                return
-            payload = data.fetch_data(client, fresh="fresh" in params, employee=int(employee))
-            self._send(
-                200,
-                dict(
-                    payload,
-                    phone=None,
-                    state=state.OTHER_STATE,
-                    can_edit=edits_punches(client),
-                    requests=team.requests_to_approve(client, int(employee)),
-                ),
-            )
-        elif self.path == "/api/team":
-            if not self._authorized():
-                self._send(401, {"error": "no autorizado"})
-                return
-            params = dict(parse_qsl(query, keep_blank_values=True))
-            try:
-                year = int(params["year"]) if params.get("year") else None
-                if params.get("month"):
-                    span = team.month_span(date.fromisoformat(f"{params['month']}-01"))
-                else:
-                    span = (team.monday_of(date.fromisoformat(params["week"]) if params.get("week") else date.today()),)
-            except ValueError:
-                period = params.get("year") or params.get("month") or params["week"]
-                self._send(400, {"error": f"Periodo no válido: {period}"})
-                return
-            client = new_client(self.session)
-            if not sees_others(client):
-                self._send(403, {"error": NOT_TEAM})
-                return
-            if year:
-                payload = team.fetch_year(client, year, "fresh" in params)
-                self._send(200, dict(payload, can_message=discord.configured()))
-                return
-            if "fixes" in params:
-                self._send(200, team.fetch_fixes(client, "fresh" in params))
-                return
-            payload = team.fetch_team(client, span[0], "fresh" in params, *span[1:])
-            self._send(200, dict(payload, can_edit=edits_punches(client), can_message=discord.configured()))
-        else:
+            return PAGES[self.path] if session_cookie(self.headers) else LOGIN_TEMPLATE, "text/html; charset=utf-8"
+        if name.endswith(".css") and name in os.listdir(process.TEMPLATES):
+            return os.path.join(process.TEMPLATES, name), "text/css; charset=utf-8"
+        if name.startswith("js/") and name[3:] in os.listdir(SCRIPTS):
+            return os.path.join(SCRIPTS, name[3:]), "text/javascript; charset=utf-8"
+        return FILES.get(self.path)
+
+    def _route(self, routes, argument):
+        route = routes.get(self.path)
+        if route is None:
             self._send(404, {"error": "not found"})
+        elif route[1] and not self._authorized():
+            self._send(401, {"error": "no autorizado"})
+        else:
+            route[0](self, argument)
+
+    def _pair(self, query):
+        session_id = spend_pairing(dict(parse_qsl(query)).get("t"))
+        cookies = [(COOKIE_NAME, session_id)] if session_id else []
+        self._send(303, b"", "text/plain", cookies=cookies, location="/" if session_id else "/login")
+
+    def _version(self, _query):
+        self._send(200, {"version": process.source_version()})
+
+    def _config(self, _query):
+        config, local = read_config(), self._local()
+        shown = CONFIG_KEYS if local else ()
+        self._send(200, dict({key: config.get(key, "") for key in shown}, configured=bool(config), local=local))
+
+    def _state(self, _query):
+        self._send(200, state.read_state(_sessions[self.session]))
+
+    def _request(self, query):
+        self._send(*discord.own_request(new_client(self.session), dict(parse_qsl(query)).get("date")))
+
+    def _update_check(self, query):
+        answer = updates.check("fresh" in dict(parse_qsl(query, keep_blank_values=True)))
+        self._send(200, dict(answer, local=self._local(), how=updates.how()))
+
+    def _data(self, query):
+        params = dict(parse_qsl(query, keep_blank_values=True))
+        if params.get("employee"):
+            self._someone_data(params)
+            return
+        client = new_client(self.session)
+        payload = data.fetch_data(client, fresh="fresh" in params)
+        own = {
+            "phone": lan.phone_access(),
+            "state": state.read_state(client.uid),
+            "can_edit": bool(payload.get("team")) and edits_punches(client),
+        }
+        self._send(200, dict(payload, **own))
+
+    def _someone_data(self, params):
+        employee = params["employee"]
+        if not employee.isdigit():
+            self._send(400, {"error": f"Empleado no válido: {employee}"})
+            return
+        client = new_client(self.session)
+        if not sees_others(client):
+            self._send(403, {"error": NOT_TEAM})
+            return
+        payload = data.fetch_data(client, fresh="fresh" in params, employee=int(employee))
+        someone = {
+            "phone": None,
+            "state": state.OTHER_STATE,
+            "can_edit": edits_punches(client),
+            "requests": team.requests_to_approve(client, int(employee)),
+        }
+        self._send(200, dict(payload, **someone))
+
+    def _team(self, query):
+        params = dict(parse_qsl(query, keep_blank_values=True))
+        try:
+            year, span = team_period(params)
+        except ValueError:
+            period = params.get("year") or params.get("month") or params["week"]
+            self._send(400, {"error": f"Periodo no válido: {period}"})
+            return
+        client = new_client(self.session)
+        fresh = "fresh" in params
+        if not sees_others(client):
+            self._send(403, {"error": NOT_TEAM})
+        elif year:
+            self._send(200, dict(team.fetch_year(client, year, fresh), can_message=discord.configured()))
+        elif "fixes" in params:
+            self._send(200, team.fetch_fixes(client, fresh))
+        else:
+            payload = team.fetch_team(client, span, fresh)
+            self._send(200, dict(payload, can_edit=edits_punches(client), can_message=discord.configured()))
 
     def _login(self, body):
         if not self._local():
@@ -460,13 +463,11 @@ class Handler(BaseHTTPRequestHandler):
             cookies.append((DEVICE_COOKIE, client.device))
         self._send(200, {"ok": True}, cookies=cookies)
 
-    def _logout(self):
+    def _logout(self, _body):
         session_id = session_cookie(self.headers)
         if session_id and read_config():
-            try:
+            with contextlib.suppress(SessionExpired):
                 new_client(session_id).logout()
-            except SessionExpired:
-                pass
         _sessions.pop(session_id, None)
         _rights.pop(session_id, None)
         revoke_pairings(session_id)
@@ -481,72 +482,80 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._send(400, {"error": "Cuerpo de la petición ilegible"})
             return
-        if self.path == "/api/login":
-            self._login(body)
+        self._route(POST_ROUTES, body)
+
+    def _save_state(self, body):
+        uid = _sessions[self.session]
+        changes = {}
+        for key, top in state.MINUTE_LIMITS.items():
+            if key in body:
+                if state.valid_minutes(body[key], None, top) is None:
+                    self._send(400, {"error": f"{key} fuera de rango: {body[key]}"})
+                    return
+                changes[key] = body[key]
+        if not state.window_ok({**state.read_state(uid), **changes}):
+            self._send(400, {"error": "El botón de comida tiene que aparecer antes de la hora en que desaparece"})
             return
-        if self.path == "/api/logout":
-            self._logout()
-            return
-        if not self._authorized():
-            self._send(401, {"error": "no autorizado"})
-            return
-        if self.path == "/api/state":
-            uid = _sessions[self.session]
-            changes = {}
-            for key, top in state.MINUTE_LIMITS.items():
-                if key in body:
-                    if state.valid_minutes(body[key], None, top) is None:
-                        self._send(400, {"error": f"{key} fuera de rango: {body[key]}"})
-                        return
-                    changes[key] = body[key]
-            if not state.window_ok({**state.read_state(uid), **changes}):
-                self._send(400, {"error": "El botón de comida tiene que aparecer antes de la hora en que desaparece"})
-                return
-            if "muted" in body:
-                changes["muted"] = bool(body["muted"])
-            self._send(200, state.write_state(uid, **changes))
-        elif self.path == "/api/pair":
-            phone = lan.phone_access()
-            if not self._local():
-                self._send(403, {"error": "Solo se empareja desde el propio ordenador"})
-            elif body.get("revoke"):
-                revoke_pairings(self.session)
-                self._send(200, {"ok": True})
-            elif "off" in phone:
-                self._send(409, {"error": phone["off"]})
-            else:
-                self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
-        elif self.path == "/api/attendance":
-            self._send(*data.punch(new_client(self.session), body.get("action")))
-        elif self.path == "/api/update":
-            if not self._local():
-                self._send(403, {"error": "Solo se actualiza desde el propio ordenador"})
-            else:
-                self._send(*updates.install(process.relaunch_args(), PORT))
-        elif self.path in (
-            "/api/team/attendance",
-            "/api/team/delete",
-            "/api/team/approve",
-            "/api/team/discord",
-            "/api/team/discord/token",
-            "/api/team/discord/test",
-        ):
-            client = new_client(self.session)
-            if not sees_others(client):
-                self._send(403, {"error": NOT_TEAM})
-            elif self.path == "/api/team/discord":
-                self._send(*discord.message_employee(client, body))
-            elif self.path == "/api/team/discord/token":
-                self._send(*discord.set_token(body.get("token")))
-            elif self.path == "/api/team/discord/test":
-                self._send(*discord.send_test(client))
-            elif self.path == "/api/team/approve":
-                self._send(*corrections.approve_request(client, body.get("id")))
-            elif not edits_punches(client):
-                self._send(403, {"error": NOT_EDITOR})
-            elif self.path == "/api/team/attendance":
-                self._send(*corrections.save_attendance(client, body))
-            else:
-                self._send(*corrections.delete_attendance(client, body.get("id")))
+        if "muted" in body:
+            changes["muted"] = bool(body["muted"])
+        self._send(200, state.write_state(uid, **changes))
+
+    def _pairing(self, body):
+        phone = lan.phone_access()
+        if not self._local():
+            self._send(403, {"error": "Solo se empareja desde el propio ordenador"})
+        elif body.get("revoke"):
+            revoke_pairings(self.session)
+            self._send(200, {"ok": True})
+        elif "off" in phone:
+            self._send(409, {"error": phone["off"]})
         else:
-            self._send(404, {"error": "not found"})
+            self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
+
+    def _punch(self, body):
+        self._send(*data.punch(new_client(self.session), body.get("action")))
+
+    def _update(self, _body):
+        if not self._local():
+            self._send(403, {"error": "Solo se actualiza desde el propio ordenador"})
+        else:
+            self._send(*updates.install(process.relaunch_args(), PORT))
+
+    def _for_team(self, body):
+        act, editor = TEAM_ACTIONS[self.path]
+        client = new_client(self.session)
+        if not sees_others(client):
+            self._send(403, {"error": NOT_TEAM})
+        elif editor and not edits_punches(client):
+            self._send(403, {"error": NOT_EDITOR})
+        else:
+            self._send(*act(client, body))
+
+
+TEAM_ACTIONS = {
+    "/api/team/discord": (lambda client, body: discord.message_employee(client, body), False),
+    "/api/team/discord/token": (lambda _client, body: discord.set_token(body.get("token")), False),
+    "/api/team/discord/test": (lambda client, _body: discord.send_test(client), False),
+    "/api/team/approve": (lambda client, body: corrections.approve_request(client, body.get("id")), False),
+    "/api/team/attendance": (lambda client, body: corrections.save_attendance(client, body), True),
+    "/api/team/delete": (lambda client, body: corrections.delete_attendance(client, body.get("id")), True),
+}
+GET_ROUTES = {
+    "/pair": (Handler._pair, False),
+    "/api/version": (Handler._version, False),
+    "/api/config": (Handler._config, False),
+    "/api/state": (Handler._state, True),
+    "/api/request": (Handler._request, True),
+    "/api/update": (Handler._update_check, True),
+    "/api/data": (Handler._data, True),
+    "/api/team": (Handler._team, True),
+}
+POST_ROUTES = {
+    "/api/login": (Handler._login, False),
+    "/api/logout": (Handler._logout, False),
+    "/api/state": (Handler._save_state, True),
+    "/api/pair": (Handler._pairing, True),
+    "/api/attendance": (Handler._punch, True),
+    "/api/update": (Handler._update, True),
+    **dict.fromkeys(TEAM_ACTIONS, (Handler._for_team, True)),
+}

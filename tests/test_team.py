@@ -418,7 +418,7 @@ class BuildTeamTest(unittest.TestCase):
         day = MONDAY + timedelta(days=1)
 
         def flags(*sessions):
-            return tm.day_row(day, 8, None, [dt.session_of(s, {}) for s in sessions], [], date.today())["flags"]
+            return tm.day_row(day, 8, None, ([dt.session_of(s, {}) for s in sessions], []), date.today())["flags"]
 
         self.assertEqual(flags(att(1, 1, (5, 0), (13, 0), 8.0)), [])
         self.assertEqual(flags(dict(att(1, 1, (16, 0), (23, 59), 8.0), check_out=at(2, 0, 1))), [])
@@ -446,7 +446,7 @@ class BuildTeamTest(unittest.TestCase):
     def test_a_short_day_is_no_flag_the_week_decides(self):
         day = MONDAY + timedelta(days=1)
         blip = [dt.session_of(att(1, 1, (9, 0), (9, 0), 0.001), {}), dt.session_of(att(1, 1, (9, 0), (15, 0), 6.0), {})]
-        self.assertEqual(tm.day_row(day, 8.5, None, blip, [], date.today())["flags"], [])
+        self.assertEqual(tm.day_row(day, 8.5, None, (blip, []), date.today())["flags"], [])
 
     def test_a_long_day_is_flagged_whatever_its_sessions(self):
         day = MONDAY + timedelta(days=1)
@@ -454,8 +454,8 @@ class BuildTeamTest(unittest.TestCase):
             dt.session_of(att(1, 1, (8, 44), (14, 43), 6.0), {}),
             dt.session_of(att(1, 1, (15, 7), (23, 45), 8.63), {}),
         ]
-        self.assertEqual(tm.day_row(day, 8.5, None, split, [], date.today())["flags"], ["long"])
-        self.assertEqual(tm.day_row(day, 8.5, None, split[:1], [], date.today())["flags"], [])
+        self.assertEqual(tm.day_row(day, 8.5, None, (split, []), date.today())["flags"], ["long"])
+        self.assertEqual(tm.day_row(day, 8.5, None, (split[:1], []), date.today())["flags"], [])
 
     def test_targets_follow_calendar_absences_and_partial_leaves(self):
         ana, carl = self.people["Ana"], self.people["Carl"]
@@ -476,7 +476,7 @@ class BuildTeamTest(unittest.TestCase):
         schedule = {"hours": [8] * 5 + [0, 0]}
         employee = {"id": 1, "name": "Ana", "since": "2000-01-01"}
         short_week = [dt.session_of(att(1, d, (8, 0), (15, 59), 7.98), {}) for d in range(5)]
-        row = tm.employee_row(employee, lambda iso: schedule, [], short_week, [], MONDAY, date.today())
+        row = tm.employee_row(employee, lambda iso: schedule, ([], short_week, []), (MONDAY,), date.today())
         self.assertEqual((row["target"], row["flags"]), (40, ["under"]))
 
     def test_a_week_holding_a_punch_error_is_not_judged(self):
@@ -490,14 +490,14 @@ class BuildTeamTest(unittest.TestCase):
         schedule = {"hours": [8] * 5 + [0, 0]}
         employee = {"id": 1, "name": "Ana", "since": "2000-01-01"}
         long_week = [dt.session_of(att(1, d, (8, 0), (17, 12), 9.2), {}) for d in range(5)]
-        row = tm.employee_row(employee, lambda iso: schedule, [], long_week, [], MONDAY, date.today())
+        row = tm.employee_row(employee, lambda iso: schedule, ([], long_week, []), (MONDAY,), date.today())
         self.assertEqual((row["hours"], row["target"], row["flags"]), (46.0, 40, ["over"]))
         fair = [dt.session_of(att(1, d, (8, 0), (17, 0), 9.0), {}) for d in range(5)]
         self.assertEqual(
-            tm.employee_row(employee, lambda iso: schedule, [], fair, [], MONDAY, date.today())["flags"], []
+            tm.employee_row(employee, lambda iso: schedule, ([], fair, []), (MONDAY,), date.today())["flags"], []
         )
         self.assertEqual(
-            tm.employee_row(employee, lambda iso: schedule, [], long_week, [], MONDAY, MONDAY)["flags"], []
+            tm.employee_row(employee, lambda iso: schedule, ([], long_week, []), (MONDAY,), MONDAY)["flags"], []
         )
 
     def test_without_a_calendar_nothing_is_expected_or_flagged(self):
@@ -867,13 +867,13 @@ class FetchTeamTest(unittest.TestCase):
         ) or len(calls)
         self.addCleanup(setattr, tm, "build_team", original)
         client = SimpleNamespace(session_id="sid")
-        self.assertEqual(tm.fetch_team(client, MONDAY), 1)
+        self.assertEqual(tm.fetch_team(client, (MONDAY,)), 1)
         self.assertEqual(calls, [("sid", MONDAY, 1)])
-        self.assertEqual(tm.fetch_team(client, MONDAY), 1)
-        self.assertEqual(tm.fetch_team(client, MONDAY + timedelta(days=7)), 2)
-        self.assertEqual(tm.fetch_team(client, MONDAY, fresh=True), 3)
-        self.assertEqual(tm.fetch_team(client, MONDAY, False, 5, MONDAY, MONDAY + timedelta(weeks=5)), 4)
-        self.assertEqual(tm.fetch_team(client, MONDAY, False, 5, MONDAY, MONDAY + timedelta(weeks=5)), 4)
+        self.assertEqual(tm.fetch_team(client, (MONDAY,)), 1)
+        self.assertEqual(tm.fetch_team(client, (MONDAY + timedelta(days=7),)), 2)
+        self.assertEqual(tm.fetch_team(client, (MONDAY,), fresh=True), 3)
+        self.assertEqual(tm.fetch_team(client, (MONDAY, 5, MONDAY, MONDAY + timedelta(weeks=5))), 4)
+        self.assertEqual(tm.fetch_team(client, (MONDAY, 5, MONDAY, MONDAY + timedelta(weeks=5))), 4)
 
     def test_each_view_is_kept_for_the_views_ttl_and_built_from_its_own_arguments(self):
         cached, built = [], []
@@ -892,7 +892,7 @@ class FetchTeamTest(unittest.TestCase):
             self.addCleanup(patcher.stop)
         client = ScriptedClient({"hr.attendance": [{"check_in": "2025-03-05 08:00:00"}]})
         start, stop = MONDAY + timedelta(days=1), MONDAY + timedelta(weeks=5)
-        tm.fetch_team(client, MONDAY, True, 5, start, stop)
+        tm.fetch_team(client, (MONDAY, 5, start, stop), True)
         tm.fetch_year(client, 2026, True)
         tm.fetch_fixes(client, True)
         self.assertEqual(
@@ -920,12 +920,12 @@ class RowRulesTest(unittest.TestCase):
     def test_a_day_rounds_to_hundredths_and_flags_at_the_edges(self):
         day = MONDAY
         session = {"in": f"{day}T08:00:00", "out": f"{day}T09:00:00", "hours": 1.2345}
-        row = tm.day_row(day, 7.4567, None, [session], [], day + timedelta(days=1))
+        row = tm.day_row(day, 7.4567, None, ([session], []), day + timedelta(days=1))
         self.assertEqual((row["hours"], row["target"], row["flags"]), (1.23, 7.46, []))
-        self.assertEqual(tm.day_row(day, 0.5, None, [], [], day + timedelta(days=1))["flags"], ["empty"])
-        self.assertEqual(tm.day_row(day, 0, None, [], [], day + timedelta(days=1))["flags"], [])
+        self.assertEqual(tm.day_row(day, 0.5, None, ([], []), day + timedelta(days=1))["flags"], ["empty"])
+        self.assertEqual(tm.day_row(day, 0, None, ([], []), day + timedelta(days=1))["flags"], [])
         exactly_long = dict(session, hours=tm.LONG_DAY)
-        self.assertEqual(tm.day_row(day, 8, None, [exactly_long], [], day)["flags"], [])
+        self.assertEqual(tm.day_row(day, 8, None, ([exactly_long], []), day)["flags"], [])
 
     def test_a_week_is_judged_once_it_is_over_and_flagged_at_the_edges_of_its_margins(self):
         days = [row_day(MONDAY + timedelta(days=i), hours) for i, hours in enumerate((8.0, 8.0, 8.0, 8.0, 8.0))]
@@ -986,12 +986,9 @@ class RowRulesTest(unittest.TestCase):
         row = tm.employee_row(
             {"id": 1, "name": "Ana", "since": "2025-03-04"},
             lambda iso: schedule,
-            leaves,
-            [],
-            [],
-            MONDAY,
+            (leaves, [], []),
+            (MONDAY, 3),
             MONDAY + timedelta(weeks=2),
-            weeks=3,
         )
         self.assertEqual([d["target"] for d in row["days"][:7]], [0, 8.5, 5.25, 8.5, 8.5, 0, 0])
         self.assertEqual([w["target"] for w in row["weeks"]], [30.75, 42.5, 42.5])

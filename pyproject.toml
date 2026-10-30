@@ -32,10 +32,14 @@ line-length = 120
 docstring-code-format = true
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "TID", "PLW1510"]
+select = ["E", "F", "W", "I", "UP", "B", "TID", "PLW1510", "PLR09"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+# A test helper takes one argument per thing a test may vary, defaulted, as a request's host, cookie and body.
+"tests/*" = ["PLR0913"]
 
 [tool.mypy]
 files = ["src/odoo_wrapper"]

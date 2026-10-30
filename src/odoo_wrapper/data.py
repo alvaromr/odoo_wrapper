@@ -342,35 +342,52 @@ def build_data(client, employee=None):
     }
 
 
+def punch_in(client, open_att, normal_id, _rest, _on_rest):
+    if open_att:
+        return "Ya hay un fichaje abierto"
+    client.punch(normal_id)
+    return ""
+
+
+def punch_break(client, open_att, _normal_id, rest, on_rest):
+    if not rest:
+        return "Este Odoo no tiene el motivo Descanso"
+    if not open_att:
+        return "No hay fichaje abierto"
+    if on_rest:
+        return "Ya estás en descanso"
+    client.punch()
+    client.punch(rest["id"])
+    return ""
+
+
+def punch_resume(client, open_att, normal_id, _rest, on_rest):
+    if not open_att or not on_rest:
+        return "No hay un descanso abierto"
+    client.punch()
+    client.punch(normal_id)
+    return ""
+
+
+def punch_out(client, open_att, _normal_id, _rest, _on_rest):
+    if not open_att:
+        return "No hay fichaje abierto"
+    client.punch()
+    return ""
+
+
+PUNCHES = {"checkin": punch_in, "checkout": punch_out, "break": punch_break, "resume": punch_resume, "lunch": punch_out}
+
+
 def punch(client, action):
-    if action not in ("checkin", "checkout", "break", "resume", "lunch"):
+    step = PUNCHES.get(action) if isinstance(action, str) else None
+    if step is None:
         return 400, {"error": f"Acción desconocida: {action}"}
     open_att = client.open_attendance()
     normal, rest = client.sign_in_reasons()
-    normal_id = normal and normal["id"]
-    open_is_rest = client.open_is_rest(open_att, rest)
-    if action == "checkin":
-        if open_att:
-            return 409, {"error": "Ya hay un fichaje abierto"}
-        client.punch(normal_id)
-    elif action == "break":
-        if not rest:
-            return 409, {"error": "Este Odoo no tiene el motivo Descanso"}
-        if not open_att:
-            return 409, {"error": "No hay fichaje abierto"}
-        if open_is_rest:
-            return 409, {"error": "Ya estás en descanso"}
-        client.punch()
-        client.punch(rest["id"])
-    elif action == "resume":
-        if not open_att or not open_is_rest:
-            return 409, {"error": "No hay un descanso abierto"}
-        client.punch()
-        client.punch(normal_id)
-    else:
-        if not open_att:
-            return 409, {"error": "No hay fichaje abierto"}
-        client.punch()
+    refused = step(client, open_att, normal and normal["id"], rest, client.open_is_rest(open_att, rest))
+    if refused:
+        return 409, {"error": refused}
     stamp = datetime.now().astimezone().isoformat()
     if action == "lunch":
         state.write_state(client.uid, lunch=stamp, lunch_done=True, punched_at=stamp)

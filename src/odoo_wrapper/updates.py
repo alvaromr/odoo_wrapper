@@ -216,7 +216,8 @@ def install(args, port):
         return 502, {"error": f"uv no responde: {error}"}
     skills = update_skills()
     if sys.platform == "win32":
-        return hand_over(command, folders, tools, args, port, skills)
+        hand_over(command, folders, tools, args, port)
+        return 202, {"ok": True, "skills": skills}
     process.hold()
     installed = interpreter(tools)
     failure = run_uv(command, env, installed)
@@ -230,7 +231,7 @@ def install(args, port):
     return 200, {"ok": True, "skills": skills}
 
 
-def hand_over(command, folders, tools, args, port, skills):
+def hand_over(command, folders, tools, args, port):
     plan = {
         "command": command,
         "env": folders,
@@ -246,7 +247,6 @@ def hand_over(command, folders, tools, args, port, skills):
     detach([base, "-c", helper, json.dumps(plan)], os.environ)
     log.info("Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")
     threading.Timer(RESTART_DELAY, os._exit, [0]).start()
-    return 202, {"ok": True, "skills": skills}
 
 
 def detach(command, env):

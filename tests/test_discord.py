@@ -355,7 +355,7 @@ class ProposalTest(unittest.TestCase):
         week = {"employees": [{"id": 7, "days": [{"date": "2026-10-19", "flags": ["long"]}]}]}
         with patch.object(dc.team, "fetch_team", return_value=week) as fetch:
             self.assertEqual(dc.notice_day("odoo", 7, "2026-10-19"), {"date": "2026-10-19", "flags": ["long"]})
-            fetch.assert_called_once_with("odoo", date(2026, 10, 19))
+            fetch.assert_called_once_with("odoo", (date(2026, 10, 19),))
             self.assertIsNone(dc.notice_day("odoo", 7, "2026-10-20"))
             self.assertIsNone(dc.notice_day("odoo", 8, "2026-10-19"))
         for bogus in (None, "ayer", 5):
