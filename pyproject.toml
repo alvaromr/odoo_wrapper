@@ -32,20 +32,28 @@ line-length = 120
 docstring-code-format = true
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "ARG", "PERF", "PL", "TID", "ERA", "C4", "DTZ", "LOG", "TC", "S"]
-# Every subprocess runs a fixed program with a list of arguments and no shell, and the system's own tools
-# (launchctl, systemctl, reg, scutil, openssl) are found on the PATH the system gives the session.
-ignore = ["S603", "S606", "S607"]
+select = [
+    "E", "F", "W", "I", "N", "UP", "B", "SIM", "ARG", "PERF", "PL", "TID", "ERA", "C4", "DTZ", "LOG", "TC", "S", "D",
+]
+# S603, S606, S607: every subprocess runs a fixed program with a list of arguments and no shell, and the system's
+# own tools (launchctl, systemctl, reg, scutil, openssl) are found on the PATH the system gives the session.
+# D105, D107: a class's docstring says what it is built from, and a dunder does what Python says it does.
+ignore = ["S603", "S606", "S607", "D105", "D107"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.ruff.lint.per-file-ignores]
+# Docstrings document the package's code: a test says what it checks in its name (D), and a launcher in its header.
 # A test helper takes one argument per thing a test may vary (PLR0913) and a test states the values it expects
 # (PLR2004); the stand-ins keep the signatures of what they replace (ARG), fixtures are wall-clock times in the
 # machine's zone as the user's are (DTZ), bind where the dashboard does (S104) and stop loops with sentinel
 # exceptions (N818).
-"tests/*" = ["PLR0913", "PLR2004", "ARG", "DTZ", "S104", "N818"]
+"tests/*" = ["D", "PLR0913", "PLR2004", "ARG", "DTZ", "S104", "N818"]
+"bin/*" = ["D"]
 # Odoo's errors read as what Odoo answered, as Odoo's own AccessDenied does, rather than as errors.
 "src/odoo_wrapper/client.py" = ["N818"]
 # Requests go to fixed https APIs (Discord, GitHub, Google) and to the Odoo the user signed in to.

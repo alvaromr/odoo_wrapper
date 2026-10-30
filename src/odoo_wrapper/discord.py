@@ -79,10 +79,11 @@ WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "do
 
 
 class DiscordError(Exception):
-    pass
+    """Discord refused or failed a call; the message is for the user."""
 
 
 def refusal(error):
+    """Return what a refusal from Discord means here, in the user's words."""
     try:
         answer = json.loads(error.read())
     except ValueError:
@@ -97,6 +98,7 @@ def refusal(error):
 
 
 def call(token, path, body=None):
+    """Call Discord's API as the bot and return its JSON answer, or raise DiscordError."""
     headers = {
         "Authorization": f"Bot {token}",  # pragma: no mutate - names ignore case
         "User-Agent": USER_AGENT,  # pragma: no mutate - as above
@@ -115,16 +117,19 @@ def call(token, path, body=None):
 
 
 def configured():
+    """Tell whether this machine has the bot's token."""
     return bool(read_private(TOKEN_FILE))
 
 
 def save_token(token):
+    """Save a token Discord accepts and return its bot's name."""
     bot = call(token, "/users/@me")
     write_private(TOKEN_FILE, token)
     return bot["username"]
 
 
 def set_token(token):
+    """Save the token the page sends and answer (status, payload)."""
     if not isinstance(token, str) or not token.strip():
         return 400, {"error": "Falta el token del bot"}
     try:
@@ -134,11 +139,13 @@ def set_token(token):
 
 
 def discord_id(client, employee_id):
+    """Return the numeric Discord id on an employee's form, or None."""
     user = team.discord_of(client, employee_id)
     return user if user and user.isdigit() else None
 
 
 def sender_id(client):
+    """Return the Discord id of the session's own employee, or None."""
     mine = client.call_kw(
         "hr.employee", "search_read", [[("user_id", "=", client.session_info()["uid"])]], {"fields": ["id"], "limit": 1}
     )
@@ -146,6 +153,7 @@ def sender_id(client):
 
 
 def request_link(client):
+    """Return the link to an empty change request in Odoo, or None without its category."""
     try:
         found = client.call_kw(
             "approval.category",
@@ -161,19 +169,23 @@ def request_link(client):
 
 
 def clock(moment):
+    """Return a time as HH:MM."""
     return moment.strftime("%H:%M")
 
 
 def day_name(moment):
+    """Return a day as its Spanish weekday and date."""
     return f"{WEEKDAYS[moment.weekday()]} {moment.strftime('%d/%m/%Y')}"
 
 
 def duration(hours):
+    """Return hours as 7h 30m, without a zero part."""
     h, m = divmod(round(hours * 60), 60)
     return " ".join(part for part in (f"{h}h" if h or not m else "", f"{m}m" if m else "") if part)
 
 
 def proposal(day):
+    """Return the start, end and reason a change request for a flagged day would carry, or None."""
     sessions, target, today = day["sessions"], day["target"], date.fromisoformat(day["date"])
     if {"open", "long"} & set(day["flags"]):
         wrong = next((s for s in sessions if not s["out"]), None) or max(sessions, key=lambda s: s["hours"])
@@ -202,10 +214,12 @@ def proposal(day):
 
 
 def odoo_utc(moment):
+    """Return a time as Odoo's UTC stamp."""
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def notice_day(client, employee, iso):
+    """Return an employee's day as the management view reads it from Odoo, or None."""
     try:
         monday = team.monday_of(date.fromisoformat(iso))
     except (TypeError, ValueError):
@@ -215,6 +229,7 @@ def notice_day(client, employee, iso):
 
 
 def prefilled_link(client, day):
+    """Return the link to a change request filled for a flagged day, or None when it cannot be made."""
     filled = proposal(day) if day else None
     if not filled:
         return None
@@ -231,6 +246,7 @@ def prefilled_link(client, day):
 
 
 def own_request(client, iso):
+    """Answer the link to the session's own change request for a day, filled when it can be."""
     client.load_employee()
     link = prefilled_link(client, notice_day(client, client.employee_id, iso)) or request_link(client)
     if not link:
@@ -239,6 +255,7 @@ def own_request(client, iso):
 
 
 def send(user_id, text, link=None):
+    """Send a private message from the bot, with a button to the link when there is one."""
     token = read_private(TOKEN_FILE)
     if not token:
         raise DiscordError("No hay bot de Discord en este equipo: guárdalo con odoo discord")
@@ -252,6 +269,7 @@ def send(user_id, text, link=None):
 
 
 def send_test(client):
+    """Send the session's own user a test message and answer (status, payload)."""
     me = sender_id(client)
     if not me:
         return 409, {"error": "No se encuentra tu ID de Discord en tu ficha de Odoo, o tu usuario no puede leerlo"}
@@ -263,6 +281,7 @@ def send_test(client):
 
 
 def unfit_message(employee, text):
+    """Say what is wrong with the employee or the text of a notice, or nothing."""
     if type(employee) is not int:
         return f"Empleado no válido: {employee}"
     if not isinstance(text, str) or not text.strip():
@@ -271,6 +290,7 @@ def unfit_message(employee, text):
 
 
 def message_employee(client, body):
+    """Send an employee the day dialog's notice, signed by the sender, and answer (status, payload)."""
     employee, text = body.get("employee"), body.get("text")
     unfit = unfit_message(employee, text)
     if unfit:

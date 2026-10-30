@@ -67,14 +67,17 @@ _data_cache: dict = {}
 
 
 def local(ts):
+    """Turn one of Odoo's UTC stamps into a time in the machine's zone."""
     return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone()
 
 
 def week_monday(dt):
+    """Return the midnight that starts a time's week."""
     return (dt - timedelta(days=dt.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def schedule_from(blocks):
+    """Return a calendar's hours and lunch start for each weekday, from its attendance blocks."""
     hours = [0.0] * 7
     lunch_from: list = [None] * 7
     spans: list = [[] for _ in range(7)]
@@ -102,6 +105,7 @@ def schedule_from(blocks):
 
 
 def fetch_schedule(client, calendar_id):
+    """Return a calendar's schedule, or None without a calendar."""
     if not calendar_id:
         return None
     blocks = client.call_kw(
@@ -114,6 +118,7 @@ def fetch_schedule(client, calendar_id):
 
 
 def holiday_rows(client, since, until, calendar_ids):
+    """Return the public holidays from since to until, of these calendars or of none in particular."""
     return client.call_kw(
         "resource.calendar.leaves",
         "search_read",
@@ -132,6 +137,7 @@ def holiday_rows(client, since, until, calendar_ids):
 
 
 def leave_rows(client, employee_ids, since, until):
+    """Return the approved leaves of these employees from since to until."""
     return client.call_kw(
         "hr.leave",
         "search_read",
@@ -159,6 +165,7 @@ def leave_rows(client, employee_ids, since, until):
 
 
 def absences_from(holidays, leaves):
+    """Return the weekdays off, whole or by hours, from holidays and leaves; a holiday wins over a leave."""
     absences = {}
     for h in holidays:
         d0, d1 = local(h["date_from"]).date(), local(h["date_to"]).date()
@@ -192,15 +199,18 @@ def absences_from(holidays, leaves):
 
 
 def fetch_absences(client, since, calendar_ids):
+    """Return the employee's absences since a day."""
     holidays = holiday_rows(client, since, None, calendar_ids)
     return absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
 
 
 def real_punch(record):
+    """Tell whether an attendance counts: open, or at least MIN_SESSION long."""
     return not record["check_out"] or record["worked_hours"] >= MIN_SESSION
 
 
 def session_of(record, reason_by_id):
+    """Return an attendance as the page's session: local times, hours and whether it is a break."""
     reason = next((reason_by_id[i] for i in record.get("attendance_reason_ids", []) if i in reason_by_id), None)
     return {
         "id": record.get("id"),
@@ -214,6 +224,7 @@ def session_of(record, reason_by_id):
 
 
 def cached(key, fresh, build, ttl=DATA_TTL):
+    """Return what build made for a key within ttl seconds, or build it again."""
     with _data_lock:
         hit = _data_cache.get(key)
         if not fresh and hit and time.monotonic() - hit[0] < ttl:
@@ -225,17 +236,20 @@ def cached(key, fresh, build, ttl=DATA_TTL):
 
 
 def fetch_data(client, fresh, employee=None):
+    """Return the personal page's payload, the session's own or an employee's, cached."""
     ttl = VIEW_TTL if employee else DATA_TTL
     return cached((client.session_id, employee), fresh, lambda: build_data(client, employee), ttl)
 
 
 def drop_data_cache(session_id=None):
+    """Forget the cached payloads of a session, or of every session."""
     with _data_lock:
         for key in [key for key in _data_cache if session_id in (None, key[0])]:
             del _data_cache[key]
 
 
 def fetch_contracts(client, ids, monday, end):
+    """Return the contracts in force between monday and end, by employee, or none if they cannot be read."""
     try:
         rows = client.call_kw(
             "hr.contract",
@@ -266,6 +280,7 @@ def fetch_contracts(client, ids, monday, end):
 
 
 def calendar_on(contracts, fallback):
+    """Return a function that gives the calendar in force on a day: its contract's, else the fallback."""
     if not contracts:
         return lambda _iso: fallback
 
@@ -277,10 +292,12 @@ def calendar_on(contracts, fallback):
 
 
 def contract_calendars(contracts):
+    """Return the calendars the contracts name."""
     return {c["resource_calendar_id"][0] for c in contracts if c["resource_calendar_id"]}
 
 
 def contract_hours(client, schedule, contracts, monday0, end):
+    """Return the days whose expected hours a contract's calendar sets apart from the employee's own."""
     pick = calendar_on(contracts, client.calendar_id)
     others = contract_calendars(contracts) - {client.calendar_id}
     schedules = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
@@ -299,6 +316,7 @@ def contract_hours(client, schedule, contracts, monday0, end):
 
 
 def build_data(client, employee=None):
+    """Read from Odoo everything the personal page shows: sessions, schedule, absences and contracts."""
     if employee:
         client.load_other(employee)
     else:
@@ -344,6 +362,7 @@ def build_data(client, employee=None):
 
 
 def punch_in(client, open_att, normal_id, _rest, _on_rest):
+    """Check in as normal work, or say why not."""
     if open_att:
         return "Ya hay un fichaje abierto"
     client.punch(normal_id)
@@ -351,6 +370,7 @@ def punch_in(client, open_att, normal_id, _rest, _on_rest):
 
 
 def punch_break(client, open_att, _normal_id, rest, on_rest):
+    """Check out and back in as a break, or say why not."""
     if not rest:
         return "Este Odoo no tiene el motivo Descanso"
     if not open_att:
@@ -363,6 +383,7 @@ def punch_break(client, open_att, _normal_id, rest, on_rest):
 
 
 def punch_resume(client, open_att, normal_id, _rest, on_rest):
+    """End a break: check out and back in as normal work, or say why not."""
     if not open_att or not on_rest:
         return "No hay un descanso abierto"
     client.punch()
@@ -371,6 +392,7 @@ def punch_resume(client, open_att, normal_id, _rest, on_rest):
 
 
 def punch_out(client, open_att, _normal_id, _rest, _on_rest):
+    """Check out, or say why not."""
     if not open_att:
         return "No hay fichaje abierto"
     client.punch()
@@ -381,6 +403,7 @@ PUNCHES = {"checkin": punch_in, "checkout": punch_out, "break": punch_break, "re
 
 
 def punch(client, action):
+    """Clock as the page's button asks, stamp the shared state and answer (status, payload)."""
     step = PUNCHES.get(action) if isinstance(action, str) else None
     if step is None:
         return 400, {"error": f"Acción desconocida: {action}"}

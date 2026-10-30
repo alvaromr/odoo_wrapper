@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""The attendance CLI, printing in Spanish:
-`odoo status|checkin|checkout|toggle|break|resume|history|notices|sheet|login`.
+"""The attendance CLI, in Spanish: `odoo status|checkin|checkout|toggle|break|resume|history|notices|sheet|login`.
 
 Run it with no arguments for usage. It keeps its own Odoo session in ~/.odoo_dashboard/cli_session, written
 by `odoo login`, which asks for the password on the terminal and never stores it; the dashboard's sessions
@@ -151,10 +150,12 @@ Ficheros, en {STATE_DIR}:
 
 
 def local_time(ts):
+    """Turn one of Odoo's UTC stamps into a time in the machine's zone."""
     return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone()
 
 
 def status(client):
+    """Print whether the user is clocked in and since when, or their last attendance."""
     open_att = client.open_attendance()
     if open_att:
         checkin_local = local_time(open_att["check_in"])
@@ -200,6 +201,7 @@ def status(client):
 
 
 def toggle(client):
+    """Clock in if out and out if in, and print the result."""
     open_att = client.open_attendance()
     normal, _ = client.sign_in_reasons()
     result = client.punch(None if open_att else (normal and normal["id"]))
@@ -220,6 +222,7 @@ def toggle(client):
 
 
 def check_in(client):
+    """Clock in as normal work, unless already in."""
     open_att = client.open_attendance()
     if open_att:
         print(
@@ -235,6 +238,7 @@ def check_in(client):
 
 
 def check_out(client):
+    """Clock out, unless already out."""
     open_att = client.open_attendance()
     if not open_att:
         print("No hay fichaje abierto. Usa 'checkin' para entrar.")
@@ -250,6 +254,7 @@ def check_out(client):
 
 
 def take_break(client):
+    """Clock out and back in as a break, when Odoo has the reason and the user is working."""
     open_att = client.open_attendance()
     _, rest = client.sign_in_reasons()
     if not rest:
@@ -269,6 +274,7 @@ def take_break(client):
 
 
 def resume(client):
+    """End a break: clock out and back in as normal work."""
     open_att = client.open_attendance()
     normal, rest = client.sign_in_reasons()
     if not client.open_is_rest(open_att, rest):
@@ -285,6 +291,7 @@ def resume(client):
 
 
 def history(client, days=7):
+    """Print the user's attendances of the last days, grouped by day, with each day's total."""
     client.load_employee()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     records = client.call_kw(
@@ -323,6 +330,7 @@ def history(client, days=7):
 
 
 def save_sheet(url):
+    """Save the id of the warnings spreadsheet from its address."""
     found = SHEET_URL.search(url)
     if not found:
         raise OdooError(f"«{url}» no es la dirección de una hoja de cálculo de Google")
@@ -330,6 +338,7 @@ def save_sheet(url):
 
 
 def saved_sheet():
+    """Return the saved spreadsheet's id, or raise saying how to save one."""
     saved = read_private(SHEET_FILE)
     if not saved:
         raise OdooError("No hay hoja de avisos guardada. Ejecuta: odoo sheet <dirección de la hoja>")
@@ -337,12 +346,14 @@ def saved_sheet():
 
 
 def sheet(url=None):
+    """Save the warnings spreadsheet when given its address, and print the one saved."""
     if url:
         save_sheet(url)
     print(saved_sheet())
 
 
 def ledger():
+    """Return the rows already written to each spreadsheet, by id."""
     try:
         return dict(json.loads(read_private(WRITTEN_FILE)))
     except (ValueError, TypeError):
@@ -350,10 +361,12 @@ def ledger():
 
 
 def sheet_rows(sheets, month):
+    """Return the rows of a year's tab, each as many cells as the notices have."""
     return [(row + [""] * SHEET_COLUMNS)[:SHEET_COLUMNS] for row in sheets.get(f"Avisos {month.year}!B4:E")]
 
 
 def add_notices(client, sheets, month):
+    """Append a month's notices so far that neither the tab nor the ledger has yet, and count them."""
     known = {(employee, day, kind) for employee, _, day, kind in sheet_rows(sheets, month)}
     book = ledger()
     written = book.setdefault(sheets.id, [])
@@ -380,6 +393,7 @@ def add_notices(client, sheets, month):
 
 
 def add_totals(sheets, month):
+    """Append each employee's count of notices in a month to the totals tab."""
     name = MONTHS[month.month - 1]
     counts = Counter(employee for employee, row_month, _, _ in sheet_rows(sheets, month) if row_month == name)
     sheets.append(f"{TOTALS_TAB}!B4:D", [[employee, count, name] for employee, count in sorted(counts.items())])
@@ -387,6 +401,7 @@ def add_totals(sheets, month):
 
 
 def notices(client, today):
+    """Bring the spreadsheet up to date: close last month once, with its totals, then add this month's notices."""
     if not read_private(SHEET_FILE) and sys.stdin and sys.stdin.isatty():
         save_sheet(ask("Dirección de la hoja de avisos"))
     sheets = Sheets(saved_sheet())
@@ -401,11 +416,13 @@ def notices(client, today):
 
 
 def ask(prompt, default=""):
+    """Ask on the terminal, offering a default."""
     answer = input(f"{prompt} [{default}]: " if default else f"{prompt}: ").strip()
     return answer or default
 
 
 def cli_login():
+    """Log in on the terminal, two-factor included, and save the CLI's session; never the password."""
     config = read_config()
     url = config.get("url") or ask("URL de Odoo")
     db = config.get("db") or ask("Base de datos")
@@ -423,6 +440,7 @@ def cli_login():
 
 
 def cli_client():
+    """Return a client on the CLI's saved session, or raise asking for a login."""
     config = load_config()
     session_id = read_private(CLI_SESSION_FILE)
     if not session_id:
@@ -431,6 +449,7 @@ def cli_client():
 
 
 def keep_alive():
+    """Touch the CLI's session now and then, from the dashboard, so Odoo does not let it expire."""
     while True:
         with contextlib.suppress(OdooError, OSError):
             cli_client().session_info()
@@ -448,11 +467,13 @@ COMMANDS = {
 
 
 def discord_bot():
+    """Ask for the Discord bot's token, save it and print the bot's name."""
     name = discord.save_token(getpass.getpass("Token del bot de Discord: ").strip())
     print(f"Bot «{name}» guardado en {discord.TOKEN_FILE}")
 
 
 def run(cmd):
+    """Run a command other than login."""
     if cmd == "sheet":
         sheet(*sys.argv[2:3])
         return
@@ -472,6 +493,7 @@ def run(cmd):
 
 
 def main():
+    """Run the command line's command, logging in again on a terminal if needed; a failure prints and exits 1."""
     if not sys.argv[1:] or sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)
         sys.exit(0)

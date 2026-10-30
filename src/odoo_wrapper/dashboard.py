@@ -96,11 +96,13 @@ log = logging.getLogger(__name__)
 
 
 def option(name):
+    """Return the value that follows a flag on the command line, or None."""
     index = sys.argv.index(name) + 1
     return sys.argv[index] if index < len(sys.argv) else None
 
 
 def switch_autostart(choice):
+    """Turn the login entry on or off, say so and exit."""
     if choice not in AUTOSTART_DONE:
         print("ERROR: --autostart necesita on u off")
         sys.exit(1)
@@ -114,6 +116,7 @@ def switch_autostart(choice):
 
 
 def follow_update():
+    """Log the update just installed and move the login entry to this install."""
     log.info(f"Actualizado a la versión {__version__}, en {sys.executable}")
     try:
         autostart.follow()
@@ -125,6 +128,7 @@ def follow_update():
 
 
 def main():
+    """Serve the dashboard on localhost and, with a certificate, on the LAN, until stopped."""
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
         print(USAGE)
         sys.exit(0)

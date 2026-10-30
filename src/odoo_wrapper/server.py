@@ -167,6 +167,7 @@ _login_lock = threading.Lock()
 
 
 def new_client(session_id):
+    """Return a client of the configured Odoo on a session, with its user if the server knows it."""
     config = load_config()
     client = OdooClient(config["url"], config["db"], session_id)
     client.uid = _sessions.get(session_id)
@@ -174,6 +175,7 @@ def new_client(session_id):
 
 
 def session_cookie(headers, name=COOKIE_NAME):
+    """Return a cookie of the request when it holds only session characters, else nothing."""
     sent = headers.get("Cookie")  # pragma: no mutate - header names ignore case
     morsel = SimpleCookie(sent).get(name)
     value = morsel.value if morsel else ""
@@ -181,6 +183,7 @@ def session_cookie(headers, name=COOKIE_NAME):
 
 
 def remembered(client, right):
+    """Return a session's right as Odoo last told it, asking again after SEES_TTL."""
     known = _rights.setdefault(client.session_id, {}).get(right)
     if known and time.monotonic() - known[0] < SEES_TTL:
         return known[1]
@@ -190,14 +193,17 @@ def remembered(client, right):
 
 
 def sees_others(client):
+    """Tell whether the session's user can read other people's attendances."""
     return remembered(client, "sees_others")
 
 
 def edits_punches(client):
+    """Tell whether the session's user can change other people's attendances."""
     return remembered(client, "edits_punches")
 
 
 def session_ok(session_id):
+    """Tell whether a session is alive in Odoo, remembering its user once it is."""
     if not session_id or not read_config():
         return False
     if session_id in _sessions:
@@ -212,12 +218,14 @@ def session_ok(session_id):
 
 
 def login_wait(ip):
+    """Return the seconds an address must still wait before trying to log in again."""
     with _login_lock:
         until = _login_fails[ip][1] if ip in _login_fails else 0
         return max(0, until - time.monotonic())
 
 
 def login_failed(ip):
+    """Count a failed login of an address and lock it out longer each time past LOGIN_TRIES."""
     with _login_lock:
         now = time.monotonic()
         fails, until = _login_fails.get(ip, (0, 0))  # pragma: no mutate - an unknown address counts 1 either way
@@ -227,11 +235,13 @@ def login_failed(ip):
 
 
 def login_succeeded(ip):
+    """Forget an address's failed logins."""
     with _login_lock:
         _login_fails.pop(ip, None)
 
 
 def new_pairing(session_id, base_url):
+    """Return a one-use link that gives a phone this session for PAIR_TTL seconds, with its QR."""
     now = time.monotonic()
     for token in [token for token, (_, until) in list(_pairings.items()) if until < now]:
         _pairings.pop(token, None)  # pragma: no mutate - only another request spending it at once would miss it
@@ -242,11 +252,13 @@ def new_pairing(session_id, base_url):
 
 
 def spend_pairing(token):
+    """Use up a pairing link and return its session, or nothing when it is unknown or late."""
     pairing = _pairings.pop(token, None)
     return pairing[0] if pairing and pairing[1] >= time.monotonic() else ""
 
 
 def team_period(params):
+    """Return the year asked for, if any, and the span of the month or week; raise ValueError on a bad one."""
     year = int(params["year"]) if params.get("year") else None
     if params.get("month"):
         return year, team.month_span(date.fromisoformat(f"{params['month']}-01"))
@@ -255,13 +267,16 @@ def team_period(params):
 
 
 def revoke_pairings(session_id):
+    """Drop every pairing link a session handed out."""
     for token in [token for token, (owner, _) in list(_pairings.items()) if owner == session_id]:
         _pairings.pop(token, None)  # pragma: no mutate - as in new_pairing()
 
 
 class Handler(BaseHTTPRequestHandler):
+    """One request: the same-site guard, then a page, a file or a route of the API."""
+
     def log_message(self, *args):
-        pass
+        """Keep the server's request log out of the dashboard's."""
 
     def _send(self, status, body, ctype="application/json; charset=utf-8", cookies=(), location=None):
         payload = body
@@ -319,9 +334,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": "Error interno del dashboard"})
 
     def do_GET(self):
+        """Answer a GET."""
         self._serve(self._get)
 
     def do_POST(self):
+        """Answer a POST."""
         self._serve(self._post)
 
     def _get(self):

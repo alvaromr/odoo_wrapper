@@ -29,11 +29,13 @@ STAMP = "%Y-%m-%d %H:%M:%S"
 
 
 def odoo_stamp(iso):
+    """Turn an ISO time with its zone, as the page sends it, into Odoo's UTC stamp."""
     aware = iso.replace("Z", "+00:00")  # pragma: no mutate - mutmut runs on 3.12, which reads Z itself; 3.9 needs this
     return datetime.fromisoformat(aware).astimezone(timezone.utc).strftime(STAMP)
 
 
 def lost_entry(client, employee_id, old_out, new_out):
+    """Return the old check-out, local, when shortening a punch past its day may lose that day's check-in, else None."""
     if not old_out or data.local(old_out).date() <= data.local(new_out).date():
         return None
     out = datetime.strptime(old_out, STAMP).replace(tzinfo=timezone.utc)
@@ -47,6 +49,7 @@ def lost_entry(client, employee_id, old_out, new_out):
 
 
 def save_attendance(client, body):
+    """Correct an attendance, or create one when the body has no id, and answer (status, payload)."""
     try:
         check_in, check_out = odoo_stamp(body["check_in"]), odoo_stamp(body["check_out"])
         record, employee = int(body.get("id") or 0), int(body.get("employee") or 0)
@@ -79,6 +82,7 @@ def save_attendance(client, body):
 
 
 def run_on(client, model, method, record_id, invalid):
+    """Call a method of Odoo on one record by its id and answer (status, payload)."""
     try:
         record = int(record_id)
     except (TypeError, ValueError):
@@ -94,8 +98,10 @@ def run_on(client, model, method, record_id, invalid):
 
 
 def approve_request(client, request_id):
+    """Approve a change request as the session's user."""
     return run_on(client, "approval.request", "action_approve", request_id, "Solicitud no válida")
 
 
 def delete_attendance(client, record_id):
+    """Delete an attendance for good."""
     return run_on(client, "hr.attendance", "unlink", record_id, "Fichaje no válido")

@@ -88,10 +88,12 @@ _last: dict = {"at": None, "answer": None}
 
 
 def numbers(version):
+    """Return a version, with or without its v, as a tuple of numbers to compare."""
     return tuple(int(part) for part in version.removeprefix("v").split("."))
 
 
 def latest():
+    """Return the version and page of the latest release on GitHub."""
     request = urllib.request.Request(
         LATEST,
         headers={
@@ -105,6 +107,7 @@ def latest():
 
 
 def ask():
+    """Ask GitHub whether a newer release is out, and answer with what the banner needs or why it failed."""
     try:
         version, url = latest()
         newer = numbers(version) > numbers(__version__)
@@ -121,6 +124,7 @@ def ask():
 
 
 def check(fresh=False):
+    """Return GitHub's last answer, asking again when it is older than CHECK_TTL, or FRESH_MIN when forced."""
     with _lock:
         age = time.monotonic() - _last["at"] if _last["at"] is not None else None
         if age is None or age >= (FRESH_MIN if fresh else CHECK_TTL):
@@ -129,6 +133,7 @@ def check(fresh=False):
 
 
 def find(program):
+    """Return a program's path: on the PATH, then where its installer puts it, else None."""
     name = f"{program}.exe" if sys.platform == "win32" else program
     home = os.path.expanduser("~")
     places = [os.path.join(home, *folder, name) for folder in HOMES] + [os.path.join(f, name) for f in SYSTEM_BINS]
@@ -136,6 +141,7 @@ def find(program):
 
 
 def update_skills():
+    """Update the Claude Code plugin when claude has it, and return why it failed, or nothing."""
     claude = find("claude")
     if not claude:
         return ""
@@ -155,6 +161,7 @@ def update_skills():
 
 
 def receipt():
+    """Return the uv receipt of the install running now, or nothing outside a uv tool."""
     try:
         with open(os.path.join(sys.prefix, RECEIPT), encoding="utf-8") as f:  # pragma: no mutate - UTF-8 here too
             return f.read()
@@ -163,12 +170,14 @@ def receipt():
 
 
 def how():
+    """Tell the page how this install is updated: auto, git or manual."""
     if "editable =" in receipt():
         return "git"
     return "auto" if find("uv") else "manual"
 
 
 def placement(found):
+    """Return the tools and commands folders a receipt names, for uv to install in the same place."""
     if not found:
         return {}
     commands = [json.loads(f'"{quoted}"') if quoted else literal for quoted, literal in INSTALL_PATH.findall(found)]
@@ -179,12 +188,14 @@ def placement(found):
 
 
 def interpreter(tools, windowed=False):
+    """Return where uv puts the tool's interpreter in a tools folder, on this system."""
     if sys.platform == "win32":
         return os.path.join(tools, TOOL, "Scripts", "pythonw.exe" if windowed else "python.exe")
     return os.path.join(tools, TOOL, "bin", "python")
 
 
 def run_uv(command, env, installed):
+    """Run uv's install and return what it printed when it failed, or nothing."""
     try:
         done = subprocess.run(command, check=False, env=env, capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as error:
@@ -195,6 +206,7 @@ def run_uv(command, env, installed):
 
 
 def install(args, port):
+    """Install the latest release with uv, update the skills and restart into it; answer (status, payload)."""
     if how() != "auto":
         return 409, {"error": "Esta instalación no se actualiza desde aquí: pídeselo a tu agente"}
     free = _installing.acquire(blocking=False)  # pragma: no mutate - None does not block either
@@ -232,6 +244,7 @@ def install(args, port):
 
 
 def hand_over(command, folders, tools, args, port):
+    """On Windows, leave the install to a detached helper and exit so it can replace the interpreter."""
     plan = {
         "command": command,
         "env": folders,
@@ -250,6 +263,7 @@ def hand_over(command, folders, tools, args, port):
 
 
 def detach(command, env):
+    """Start a process that outlives this one, with no console and no streams."""
     subprocess.Popen(
         command,
         env=env,
@@ -262,6 +276,7 @@ def detach(command, env):
 
 
 def finish(plan):
+    """The Windows helper: wait for the port, run uv, and start the new dashboard, or the old one if uv failed."""
     process.own_the_output()
     process.port_taken(plan["port"], HANDOVER_GRACE)
     env = {**os.environ, **plan["env"]}

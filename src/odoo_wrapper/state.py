@@ -49,19 +49,23 @@ _state_lock = threading.Lock()
 
 
 def today_iso():
+    """Return today's date in the machine's zone, as ISO."""
     return datetime.now().astimezone().date().isoformat()
 
 
 def valid_minutes(value, default, top=MINUTES_MAX):
+    """Return value if it is a whole number of minutes from 0 to top, else default."""
     ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= top
     return value if ok else default
 
 
 def window_ok(settings):
+    """Tell whether the lunch button appears before it disappears."""
     return settings["lunch_button_from"] < settings["lunch_button_to"]
 
 
 def read_users():
+    """Return every Odoo user's record in the state file, or none if it cannot be read."""
     try:
         with open(STATE_FILE) as f:
             raw = json.load(f)
@@ -71,6 +75,7 @@ def read_users():
 
 
 def read_settings(raw):
+    """Return the durations and lunch window of a record, each valid or its default."""
     settings = {key: valid_minutes(raw.get(key), default, MINUTE_LIMITS[key]) for key, default in SETTINGS.items()}
     if not window_ok(settings):
         settings.update(lunch_button_from=SETTINGS["lunch_button_from"], lunch_button_to=SETTINGS["lunch_button_to"])
@@ -78,6 +83,7 @@ def read_settings(raw):
 
 
 def read_state(uid):
+    """Return a user's state for today: lunch, mute, settings and the last punch's stamp."""
     raw = read_users().get(str(uid), {})
     started, muted, lunch_day, punched_at = (raw.get(k) for k in ("lunch", "muted", "lunch_day", "punched_at"))
     try:
@@ -95,6 +101,7 @@ def read_state(uid):
 
 
 def write_state(uid, **changes):
+    """Apply changes to a user's state, write the file privately and return the new state."""
     with _state_lock:
         current, users = read_state(uid), read_users()
         users[str(uid)] = {

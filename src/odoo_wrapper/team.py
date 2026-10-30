@@ -1,5 +1,4 @@
-"""The management view's payload: a week, a month or a year of every employee whose attendances the session can
-read, with the problems a reviewer looks for already flagged.
+"""The management view's payload: a week, month or year of everyone the session can read, with problems flagged.
 
 - A payload covers whole weeks, Monday to Sunday: one for the week view, every week touching the month or
   the year for the others (month_span, year_span), read from Odoo in one pass, one query per model, not a
@@ -97,40 +96,48 @@ DISCORD_LABEL = "discord"
 
 
 def hundredths(hours):
+    """Round hours to the hundredth the payload carries."""
     return round(hours, 2)
 
 
 def odoo_time(day):
+    """Return a day's local midnight as Odoo's UTC stamp."""
     return datetime.combine(day, time()).astimezone().astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def monday_of(day):
+    """Return the Monday of a day's week."""
     return day - timedelta(days=day.weekday())
 
 
 def month_span(first):
+    """Return the weeks touching a month, as Monday, count, first day and the next month's first."""
     stop = date(first.year + first.month // 12, first.month % 12 + 1, 1)
     monday = monday_of(first)
     return monday, (monday_of(stop - timedelta(days=1)) - monday).days // 7 + 1, first, stop
 
 
 def year_span(year):
+    """Return the weeks touching a year, as Monday, count, its first day and the next year's."""
     start, stop = date(year, 1, 1), date(year + 1, 1, 1)
     monday = monday_of(start)
     return monday, (monday_of(stop - timedelta(days=1)) - monday).days // 7 + 1, start, stop
 
 
 def fetch_team(client, span, fresh=False):
+    """Return the payload of a span of weeks, as from month_span or (monday,), cached for the view."""
     monday, weeks, start, stop = period(*span)
     key = (client.session_id, monday.isoformat(), weeks, start and start.isoformat())
     return data.cached(key, fresh, lambda: build_team(client, monday, weeks, start, stop), data.VIEW_TTL)
 
 
 def period(monday, weeks=1, start=None, stop=None):
+    """Return a span with its defaults: one week, counted whole."""
     return monday, weeks, start, stop
 
 
 def fetch_year(client, year, fresh=False):
+    """Return a year's payload, one row per month, cached for the view."""
     return data.cached(
         (client.session_id, "year", year),
         fresh,
@@ -140,6 +147,7 @@ def fetch_year(client, year, fresh=False):
 
 
 def month_row(month, employee, today):
+    """Return an employee's month: its own days' sums and the weeks whose Thursday falls in it."""
     days = [d for d in employee["days"] if d["date"][:7] == month]
     weeks = [
         w for w in employee["weeks"] if (date.fromisoformat(w["monday"]) + timedelta(days=3)).isoformat()[:7] == month
@@ -159,6 +167,8 @@ def month_row(month, employee, today):
 
 
 def fetch_fixes(client, fresh=False):
+    """Return every punch to fix since the first one in Odoo, by employee, cached for the view."""
+
     def build():
         first = client.call_kw(
             "hr.attendance",
@@ -174,6 +184,8 @@ def fetch_fixes(client, fresh=False):
 
 
 def fixes_payload(payload):
+    """Reduce a payload to the flagged days of each employee who has any."""
+
     def items(e):
         return [
             {
@@ -196,6 +208,7 @@ def fixes_payload(payload):
 
 
 def year_payload(payload, year):
+    """Turn a year of weeks into one row per month for each employee."""
     today = payload["generated_at"][:10]
     months = [f"{year}-{m:02d}" for m in range(1, 13)]
     return dict(
@@ -210,10 +223,12 @@ def year_payload(payload, year):
 
 
 def plain_text(markup):
+    """Return the text of Odoo's HTML, on one line."""
     return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", markup or "")).split())
 
 
 def fetch_requests(client, user_ids, monday=None, end=None, states=REQUEST_STATES):
+    """Return these users' attendance change requests, in a span when given, or none if they cannot be read."""
     span = [("date_start", ">=", odoo_time(monday)), ("date_start", "<", odoo_time(end))] if monday else []
     try:
         rows = client.call_kw(
@@ -251,11 +266,13 @@ def fetch_requests(client, user_ids, monday=None, end=None, states=REQUEST_STATE
 
 
 def requests_to_approve(client, employee_id):
+    """Return an employee's pending change requests the session's user may approve."""
     user = client.call_kw("hr.employee", "read", [[employee_id], ["user_id"]])[0]["user_id"]
     return [r for r in fetch_requests(client, [user[0]], states=("pending",)) if r["can_approve"]] if user else []
 
 
 def day_row(day, target, absence, punches, today):
+    """Return a day's hours, target, sessions, requests and flags: left open, not punched, too long."""
     sessions, requests = punches
     mine = [s for s in sessions if s["in"][:10] == day.isoformat()]
     requests = [r for r in requests if r["from"][:10] == day.isoformat()]
@@ -282,6 +299,7 @@ def day_row(day, target, absence, punches, today):
 
 
 def week_row(monday, days, schedule, today):
+    """Return a week's hours, target and balance, flagged under or over once it is over."""
     hours = hundredths(sum(d["hours"] for d in days))
     suspect = any("long" in d["flags"] for d in days)
     target: Optional[float] = None
@@ -315,6 +333,7 @@ def week_row(monday, days, schedule, today):
 
 
 def employee_row(employee, schedule_on, punches, span, today):
+    """Return an employee's days and weeks over a span, and the sums of the days between its start and stop."""
     absences, sessions, requests = punches
     monday, weeks, start, stop = period(*span)
     full = {a["date"]: a["type"] for a in absences if "hours" not in a}
@@ -360,6 +379,7 @@ def employee_row(employee, schedule_on, punches, span, today):
 
 
 def read_employees(client, ids, fields):
+    """Read employees with their Discord field when Odoo has it and lets it be read."""
     discord = client.field_named("hr.employee", DISCORD_LABEL)
     try:
         rows = client.call_kw("hr.employee", "read", [ids, fields + ([discord] if discord else [])])
@@ -373,10 +393,12 @@ def read_employees(client, ids, fields):
 
 
 def discord_of(client, employee_id):
+    """Return what an employee's Discord field holds, or None."""
     return read_employees(client, [employee_id], ["name"])[0]["discord"]
 
 
 def first_punches(client, ids):
+    """Return the Monday of each employee's first real punch, by id."""
     rows = client.call_kw(
         "hr.attendance",
         "read_group",
@@ -393,6 +415,7 @@ def first_punches(client, ids):
 
 
 def build_team(client, monday, weeks=1, start=None, stop=None):
+    """Read from Odoo, one query per model, every employee with attendances in the weeks, and their rows."""
     now = datetime.now().astimezone()
     today, end = now.date(), monday + timedelta(weeks=weeks)
     roster = client.call_kw(

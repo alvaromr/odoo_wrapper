@@ -1,5 +1,4 @@
-"""Google Sheets for the warnings spreadsheet: reading a range and appending rows to it, as the Google account
-the gws CLI is signed in with.
+"""Google Sheets for the warnings spreadsheet: reading a range and appending rows, as gws's Google account.
 
 - gws (googleworkspace/cli) is the one external tool this package runs, agreed as the exception to its «no
   dependencies» rule, and only `odoo notices` needs it. It is here for the part not worth writing again: the
@@ -40,10 +39,11 @@ HINTS = {
 
 
 class SheetsError(Exception):
-    pass
+    """A failure the user can act on, in their words."""
 
 
 def credentials():
+    """Return the client id, secret and refresh token gws holds for the Google account it is signed in with."""
     gws = shutil.which("gws")
     if not gws:
         raise SheetsError("Falta el programa gws, con el que se inicia sesión en Google")
@@ -55,6 +55,7 @@ def credentials():
 
 
 def send(opener, request):
+    """Make a request to Google and return its JSON answer; Google's own refusals are raised as they come."""
     try:
         with opener.open(request, timeout=TIMEOUT) as response:
             return json.load(response)
@@ -67,6 +68,7 @@ def send(opener, request):
 
 
 def reason(error):
+    """Return Google's message for a refused request, or its HTTP status."""
     try:
         return json.load(error)["error"]["message"]
     except (ValueError, KeyError, TypeError):
@@ -74,6 +76,8 @@ def reason(error):
 
 
 class Sheets:
+    """One spreadsheet, by its id, read and appended to with an access token traded on first use."""
+
     def __init__(self, spreadsheet):
         self.id = spreadsheet
         self.opener = urllib.request.build_opener()
@@ -104,8 +108,10 @@ class Sheets:
             ) from error
 
     def get(self, cells):
+        """Return the rows of a range, unformatted."""
         return self._call(cells, valueRenderOption="UNFORMATTED_VALUE").get("values", [])
 
     def append(self, cells, rows):
+        """Write rows after the last row of the table in a range, as if typed."""
         if rows:
             self._call(cells, ":append", rows, valueInputOption="USER_ENTERED", insertDataOption="OVERWRITE")

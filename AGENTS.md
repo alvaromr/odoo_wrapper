@@ -99,8 +99,10 @@ Read the header of a module before touching it.
 
 ## Code style
 
-- Functional over imperative where it reads better; no inline comments — the code should not need them. The
-  why lives in each module's header (docstring or top comment block), nowhere else. The exceptions are the
+- Functional over imperative where it reads better; no inline comments — the code should not need them. Every
+  public module, class, function and method of the package has a docstring saying what it does (Google
+  convention, checked by Ruff); the why lives in each module's header (docstring or top comment block), nowhere
+  else. Tests and launchers go without: a test says what it checks in its name. The exceptions are the
   comments that tell a tool to let one line be, each with its reason: `# pragma: no mutate - <reason>` of an
   equivalent mutant, `// Stryker disable next-line` in the JS (see How to verify changes), `# noqa: <rule> -
   <reason>` and `biome-ignore <rule>: <reason>`. A rule switched off for a whole file or the whole project says

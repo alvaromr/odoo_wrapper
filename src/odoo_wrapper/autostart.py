@@ -49,44 +49,53 @@ BOOTSTRAP_PAUSE = 0.25
 
 
 def command():
+    """Return the command the login entry runs: this copy's, windowless on Windows when it can."""
     quiet = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     return launch_command(executable=quiet if sys.platform == "win32" and os.path.exists(quiet) else None)
 
 
 def launch_agent():
+    """Return the path of the macOS LaunchAgent."""
     return os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", f"{LABEL}.plist")
 
 
 def unit_file():
+    """Return the path of the systemd user unit."""
     config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
     return os.path.join(config, "systemd", "user", UNIT)
 
 
 def write(path, content):
+    """Write a file, making its folder."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(content)
 
 
 def remove(path):
+    """Remove a file if it is there."""
     with suppress(FileNotFoundError):
         os.remove(path)
 
 
 def systemctl(*args, check=True):
+    """Run systemctl on the user's units."""
     subprocess.run(["systemctl", "--user", *args], check=check)
 
 
 def mac_write():
+    """Write the LaunchAgent that starts the dashboard at login."""
     write(launch_agent(), plistlib.dumps({"Label": LABEL, "ProgramArguments": command(), "RunAtLoad": True}))
 
 
 def mac_follow():
+    """Point an existing LaunchAgent at this install."""
     if os.path.exists(launch_agent()):
         mac_write()
 
 
 def mac_on():
+    """Write the LaunchAgent and load it now, replacing one already loaded."""
     mac_write()
     session = f"gui/{os.getuid()}"
     subprocess.run(["launchctl", "bootout", f"{session}/{LABEL}"], check=False, capture_output=True)
@@ -99,10 +108,12 @@ def mac_on():
 
 
 def mac_off():
+    """Remove the LaunchAgent; the dashboard running goes on."""
     remove(launch_agent())
 
 
 def linux_write():
+    """Write the systemd user unit that starts the dashboard at login."""
     exec_start = " ".join(f'"{arg.translate(SYSTEMD_ESCAPES)}"' for arg in command())
     write(
         unit_file(),
@@ -116,31 +127,37 @@ def linux_write():
 
 
 def linux_follow():
+    """Point an existing unit at this install."""
     if os.path.exists(unit_file()):
         linux_write()
 
 
 def linux_on():
+    """Write the unit, enable it and restart it now."""
     linux_write()
     systemctl("enable", UNIT)
     systemctl("restart", UNIT)
 
 
 def linux_off():
+    """Disable and remove the unit; the dashboard running goes on."""
     if os.path.exists(unit_file()):
         systemctl("disable", UNIT, check=False)
         remove(unit_file())
 
 
 def registry():
+    """Return Windows' winreg, imported only where it exists."""
     return importlib.import_module("winreg")
 
 
 def run_key(winreg):
+    """Open the user's Run key for writing."""
     return winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE)
 
 
 def windows_on():
+    """Register the dashboard in the Run key and start it now."""
     winreg = registry()
     with run_key(winreg) as key:
         winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, subprocess.list2cmdline(command()))
@@ -148,12 +165,14 @@ def windows_on():
 
 
 def windows_off():
+    """Remove the dashboard from the Run key; the one running goes on."""
     winreg = registry()
     with run_key(winreg) as key, suppress(FileNotFoundError):
         winreg.DeleteValue(key, RUN_VALUE)
 
 
 def windows_follow():
+    """Point an existing Run entry at this install."""
     winreg = registry()
     access = winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, access) as key:
@@ -168,13 +187,16 @@ SYSTEMS = {"darwin": (mac_on, mac_off, mac_follow), "win32": (windows_on, window
 
 
 def system():
+    """Return this system's on, off and follow, Linux's for any system not listed."""
     return SYSTEMS.get(sys.platform, (linux_on, linux_off, linux_follow))
 
 
 def set_autostart(enabled):
+    """Register the dashboard to start at login, or stop it from doing so."""
     on, off, _ = system()
     (on if enabled else off)()
 
 
 def follow():
+    """Move the login entry, if there is one, to the install running now."""
     system()[2]()

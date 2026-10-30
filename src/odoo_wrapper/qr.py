@@ -30,10 +30,12 @@ for _i in range(255, 512):
 
 
 def mul(a, b):
+    """Multiply in GF(256), through the log tables."""
     return 0 if a == 0 or b == 0 else EXP[LOG[a] + LOG[b]]
 
 
 def generator(count):
+    """Return the Reed-Solomon generator polynomial for count error-correction codewords."""
     poly = [1]
     for i in range(count):
         poly = [high ^ mul(low, EXP[i]) for high, low in zip(poly + [0], [0] + poly)]
@@ -41,6 +43,7 @@ def generator(count):
 
 
 def ec_codewords(data, count):
+    """Return the error-correction codewords of the data codewords."""
     gen = generator(count)
     rem = list(data) + [0] * count
     for i in range(len(data)):
@@ -52,6 +55,7 @@ def ec_codewords(data, count):
 
 
 def codewords(payload):
+    """Return the smallest version that fits the bytes and all its codewords, padded and corrected."""
     fitting = next((spec for spec in SPEC if len(payload) <= spec[1] - 2), None)
     if fitting is None:
         raise ValueError("texto demasiado largo para un QR versión 5")
@@ -63,6 +67,7 @@ def codewords(payload):
 
 
 def skeleton(version):
+    """Return the matrix with its fixed patterns drawn (finders, timing, alignment, dark module) and its size."""
     size = version * 4 + 17
     mod: list = [[None] * size for _ in range(size)]
     for r0, c0 in ((0, 0), (0, size - 7), (size - 7, 0)):
@@ -83,6 +88,7 @@ def skeleton(version):
 
 
 def format_cells(size):
+    """Return the cells of the format bits and of their mirror, in bit order."""
     cells = [(8, i) for i in range(6)] + [(8, 7), (8, 8), (7, 8)]
     cells += [(i, 8) for i in reversed(range(6))]
     mirror = [(size - 1 - i, 8) for i in range(7)]
@@ -91,6 +97,7 @@ def format_cells(size):
 
 
 def place(mod, size, stream):
+    """Lay the bits in the free cells, two columns at a time in a zigzag, with mask 0."""
     bits = iter(stream)
     col = size - 1
     upward = True
@@ -109,6 +116,7 @@ def place(mod, size, stream):
 
 
 def matrix(text):
+    """Return the QR of a text as rows of dark (True) and light modules."""
     version, words = codewords(text.encode())
     mod, size = skeleton(version)
     cells, mirror = format_cells(size)
@@ -119,6 +127,7 @@ def matrix(text):
 
 
 def svg(text, scale=4, quiet=4):
+    """Return the QR of a text as an SVG image, with its quiet zone."""
     grid = matrix(text)
     size = len(grid) + quiet * 2
     dark = " ".join(

@@ -64,16 +64,19 @@ _lan = {"off": HOST_OPTION}
 
 
 def expose(host):
+    """Record whether --host leaves the LAN out, and return whether the dashboard should listen on it."""
     _lan["off"] = HOST_OPTION if host in LOOPBACK else ""
     return not _lan["off"]
 
 
 def local_only(why):
+    """Keep the dashboard off the LAN, and log and remember why."""
     _lan["off"] = why
     log.warning(why)
 
 
 def lan_ip():
+    """Return the address this machine goes out from, without sending anything, or 127.0.0.1 offline."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.connect(("192.0.2.1", 53))
@@ -85,6 +88,7 @@ def lan_ip():
 
 
 def bonjour_name():
+    """Return this machine's .local name: macOS's LocalHostName, else the hostname."""
     try:
         name = subprocess.run(
             ["scutil", "--get", "LocalHostName"], check=False, capture_output=True, text=True
@@ -96,10 +100,12 @@ def bonjour_name():
 
 
 def net_identity():
+    """Return the name and address the certificate is for, empty when off the LAN; a change restarts."""
     return "" if _lan["off"] else f"{bonjour_name()}|{lan_ip()}"
 
 
 def ensure_cert():
+    """Return this network's certificate and key, made with openssl the first time, or None if it cannot be."""
     slug = SLUG_UNSAFE.sub("_", f"{bonjour_name()}-{lan_ip()}")
     cert, key = os.path.join(STATE_DIR, f"cert-{slug}.pem"), os.path.join(STATE_DIR, f"key-{slug}.pem")
     if os.path.exists(cert) and os.path.exists(key):
@@ -140,6 +146,7 @@ def ensure_cert():
 
 
 def qr_or_empty(text):
+    """Return the QR of a text as SVG, or nothing when it is too long for the encoder."""
     try:
         return qr.svg(text)
     except ValueError:
@@ -147,12 +154,14 @@ def qr_or_empty(text):
 
 
 def phone_access():
+    """Return the phone's URLs, by address and by name, or why there are none."""
     if _lan["off"]:
         return {"off": _lan["off"]}
     return {"url": f"https://{lan_ip()}:{TLS_PORT}/", "name_url": f"https://{bonjour_name()}:{TLS_PORT}/"}
 
 
 def hostname_of(value):
+    """Return the host of a Host header or an Origin, without its port."""
     if not value:
         return ""
     if "//" in value:
@@ -163,6 +172,7 @@ def hostname_of(value):
 
 
 def is_address(name, family):
+    """Tell whether a name is an IP literal of a family."""
     try:
         socket.inet_pton(family, name)
     except OSError:
@@ -171,6 +181,7 @@ def is_address(name, family):
 
 
 def is_local_name(name):
+    """Tell whether a host is localhost, a .local name or an IP literal: the only ones the server answers."""
     return (
         name == "localhost"
         or name.endswith(".local")

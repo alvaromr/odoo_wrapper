@@ -68,6 +68,7 @@ _held = threading.Event()
 
 
 def own_the_output():
+    """Send the output to the log file when there is no terminal, and point the package's logger at it."""
     try:
         terminal = sys.stdout.isatty()
     except (AttributeError, ValueError):
@@ -82,6 +83,7 @@ def own_the_output():
 
 
 def write_to_the_log_file():
+    """Point stdout and stderr at dashboard.log, setting a big one aside first."""
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
     if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > LOG_MAX:
         os.replace(LOG_FILE, LOG_FILE + ".1")
@@ -94,10 +96,12 @@ def write_to_the_log_file():
 
 
 def source_version():
+    """Return the newest modification time across the package and its templates."""
     return max((os.path.getmtime(p) for p in SOURCES if os.path.exists(p)), default=0)
 
 
 def mtime(path):
+    """Return a file's modification time, or None when it is gone."""
     try:
         return os.path.getmtime(path)
     except OSError:
@@ -105,11 +109,13 @@ def mtime(path):
 
 
 def stamps():
+    """Return the modification time of each .py of the package that is there."""
     marks = {path: mtime(path) for path in WATCHED}
     return {path: mark for path, mark in marks.items() if mark is not None}
 
 
 def port_taken(port, grace=0, host="127.0.0.1"):
+    """Tell whether something listens on a port, waiting up to grace seconds for it to free."""
     deadline = time.monotonic() + grace
     while True:
         with socket.socket() as sock:
@@ -121,6 +127,7 @@ def port_taken(port, grace=0, host="127.0.0.1"):
 
 
 def watch_sources(net_identity=lambda: ""):
+    """Restart when a source file or the network identity changes, unless an install holds the watch."""
     initial, net, checked_net = stamps(), net_identity(), time.monotonic()
     while True:
         time.sleep(WATCH_INTERVAL)
@@ -142,22 +149,27 @@ def watch_sources(net_identity=lambda: ""):
 
 
 def relaunch_args():
+    """Return this run's arguments without --open, for the next one."""
     return [a for a in sys.argv[1:] if a != "--open"]
 
 
 def launch_command(args=(), executable=None):
+    """Return the command that starts this copy's dashboard with an interpreter and no PYTHONPATH."""
     return [executable or sys.executable, "-c", BOOTSTRAP, *args]
 
 
 def hold():
+    """Stop the source watch from restarting, while an install replaces the files."""
     _held.set()
 
 
 def release():
+    """Let the source watch restart again."""
     _held.clear()
 
 
 def restart(args, installed=None):
+    """Replace this process with a new dashboard, from this copy or from an install's interpreter."""
     command = [installed, "-c", INSTALLED_BOOTSTRAP, *args] if installed else launch_command(args)
     env = {**os.environ, **({UPDATED_ENV: "1"} if installed else {})}
     if sys.platform != "win32":
