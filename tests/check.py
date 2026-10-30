@@ -49,7 +49,7 @@ STEPS = [
     ("Python coverage", ["uv", "run", "--no-project", "--python", COVERAGE_PYTHON, "tests/report_coverage.py"]),
     ("Biome", ["pnpm", "dlx", BIOME, "ci"]),
     ("TypeScript", ["pnpm", f"--package={TYPESCRIPT}", "dlx", "tsc", "-p", "tsconfig.json"]),
-    ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/app.test.mjs"]),
+    ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
 ]
 
 

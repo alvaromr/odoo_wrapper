@@ -1,7 +1,7 @@
 {
   "mutate": ["src/odoo_wrapper/templates/js/*.js"],
   "testRunner": "command",
-  "commandRunner": { "command": "node --test tests/app.test.mjs" },
+  "commandRunner": { "command": "node --test 'tests/*.test.mjs'" },
   "coverageAnalysis": "off",
   "concurrency": 4,
   "reporters": ["clear-text", "progress"],

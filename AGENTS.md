@@ -165,7 +165,7 @@ secret anywhere under the repo, a size cap for source files and every module nam
 
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
-`node --test tests/app.test.mjs` (the page's logic). `ruff format` lays out every Python file, tests included,
+`node --test 'tests/*.test.mjs'` (the page's logic, each suite on the harness in `tests/page.mjs`). `ruff format` lays out every Python file, tests included,
 in 120 columns (`pyproject.toml`), and Biome the page's JS and CSS and the JS tests (`biome.jsonc`), which it
 also lints; run them rather than wrapping by hand. Types are strict on both sides: mypy `--strict` over the
 package, every function annotated, each module starting with `from __future__ import annotations` (Ruff adds
@@ -191,7 +191,7 @@ mutmut counts as a survivor. A mutant reported as timeout made a loop endless, a
 The page's JS runs under StrykerJS, through pnpm, with no package.json: `stryker.config.json` points it at
 `node --test`, so every mutant runs the whole page suite and a full round takes about 45 minutes. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
-(the header of `tests/app.test.mjs` says why). It also gets TypeScript, which it needs to copy `tsconfig.json`
+(the header of `tests/page.mjs` says why). It also gets TypeScript, which it needs to copy `tsconfig.json`
 into its sandbox.
 
 ```bash
@@ -209,7 +209,7 @@ mutants proves nothing: constants are for what reads better or repeats.
 
 Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes
 with the test that runs it, and each report names what is missing. A branch no input can take is removed from
-the code, not excused. Extend the DOM stand-in in `tests/app.test.mjs` when a new DOM call breaks it. What the
+the code, not excused. Extend the DOM stand-in in `tests/page.mjs` when a new DOM call breaks it. What the
 tests cannot see is layout, sound and real browsers, so the page is still checked by hand; run the checks your
 change touches:
 
