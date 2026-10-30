@@ -38,7 +38,7 @@ src/odoo_wrapper/
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
-tests/               unittest + node tests and check.py, the gate; see below
+tests/               unittest + node tests, check.py (the gate) and fix.py; see below
 .githooks/           pre-commit: runs the gate before each commit
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
@@ -156,7 +156,8 @@ Start with the gate, one command that needs uv, pnpm and Node ≥ 22 and install
 pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
-python3 tests/check.py                   # Ruff, mypy, both suites, both coverages; its header lists each step
+python3 tests/check.py                   # Ruff, mypy, Biome, both suites, both coverages; its header lists each step
+python3 tests/fix.py                     # formats and applies the tools' safe fixes, then runs the gate
 ```
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
