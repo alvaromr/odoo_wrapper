@@ -31,15 +31,13 @@
 import { attachTip, el, tipRow } from "./shared.js";
 
 /**
- * What team.js hands the builders. An Instant is a Date, typed any because TypeScript refuses to subtract
- * or compare-by-number Dates, which the strips do to place a mark on the axis.
+ * What team.js hands the builders.
  *
- * @typedef {any} Instant
  * @typedef {{ label: string, value: number, suspect: boolean, href?: string, rows: string[][] }} BarItem
  * @typedef {{ key: string, label: string, cls: string }} Series
  * @typedef {{ label: string, title?: string, values: Record<string, number>, people?: Record<string, string[]> }} Period
- * @typedef {{ start: Instant, end: Instant, cls: string, tip: (tip: HTMLElement) => void, open: () => unknown }} Mark
- * @typedef {{ at: Instant, label: string }} Tick
+ * @typedef {{ start: Date, end: Date, cls: string, tip: (tip: HTMLElement) => void, open: () => unknown }} Mark
+ * @typedef {{ at: Date, label: string }} Tick
  */
 
 const NS = "http://www.w3.org/2000/svg";
@@ -210,34 +208,33 @@ function frame(cls, role, size) {
 
 /**
  * @param {SVGSVGElement} chart
- * @param {Instant} from
- * @param {Instant} to
+ * @param {Date} from
+ * @param {Date} to
  * @param {number} size
  * @param {number} y1
  * @param {number} y2
  */
 function dayLines(chart, from, to, size, y1, y2) {
-  const span = to - from;
-  /** @type {Instant} */
+  const span = to.getTime() - from.getTime();
   const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 1);
   for (; day < to; day.setDate(day.getDate() + 1)) {
-    const x = ((day - from) / span) * size;
+    const x = ((day.getTime() - from.getTime()) / span) * size;
     chart.appendChild(svg("line", { x1: x, x2: x, y1, y2, class: day.getDay() === 1 ? "monday" : "day" }));
   }
 }
 
 /**
- * @param {Instant} from
- * @param {Instant} to
+ * @param {Date} from
+ * @param {Date} to
  * @param {Tick[]} ticks
  * @param {number} size
  */
 export function stripAxis(from, to, ticks, size) {
-  const span = to - from;
+  const span = to.getTime() - from.getTime();
   const chart = frame("strip-axis", "presentation", size);
   dayLines(chart, from, to, size, 14, 18);
   for (const { at, label } of ticks) {
-    const x = ((at - from) / span) * size;
+    const x = ((at.getTime() - from.getTime()) / span) * size;
     chart.appendChild(svg("line", { x1: x, x2: x, y1: 12, y2: 18, class: "grid" }));
     chart.appendChild(svg("text", { x: Math.min(x + 3, size - 40), y: 10, class: "axis-label" }, label));
   }
@@ -245,19 +242,20 @@ export function stripAxis(from, to, ticks, size) {
 }
 
 /**
- * @param {Instant} from
- * @param {Instant} to
+ * @param {Date} from
+ * @param {Date} to
  * @param {Mark[]} marks
  * @param {number} size
  */
 export function sessionStrip(from, to, marks, size) {
-  const span = to - from;
+  const span = to.getTime() - from.getTime();
   const chart = frame("strip", "img", size);
   dayLines(chart, from, to, size, 0, 18);
   chart.appendChild(svg("line", { x1: 0, x2: size, y1: 9, y2: 9, class: "zero" }));
   for (const mark of marks.filter((m) => m.end > from && m.start < to)) {
-    const x = Math.max(0, ((mark.start - from) / span) * size);
-    const width = Math.max(4, ((Math.min(mark.end, to) - Math.max(mark.start, from)) / span) * size);
+    const x = Math.max(0, ((mark.start.getTime() - from.getTime()) / span) * size);
+    const shown = Math.min(mark.end.getTime(), to.getTime()) - Math.max(mark.start.getTime(), from.getTime());
+    const width = Math.max(4, (shown / span) * size);
     const group = svg("g", { class: "mark link", tabindex: 0 });
     group.appendChild(svg("rect", { x: x - 3, y: 0, width: width + 6, height: 18, class: "hit" }));
     group.appendChild(svg("rect", { x, y: 3, width, height: 12, rx: 2, class: `bar ${mark.cls}` }));

@@ -1069,7 +1069,7 @@ test("the week's meter has one section per day that expects hours, as wide as th
   const sections = page.document.getElementById("hero").querySelectorAll(".scale")[0].children;
   assert.deepEqual(
     sections.map((s) => s.style["--hours"]),
-    [8.5, 8.5, 8.5, 8.5, 6],
+    ["8.5", "8.5", "8.5", "8.5", "6"],
   );
 });
 
@@ -2802,7 +2802,7 @@ test("the gear opens the settings, each saved on change and explained in its too
     minutes.value = value;
     await minutes.listeners.change[0]();
   }
-  assert.equal(minutes.value, 0);
+  assert.equal(minutes.value, "0");
   const [from, to] = dialog.querySelectorAll(".clock-input");
   assert.deepEqual([from.value, to.value], ["13:30", "16:00"]);
   from.value = "13:05";
@@ -3872,8 +3872,8 @@ test("the day dialog corrects punches and approves a request, with a second clic
     motive(0).children.map((o) => [o.value, o.textContent]),
     [
       ["", "sin motivo"],
-      [5, "Normal"],
-      [3, "Descanso"],
+      ["5", "Normal"],
+      ["3", "Descanso"],
     ],
   );
   assert.deepEqual(

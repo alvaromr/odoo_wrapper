@@ -245,7 +245,7 @@ export function renderOverview(weeks) {
   for (let v = gridStep; v <= yMax; v += gridStep) {
     if (v !== store.weekTarget) svg.appendChild(sEl("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }, "gridline"));
     const t = sEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, "ticklabel");
-    t.textContent = /** @type {any} */ (v);
+    t.textContent = String(v);
     svg.appendChild(t);
   }
   svg.appendChild(sEl("line", { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0) }, "axisline"));
@@ -505,12 +505,9 @@ export function renderCalendar() {
  */
 function spanDays(s) {
   const out = s.out || store.now;
-  return Math.round(
-    /** @type {number} */ (
-      /** @type {any} */ (new Date(out.getFullYear(), out.getMonth(), out.getDate())) -
-        /** @type {any} */ (new Date(s.in.getFullYear(), s.in.getMonth(), s.in.getDate()))
-    ) / 864e5,
-  );
+  const outDay = new Date(out.getFullYear(), out.getMonth(), out.getDate());
+  const inDay = new Date(s.in.getFullYear(), s.in.getMonth(), s.in.getDate());
+  return Math.round((outDay.getTime() - inDay.getTime()) / 864e5);
 }
 
 /**
@@ -591,7 +588,7 @@ export function renderTimeline(card, w) {
       prevStart = 0;
     d.sessions.forEach((s, k) => {
       const prev = d.sessions[k - 1];
-      const joined = prevBlock && prev.out && /** @type {any} */ (s.in) - /** @type {any} */ (prev.out) <= 60000;
+      const joined = prevBlock && prev.out && s.in.getTime() - prev.out.getTime() <= 60000;
       if (prev?.out) {
         for (const [a, b] of uncovered(prev.out, s.in, d.leaves).filter(([from, to]) => to - from > 60000)) {
           place(el("div", "gap", fmtShort((b - a) / 3.6e6)), new Date(a), new Date(b), "Sin fichar", (b - a) / 3.6e6);
@@ -758,7 +755,8 @@ export function openRequest(button, day) {
   const tab = /** @type {Window} */ (window.open("", "_blank"));
   tab.opener = null;
   return api(`/api/request${day ? `?date=${day}` : ""}`)
-    .then(({ url }) => {
+    .then((answer) => {
+      const { url } = /** @type {{ url: string }} */ (answer);
       tab.location = url;
     })
     .catch((e) => {

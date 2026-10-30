@@ -47,7 +47,7 @@ export function wireDiscord(button) {
   save.addEventListener("click", async () => {
     save.disabled = true;
     try {
-      const { bot } = await api("/api/team/discord/token", { token: input.value });
+      const { bot } = /** @type {{ bot: string }} */ (await api("/api/team/discord/token", { token: input.value }));
       if (team.data) team.data.can_message = true;
       input.value = "";
       status.textContent = botStatus();

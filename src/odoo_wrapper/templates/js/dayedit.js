@@ -303,7 +303,7 @@ export function reasonField(s, reasons) {
   select.setAttribute("aria-label", "Motivo");
   for (const r of reasons.some((r) => r.id === own.id) ? reasons : [own, ...reasons]) {
     const option = el("option", "", r.name);
-    option.value = /** @type {any} */ (r.id);
+    option.value = String(r.id);
     select.appendChild(option);
   }
   select.value = String(own.id);
@@ -396,7 +396,9 @@ export function punchEditor(employee, day, limits, reasons) {
         done = "Guardado.";
       try {
         for (const change of changes) {
-          const answer = await api(change.gone ? "/api/team/delete" : "/api/team/attendance", change);
+          const answer = /** @type {{ lost_entry?: string }} */ (
+            await api(change.gone ? "/api/team/delete" : "/api/team/attendance", change)
+          );
           if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
           sent += 1;
         }

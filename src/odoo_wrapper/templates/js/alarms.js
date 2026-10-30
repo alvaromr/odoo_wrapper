@@ -28,7 +28,7 @@ import { AlarmGrace, NotifyEveryMs, store } from "./store.js";
 import { buildWeek, indexSessions } from "./week.js";
 
 const BaseTitle = document.title;
-const AudioCtx = new (window.AudioContext || /** @type {any} */ (window).webkitAudioContext)();
+const AudioCtx = new (window.AudioContext || /** @type {typeof AudioContext} */ (window.webkitAudioContext))();
 let NotifiedAt = 0,
   FlashTimer = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 export const LastRing = { lunch: 0, rest: 0 };
@@ -101,22 +101,16 @@ export function notifyStatus(open, day, dayRemaining) {
     const due = lunchDueAt();
     if (!due) return "Sin fichaje abierto";
     return (
-      /** @type {string} */ (
-        /** @type {any} */ (due) > Date.now()
-          ? `Comida hasta las ${fmtTime(due)}`
-          : `Comida vencida a las ${fmtTime(due)}`
-      ) + silent
+      (due.getTime() > Date.now() ? `Comida hasta las ${fmtTime(due)}` : `Comida vencida a las ${fmtTime(due)}`) +
+      silent
     );
   }
   if (open.rest) {
     const due = breakDueAt(open);
     if (!due) return "En descanso · sin aviso configurado";
     return (
-      /** @type {string} */ (
-        /** @type {any} */ (due) > Date.now()
-          ? `Descanso hasta las ${fmtTime(due)}`
-          : `Descanso vencido a las ${fmtTime(due)}`
-      ) + silent
+      (due.getTime() > Date.now() ? `Descanso hasta las ${fmtTime(due)}` : `Descanso vencido a las ${fmtTime(due)}`) +
+      silent
     );
   }
   if (dayRemaining > 0) return `Sonará al cumplir la jornada${silent}`;

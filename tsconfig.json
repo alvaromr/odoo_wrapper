@@ -9,5 +9,5 @@
     "moduleResolution": "bundler",
     "lib": ["es2022", "dom", "dom.iterable"]
   },
-  "include": ["src/odoo_wrapper/templates/js/*.js"]
+  "include": ["src/odoo_wrapper/templates/js/*.js", "globals.d.ts"]
 }

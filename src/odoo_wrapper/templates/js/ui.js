@@ -103,7 +103,7 @@ function themeField() {
   for (const b of buttons) {
     const { theme } = b.dataset;
     b.addEventListener("click", () => {
-      const kept = /** @type {any} */ (window).chooseTheme(theme);
+      const kept = window.chooseTheme(/** @type {string} */ (theme));
       press();
       byId("settingsNote").textContent = kept
         ? ""
@@ -123,7 +123,7 @@ function updatesField() {
     const note = byId("settingsNote");
     b.disabled = true;
     try {
-      const answer = showUpdate(await api("/api/update?fresh"));
+      const answer = showUpdate(/** @type {import("./shared.js").UpdateAnswer} */ (await api("/api/update?fresh")));
       note.textContent =
         answer.error ||
         (answer.available
@@ -147,14 +147,14 @@ export function minutesField(label, key) {
   const field = el("label", "duration");
   const input = el("input", "lunch-input");
   input.type = "number";
-  input.min = /** @type {any} */ (0);
-  input.max = /** @type {any} */ (LunchMax);
-  input.step = /** @type {any} */ (5);
-  input.value = /** @type {any} */ (store.state[key]);
+  input.min = "0";
+  input.max = String(LunchMax);
+  input.step = "5";
+  input.value = String(store.state[key]);
   input.setAttribute("aria-label", `Minutos de ${label.toLowerCase()}`);
   input.addEventListener("change", async () => {
     await saveState({ [key]: Math.min(LunchMax, Math.max(0, Math.round(Number(input.value) || 0))) });
-    input.value = /** @type {any} */ (store.state[key]);
+    input.value = String(store.state[key]);
   });
   field.appendChild(input);
   field.append(" min");

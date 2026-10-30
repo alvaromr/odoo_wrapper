@@ -10,7 +10,7 @@
  */
 const ThemeKey = "theme";
 
-/** @type {any} */ (window).chooseTheme = /** @param {string} choice */ (choice) => {
+window.chooseTheme = (choice) => {
   document.documentElement.dataset.theme = choice;
   try {
     localStorage.setItem(ThemeKey, choice);

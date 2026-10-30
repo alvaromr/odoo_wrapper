@@ -76,7 +76,7 @@ function loading(delta) {
 /**
  * @param {string} path
  * @param {object} [body]
- * @returns {Promise<any>} the server's JSON, whose shape each endpoint owns
+ * @returns {Promise<unknown>} the server's JSON, whose shape each endpoint owns
  */
 export async function api(path, body) {
   loading(1);
@@ -293,7 +293,7 @@ function installButton(answer, note) {
     b.textContent = "Instalando…";
     note.textContent = "Puede tardar un minuto.";
     try {
-      const { skills } = await api("/api/update", {});
+      const { skills } = /** @type {{ skills: string }} */ (await api("/api/update", {}));
       note.textContent = "Instalada: reiniciando el panel…";
       await restarted(answer.current);
       if (!skills) {

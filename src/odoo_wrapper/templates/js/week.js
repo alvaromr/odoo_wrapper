@@ -137,7 +137,7 @@ export function punchErrors() {
     .map((d) => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
   /** @type {PunchError[]} */
   const empty = days.filter(missed).map((d) => ({ kind: "empty", in: d.date, expected: d.expected }));
-  return [...open, ...long, ...empty].sort((a, b) => /** @type {any} */ (b.in) - /** @type {any} */ (a.in));
+  return [...open, ...long, ...empty].sort((a, b) => b.in.getTime() - a.in.getTime());
 }
 
 /**
@@ -145,11 +145,8 @@ export function punchErrors() {
  * @returns {number}
  */
 export function weekOffsetOf(date) {
-  /**
-   * @param {Date} d
-   * @returns {any} a Date, which TypeScript will not subtract
-   */
-  const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  /** @param {Date} d */
+  const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
   return Math.round((monday(store.today) - monday(date)) / (7 * 864e5));
 }
 
@@ -173,11 +170,7 @@ export function indexSessions() {
     const inD = new Date(s.in);
     const outD = s.out ? new Date(s.out) : null;
     const hours =
-      s.hours != null
-        ? s.hours
-        : unclosed({ in: inD, out: outD })
-          ? 0
-          : /** @type {number} */ (/** @type {any} */ (store.now) - /** @type {any} */ (inD)) / 3.6e6;
+      s.hours != null ? s.hours : unclosed({ in: inD, out: outD }) ? 0 : (store.now.getTime() - inD.getTime()) / 3.6e6;
     const key = dayKey(inD);
     if (!store.byDay.has(key)) store.byDay.set(key, { hours: 0, rest: 0, sessions: [] });
     const d = /** @type {import("./store.js").DayRecord} */ (store.byDay.get(key));
@@ -244,11 +237,8 @@ export function buildWeek(offset) {
  */
 export function weeksSince(months) {
   const start = new Date(store.today.getFullYear(), store.today.getMonth() - months, store.today.getDate());
-  /**
-   * @param {Date} d
-   * @returns {any} a Date, which TypeScript will not subtract
-   */
-  const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  /** @param {Date} d */
+  const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
   return Math.round((monday(store.today) - monday(start)) / (7 * 864e5)) + 1;
 }
 

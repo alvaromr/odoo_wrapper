@@ -37,7 +37,6 @@ import { FixKinds, FlagText, named, team } from "./teamstate.js";
  * @typedef {import("./teamstate.js").FixEmployee} FixEmployee
  * @typedef {import("./teamstate.js").FixItem} FixItem
  * @typedef {import("./teamstate.js").Limits} Limits
- * @typedef {import("./teamcharts.js").Instant} Instant
  * @typedef {import("./teamcharts.js").Mark} Mark
  * @typedef {import("./teamcharts.js").Tick} Tick
  */
@@ -94,7 +93,7 @@ export function toBlame(sessions, limits) {
 
 /**
  * @param {FixEmployee} row
- * @param {Instant} [now]
+ * @param {Date} [now]
  * @returns {Mark[]}
  */
 export function fixMarks(row, now = new Date()) {
@@ -119,29 +118,27 @@ export function fixMarks(row, now = new Date()) {
 
 /**
  * @param {FixEmployee[]} rows
- * @param {Instant} [now]
+ * @param {Date} [now]
  */
 export function fixSpan(rows, now = new Date()) {
   const items = rows.flatMap((r) => r.items);
-  /** @type {Instant[]} */
+  /** @type {Date[]} */
   const starts = items.flatMap((i) => (i.sessions.length ? i.sessions.map((s) => new Date(s.in)) : [parseDay(i.date)]));
-  /** @type {Instant[]} */
+  /** @type {Date[]} */
   const ends = items.flatMap((i) =>
     i.sessions.length ? i.sessions.map((s) => (s.out ? new Date(s.out) : now)) : [parseDay(shiftDays(i.date, 1))],
   );
   /**
    * @param {Date} d
-   * @returns {Instant}
+   * @returns {Date}
    */
   const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const first = midnight(starts.length ? new Date(Math.min(...starts)) : now);
-  const last = new Date(Math.max(...ends, first));
+  const first = midnight(starts.length ? new Date(Math.min(...starts.map(Number))) : now);
+  const last = new Date(Math.max(...ends.map(Number), first.getTime()));
   const end = +last === +midnight(last) ? last : new Date(midnight(last).setDate(last.getDate() + 1));
-  /** @type {Instant} */
-  const to = new Date(Math.min(now, new Date(end).setDate(end.getDate() + FixPadDays)));
-  /** @type {Instant} */
+  const to = new Date(Math.min(now.getTime(), new Date(end).setDate(end.getDate() + FixPadDays)));
   const from = new Date(new Date(first).setDate(first.getDate() - FixPadDays));
-  return { from, to, days: Math.max(1, (to - from) / 864e5) };
+  return { from, to, days: Math.max(1, (to.getTime() - from.getTime()) / 864e5) };
 }
 
 /** @param {number} pxPerDay */
@@ -214,7 +211,7 @@ export function renderFixes() {
 /** @param {boolean} [fresh] */
 export async function loadFixes(fresh) {
   try {
-    team.fixes = await api(`/api/team?fixes${fresh ? "&fresh" : ""}`);
+    team.fixes = /** @type {Fixes} */ (await api(`/api/team?fixes${fresh ? "&fresh" : ""}`));
     renderFixes();
   } catch (e) {
     byId("fixesNote").textContent =

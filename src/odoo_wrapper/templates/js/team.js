@@ -821,7 +821,7 @@ export async function load(key, fresh, push = false) {
   const params = [key ? `${unit}=${key}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
   const loadmsg = byId("loadmsg");
   try {
-    const data = await api(`/api/team${params ? `?${params}` : ""}`);
+    const data = /** @type {TeamData} */ (await api(`/api/team${params ? `?${params}` : ""}`));
     team.data = data;
     refreshDiscord();
     Views[unit].keep(data);

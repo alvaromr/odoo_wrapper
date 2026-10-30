@@ -59,18 +59,17 @@ export function lastPunch() {
  * @param {Date} from
  * @param {Date} to
  * @param {import("./store.js").Leave[]} leaves
- * @returns {[any, any][]} the stretches of the span no leave covers: Dates, or the milliseconds Math.min and
- * Math.max turn them into
+ * @returns {[number, number][]} the stretches of the span no leave covers, in milliseconds
  */
 export function uncovered(from, to, leaves) {
   return leaves
     .reduce(
       (free, l) =>
         free.flatMap(([a, b]) => [
-          [a, Math.min(b, /** @type {any} */ (new Date(l.from)))],
-          [Math.max(a, /** @type {any} */ (new Date(l.to))), b],
+          [a, Math.min(b, new Date(l.from).getTime())],
+          [Math.max(a, new Date(l.to).getTime()), b],
         ]),
-      /** @type {[any, any][]} */ ([[from, to]]),
+      /** @type {[number, number][]} */ ([[from.getTime(), to.getTime()]]),
     )
     .filter(([a, b]) => b > a);
 }
@@ -101,7 +100,7 @@ export function leftOpen(ev) {
  * @returns {string}
  */
 export function punchText(ev) {
-  const elapsed = (Date.now() - /** @type {any} */ (ev.at)) / 3.6e6;
+  const elapsed = (Date.now() - ev.at.getTime()) / 3.6e6;
   if (leftOpen(ev)) {
     return `Entrada del ${fmtDay(ev.at)} a las ${fmtTime(ev.at)} sin cerrar · hace ${fmtShort(elapsed)}`;
   }
@@ -215,7 +214,7 @@ export function heroMeters(week, day, open, remaining, restToday, away) {
     meter.appendChild(fill);
     const scale = el("div", "scale");
     for (const d of week.days.filter((d) => d.expected > 0)) {
-      scale.appendChild(el("div", "day")).style.setProperty("--hours", /** @type {any} */ (d.expected));
+      scale.appendChild(el("div", "day")).style.setProperty("--hours", String(d.expected));
     }
     meter.appendChild(scale);
     weekBlock.appendChild(meter);
@@ -437,7 +436,7 @@ async function pair(button) {
   button.disabled = true;
   pairError = "";
   try {
-    const res = await api("/api/pair", { name: phoneView === "name" });
+    const res = /** @type {Omit<Pairing, "until">} */ (await api("/api/pair", { name: phoneView === "name" }));
     pairing = { ...res, until: Date.now() + res.expires_in * 1000 };
     const timer = setInterval(() => {
       renderPhone();
