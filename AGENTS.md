@@ -191,10 +191,11 @@ mutmut counts as a survivor. A mutant reported as timeout made a loop endless, a
 The page's JS runs under StrykerJS, through pnpm, with no package.json: `stryker.config.json` points it at
 `node --test`, so every mutant runs the whole page suite and a full round takes about 45 minutes. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
-(the header of `tests/app.test.mjs` says why).
+(the header of `tests/app.test.mjs` says why). It also gets TypeScript, which it needs to copy `tsconfig.json`
+into its sandbox.
 
 ```bash
-pnpm dlx @stryker-mutator/core@10.0.0 run    # stryker.config.json; the survivors are listed at the end
+pnpm --package=@stryker-mutator/core@10.0.0 --package=typescript@5.9.3 dlx stryker run  # stryker.config.json
 ```
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
