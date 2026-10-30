@@ -56,8 +56,6 @@ export const FlagText = {
   open: "Sin cerrar",
   empty: "Sin fichar",
   long: "Jornada muy larga",
-  under: "Bajo objetivo",
-  over: "Demasiadas horas",
 };
 
 /** @type {string[]} */

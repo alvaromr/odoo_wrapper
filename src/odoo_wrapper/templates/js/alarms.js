@@ -128,6 +128,7 @@ function lunchDueAt() {
  * @returns {Date | null}
  */
 function breakDueAt(open) {
+  // Stryker disable next-line OptionalChaining: both callers pass a session they have just found open, never undefined
   return open?.rest && store.state.break_minutes > 0
     ? new Date(new Date(open.in).getTime() + store.state.break_minutes * 60000)
     : null;

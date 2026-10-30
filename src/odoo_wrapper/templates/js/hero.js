@@ -155,6 +155,7 @@ export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, le
     }
   } else {
     headline("Hoy", "Jornada cumplida", "text done", {
+      // Stryker disable next-line StringLiteral: an empty class falls back to "flat" in headline(), the same value
       cls: "flat",
       text:
         dayDelta < 1 / 60
@@ -187,7 +188,7 @@ export function heroMeters(week, day, open, remaining, restToday, away) {
   const box = el("div", "meter-box");
 
   const dayBlock = el("div", "meter-block");
-  const dayDone = day.expected <= 0 || day.hours >= day.expected;
+  const dayDone = day.hours >= day.expected;
   const dayMeter = el("div", `meter day${dayDone ? " done" : ""}`);
   const dayFill = el("div", "fill");
   dayFill.style.width = `${day.expected > 0 ? Math.min((day.hours / day.expected) * 100, 100) : day.hours > 0.01 ? 100 : 0}%`;
@@ -325,7 +326,7 @@ export function renderHero() {
   const working = open && new Date(open.in) >= store.today;
   const away = unloggedGap(day.sessions, day.leaves);
   const lunchLeft = away > 0.01 ? 0 : lunchHours(day);
-  const leaveAt = working && dayRemaining > 0 ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6) : null;
+  const leaveAt = working ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6) : null;
 
   const hero = byId("hero");
   hero.replaceChildren();

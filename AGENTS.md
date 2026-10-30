@@ -189,7 +189,9 @@ that takes the wrong branch would otherwise start a real dashboard and end the t
 mutmut counts as a survivor. A mutant reported as timeout made a loop endless, and the suite caught it.
 
 The page's JS runs under StrykerJS, through pnpm, with no package.json: `stryker.config.json` points it at
-`node --test`, so every mutant runs the whole page suite and a full round takes about 45 minutes. Its working
+`node --test`, so every mutant runs the whole page suite and a full round takes about an hour. The suite's files
+run one after another there: Stryker already runs mutants in parallel, and files in parallel inside each one
+overloaded the machine until nearly every mutant timed out. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
 (the header of `tests/page.mjs` says why). It also gets TypeScript, which it needs to copy `tsconfig.json`
 into its sandbox.

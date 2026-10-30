@@ -56,6 +56,7 @@ export function fixTip(name, item) {
     tip.appendChild(el("div", "t-title", `${name} · ${dayLabel(item.date, true)}`));
     tip.appendChild(el("div", "t-note warn", FlagText[item.kind]));
     for (const s of item.sessions) tip.appendChild(sessionRow(s, /** @type {Fixes} */ (team.fixes).limits, "abierta"));
+    // Stryker disable next-line ArrayDeclaration: whyDay reads the kind, sessions, hours and target, never flags
     const day = { ...item, flags: [item.kind] };
     for (const text of whyDay(item.kind, day, /** @type {Fixes} */ (team.fixes).limits))
       tip.appendChild(el("div", "t-note", text));

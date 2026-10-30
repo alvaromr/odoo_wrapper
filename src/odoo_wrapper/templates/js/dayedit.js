@@ -400,6 +400,7 @@ export function punchEditor(employee, day, limits, reasons) {
             await api(change.gone ? "/api/team/delete" : "/api/team/attendance", change)
           );
           if (answer.lost_entry) lost.push(new Date(answer.lost_entry));
+          // Stryker disable next-line AssignmentOperator: sent is only ever tested for zero, which counting down leaves as counting up does
           sent += 1;
         }
       } catch (e) {

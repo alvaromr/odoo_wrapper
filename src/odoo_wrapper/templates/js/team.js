@@ -172,6 +172,7 @@ export const Views = {
 /** @param {number} balance */
 export function gapText(balance) {
   if (Math.abs(balance) < 1 / 60) return "Al día";
+  // Stryker disable next-line EqualityOperator: a balance of exactly 0 has already returned «Al día» above
   return balance < 0 ? `Faltan ${fmtHM(-balance)}` : `Sobran ${fmtHM(balance)}`;
 }
 
@@ -273,6 +274,7 @@ export function hasFlags(employee) {
     red.under ||
     red.over ||
     (employee.days || []).some((d) => d.flags.length > 0) ||
+    // Stryker disable next-line ArrayDeclaration: the stand-in element has no flagged_days, so it never counts
     (employee.months || []).some((m) => m.flagged_days > 0)
   );
 }
@@ -450,6 +452,7 @@ function monthCell(employee, data, today) {
  */
 function yearMonthCell(employee, m, today, limits) {
   const td = el("td", "total week");
+  // Stryker disable next-line MethodExpression: "YYYY-MM" against "YYYY-MM-DD" orders as against its first seven characters
   if (m.month > today.slice(0, 7)) {
     td.classList.add("future");
     return td;
@@ -669,8 +672,10 @@ function saveState() {
 }
 
 function restoreState() {
+  // Stryker disable next-line StringLiteral: text without the state's keys reads as no state, as the empty string does
   let saved = "";
   try {
+    // Stryker disable next-line StringLiteral: text without the state's keys reads as no state, as the empty string does
     saved = sessionStorage.getItem(StateKey) || "";
   } catch (e) {
     warned("restoring the view")(e);
@@ -709,19 +714,18 @@ function periods(data, rows, today) {
     return { ...base, people, values: each(people, (names) => names.length) };
   };
   if (team.view === "year") {
-    return MonthNames.map((name, i) =>
-      period(
-        {
-          label: name,
-          title: monthLabel(`${team.year}-${String(i + 1).padStart(2, "0")}`),
-          month: `${team.year}-${String(i + 1).padStart(2, "0")}`,
-        },
+    // Stryker disable next-line MethodExpression: "YYYY-MM" against "YYYY-MM-DD" orders as against its first seven characters
+    const thisMonth = today.slice(0, 7);
+    return MonthNames.map((name, i) => {
+      const month = `${team.year}-${String(i + 1).padStart(2, "0")}`;
+      return period(
+        { label: name, title: monthLabel(month), month },
         {
           under: (e) => monthRed(e, e.months[i], data.limits).under,
           over: (e) => monthRed(e, e.months[i], data.limits).over,
         },
-      ),
-    ).filter((p) => p.month <= today.slice(0, 7));
+      );
+    }).filter((p) => p.month <= thisMonth);
   }
   if (team.view === "month") {
     return (data.employees[0]?.weeks || []).map((w, i) =>
@@ -759,6 +763,7 @@ function renderCharts(data, rows, today) {
       "Una entrada sin cerrar no suma horas, así que resta como si faltaran. " +
       "A la izquierda faltan, a la derecha sobran.",
   );
+  // Stryker disable next-line MethodExpression: judged is already this function's own array, sorting it in place changes nothing
   const items = judged
     .slice()
     .sort((a, b) => a.balance - b.balance)

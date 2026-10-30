@@ -112,6 +112,7 @@ export function renderKpis(weeks) {
     const v = el("div", "value num", valueText);
     if (valueCls) v.style.color = `var(--${valueCls})`;
     c.appendChild(v);
+    // Stryker disable next-line ConditionalExpression: every tile is given a foot, so the guard is always true
     if (foot) c.appendChild(el("div", "foot", foot));
     return c;
   }
@@ -237,6 +238,7 @@ export function renderOverview(weeks) {
   function sEl(tag, attrs, cls) {
     const e = document.createElementNS(NS, tag);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, /** @type {string} */ (v));
+    // Stryker disable next-line ConditionalExpression: every call passes a class, so the guard is always true
     if (cls) e.setAttribute("class", cls);
     return e;
   }
@@ -405,7 +407,9 @@ export function renderCalendar() {
   } else if (w.error) {
     head.appendChild(el("span", "badge warn", `⚠ ${w.complete ? "" : "en curso · "}fichaje por revisar`));
   } else if (w.complete) {
-    const arrow = Math.abs(w.delta) < 1 / 60 ? "" : w.delta > 0 ? "▲ " : "▼ ";
+    const level = Math.abs(w.delta) < 1 / 60;
+    // Stryker disable next-line EqualityOperator: past the level test the delta is never 0, so > and >= agree
+    const arrow = level ? "" : w.delta > 0 ? "▲ " : "▼ ";
     head.appendChild(
       el("span", `badge ${shortWeek(w) ? "down" : "flat"}`, `${arrow}${fmtDelta(w.delta)} vs ${targetLabel(w)}`),
     );
