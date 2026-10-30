@@ -11,6 +11,10 @@ is updated. Text longer than 106 bytes raises ValueError, which the dashboard tu
 text" rather than a broken /api/data.
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+
 SPEC = ((1, 19, 7), (2, 34, 10), (3, 55, 15), (4, 80, 20), (5, 108, 26))
 FORMAT = "111011111000100"
 PAD = (0xEC, 0x11)
@@ -29,12 +33,12 @@ for _i in range(255, 512):
     EXP[_i] = EXP[_i - 255]
 
 
-def mul(a, b):
+def mul(a: int, b: int) -> int:
     """Multiply in GF(256), through the log tables."""
     return 0 if a == 0 or b == 0 else EXP[LOG[a] + LOG[b]]
 
 
-def generator(count):
+def generator(count: int) -> list[int]:
     """Return the Reed-Solomon generator polynomial for count error-correction codewords."""
     poly = [1]
     for i in range(count):
@@ -42,7 +46,7 @@ def generator(count):
     return poly
 
 
-def ec_codewords(data, count):
+def ec_codewords(data: Sequence[int], count: int) -> list[int]:
     """Return the error-correction codewords of the data codewords."""
     gen = generator(count)
     rem = list(data) + [0] * count
@@ -54,7 +58,7 @@ def ec_codewords(data, count):
     return rem[len(data) :]
 
 
-def codewords(payload):
+def codewords(payload: bytes) -> tuple[int, list[int]]:
     """Return the smallest version that fits the bytes and all its codewords, padded and corrected."""
     fitting = next((spec for spec in SPEC if len(payload) <= spec[1] - 2), None)
     if fitting is None:
@@ -66,10 +70,10 @@ def codewords(payload):
     return version, data + ec_codewords(data, ec)
 
 
-def skeleton(version):
+def skeleton(version: int) -> tuple[list[list[bool | None]], int]:
     """Return the matrix with its fixed patterns drawn (finders, timing, alignment, dark module) and its size."""
     size = version * 4 + 17
-    mod: list = [[None] * size for _ in range(size)]
+    mod: list[list[bool | None]] = [[None] * size for _ in range(size)]
     for r0, c0 in ((0, 0), (0, size - 7), (size - 7, 0)):
         for r in range(-1, 8):  # pragma: no mutate - row 8 holds format and timing cells, written later
             for c in range(-1, 8):  # pragma: no mutate - as above, for column 8
@@ -87,7 +91,7 @@ def skeleton(version):
     return mod, size
 
 
-def format_cells(size):
+def format_cells(size: int) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     """Return the cells of the format bits and of their mirror, in bit order."""
     cells = [(8, i) for i in range(6)] + [(8, 7), (8, 8), (7, 8)]
     cells += [(i, 8) for i in reversed(range(6))]
@@ -96,7 +100,7 @@ def format_cells(size):
     return cells, mirror
 
 
-def place(mod, size, stream):
+def place(mod: list[list[bool | None]], size: int, stream: str) -> None:
     """Lay the bits in the free cells, two columns at a time in a zigzag, with mask 0."""
     bits = iter(stream)
     col = size - 1
@@ -115,7 +119,7 @@ def place(mod, size, stream):
         col -= 2
 
 
-def matrix(text):
+def matrix(text: str) -> list[list[bool]]:
     """Return the QR of a text as rows of dark (True) and light modules."""
     version, words = codewords(text.encode())
     mod, size = skeleton(version)
@@ -126,7 +130,7 @@ def matrix(text):
     return [[bool(cell) for cell in row] for row in mod]
 
 
-def svg(text, scale=4, quiet=4):
+def svg(text: str, scale: int = 4, quiet: int = 4) -> str:
     """Return the QR of a text as an SVG image, with its quiet zone."""
     grid = matrix(text)
     size = len(grid) + quiet * 2

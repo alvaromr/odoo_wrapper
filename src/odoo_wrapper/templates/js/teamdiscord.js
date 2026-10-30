@@ -8,7 +8,7 @@
  * it says where the token is found, and «Enviar prueba» sends them, and only them, a test message to see it
  * work end to end. No side effects on import.
  */
-import { api, el } from "./shared.js";
+import { api, byId, el } from "./shared.js";
 import { team } from "./teamstate.js";
 
 export const BotHelp =
@@ -23,10 +23,11 @@ export function botStatus() {
 }
 
 export function refreshDiscord() {
-  const dialog = document.getElementById("discordDialog");
-  if (dialog?.open) document.getElementById("discordStatus").textContent = botStatus();
+  const dialog = /** @type {HTMLDialogElement | null} */ (document.getElementById("discordDialog"));
+  if (dialog?.open) byId("discordStatus").textContent = botStatus();
 }
 
+/** @param {HTMLElement} button */
 export function wireDiscord(button) {
   const dialog = el("dialog", "dialog");
   dialog.id = "discordDialog";
@@ -52,7 +53,7 @@ export function wireDiscord(button) {
       status.textContent = botStatus();
       note.textContent = `Guardado: el bot «${bot}» enviará los avisos.`;
     } catch (e) {
-      note.textContent = `No se guardó: ${e.message}`;
+      note.textContent = `No se guardó: ${/** @type {Error} */ (e).message}`;
     } finally {
       save.disabled = false;
     }
@@ -66,7 +67,7 @@ export function wireDiscord(button) {
       await api("/api/team/discord/test", {});
       note.textContent = "Prueba enviada: mira tus mensajes directos de Discord.";
     } catch (e) {
-      note.textContent = `No se envió la prueba: ${e.message}`;
+      note.textContent = `No se envió la prueba: ${/** @type {Error} */ (e).message}`;
     } finally {
       test.disabled = false;
     }

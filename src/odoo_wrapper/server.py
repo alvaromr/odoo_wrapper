@@ -96,6 +96,8 @@ API
   session's own user a test message.
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
@@ -105,9 +107,12 @@ import ssl
 import string
 import threading
 import time
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from email.message import Message
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
+from typing import Any, Callable
 from urllib.parse import parse_qsl
 
 from odoo_wrapper import corrections, data, discord, lan, process, state, team, updates
@@ -159,14 +164,14 @@ CONTENT_POLICY = (
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
 log = logging.getLogger(__name__)
-_sessions: dict = {}
-_rights: dict = {}
-_pairings: dict = {}
-_login_fails: dict = {}
+_sessions: dict[str, int | None] = {}
+_rights: dict[str, dict[str, tuple[float, bool]]] = {}
+_pairings: dict[str, tuple[str, float]] = {}
+_login_fails: dict[str, tuple[int, float]] = {}
 _login_lock = threading.Lock()
 
 
-def new_client(session_id):
+def new_client(session_id: str) -> OdooClient:
     """Return a client of the configured Odoo on a session, with its user if the server knows it."""
     config = load_config()
     client = OdooClient(config["url"], config["db"], session_id)
@@ -174,7 +179,7 @@ def new_client(session_id):
     return client
 
 
-def session_cookie(headers, name=COOKIE_NAME):
+def session_cookie(headers: Message[str, str], name: str = COOKIE_NAME) -> str:
     """Return a cookie of the request when it holds only session characters, else nothing."""
     sent = headers.get("Cookie")  # pragma: no mutate - header names ignore case
     morsel = SimpleCookie(sent).get(name)
@@ -182,27 +187,27 @@ def session_cookie(headers, name=COOKIE_NAME):
     return value if set(value) <= SESSION_CHARS else ""
 
 
-def remembered(client, right):
+def remembered(client: OdooClient, right: str) -> bool:
     """Return a session's right as Odoo last told it, asking again after SEES_TTL."""
     known = _rights.setdefault(client.session_id, {}).get(right)
     if known and time.monotonic() - known[0] < SEES_TTL:
         return known[1]
-    answer = getattr(client, right)()
+    answer: bool = getattr(client, right)()
     _rights[client.session_id][right] = (time.monotonic(), answer)
     return answer
 
 
-def sees_others(client):
+def sees_others(client: OdooClient) -> bool:
     """Tell whether the session's user can read other people's attendances."""
     return remembered(client, "sees_others")
 
 
-def edits_punches(client):
+def edits_punches(client: OdooClient) -> bool:
     """Tell whether the session's user can change other people's attendances."""
     return remembered(client, "edits_punches")
 
 
-def session_ok(session_id):
+def session_ok(session_id: str) -> bool:
     """Tell whether a session is alive in Odoo, remembering its user once it is."""
     if not session_id or not read_config():
         return False
@@ -217,14 +222,14 @@ def session_ok(session_id):
     return True
 
 
-def login_wait(ip):
+def login_wait(ip: str) -> float:
     """Return the seconds an address must still wait before trying to log in again."""
     with _login_lock:
         until = _login_fails[ip][1] if ip in _login_fails else 0
         return max(0, until - time.monotonic())
 
 
-def login_failed(ip):
+def login_failed(ip: str) -> None:
     """Count a failed login of an address and lock it out longer each time past LOGIN_TRIES."""
     with _login_lock:
         now = time.monotonic()
@@ -234,13 +239,13 @@ def login_failed(ip):
         _login_fails[ip] = (fails, now + lock)
 
 
-def login_succeeded(ip):
+def login_succeeded(ip: str) -> None:
     """Forget an address's failed logins."""
     with _login_lock:
         _login_fails.pop(ip, None)
 
 
-def new_pairing(session_id, base_url):
+def new_pairing(session_id: str, base_url: str) -> dict[str, Any]:
     """Return a one-use link that gives a phone this session for PAIR_TTL seconds, with its QR."""
     now = time.monotonic()
     for token in [token for token, (_, until) in list(_pairings.items()) if until < now]:
@@ -251,13 +256,13 @@ def new_pairing(session_id, base_url):
     return {"url": link, "qr": lan.qr_or_empty(link), "expires_in": PAIR_TTL}
 
 
-def spend_pairing(token):
+def spend_pairing(token: Any) -> str:
     """Use up a pairing link and return its session, or nothing when it is unknown or late."""
     pairing = _pairings.pop(token, None)
     return pairing[0] if pairing and pairing[1] >= time.monotonic() else ""
 
 
-def team_period(params):
+def team_period(params: dict[str, str]) -> tuple[int | None, tuple[Any, ...]]:
     """Return the year asked for, if any, and the span of the month or week; raise ValueError on a bad one."""
     year = int(params["year"]) if params.get("year") else None
     if params.get("month"):
@@ -266,7 +271,7 @@ def team_period(params):
     return year, (team.monday_of(week),)
 
 
-def revoke_pairings(session_id):
+def revoke_pairings(session_id: str) -> None:
     """Drop every pairing link a session handed out."""
     for token in [token for token, (owner, _) in list(_pairings.items()) if owner == session_id]:
         _pairings.pop(token, None)  # pragma: no mutate - as in new_pairing()
@@ -275,11 +280,18 @@ def revoke_pairings(session_id):
 class Handler(BaseHTTPRequestHandler):
     """One request: the same-site guard, then a page, a file or a route of the API."""
 
-    def log_message(self, *args):
+    def log_message(self, *args: Any) -> None:
         """Keep the server's request log out of the dashboard's."""
 
-    def _send(self, status, body, ctype="application/json; charset=utf-8", cookies=(), location=None):
-        payload = body
+    def _send(
+        self,
+        status: int,
+        body: dict[str, Any] | bytes,
+        ctype: str = "application/json; charset=utf-8",
+        cookies: Sequence[tuple[str, str]] = (),
+        location: str | None = None,
+    ) -> None:
+        payload: Any = body
         if not isinstance(body, bytes):
             payload = json.dumps(body, ensure_ascii=False).encode()  # pragma: no mutate - None is as false as False
         self.send_response(status)
@@ -301,21 +313,21 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def _same_site(self):
+    def _same_site(self) -> bool:
         host = self.headers.get("Host")  # pragma: no mutate - header names ignore case
         if not lan.is_local_name(lan.hostname_of(host)):
             return False
         origin = self.headers.get("Origin")  # pragma: no mutate - as above
         return not origin or lan.is_local_name(lan.hostname_of(origin))
 
-    def _local(self):
+    def _local(self) -> bool:
         return self.client_address[0] in lan.LOOPBACK
 
-    def _authorized(self):
+    def _authorized(self) -> bool:
         self.session = session_cookie(self.headers)
         return session_ok(self.session)
 
-    def _serve(self, handler):
+    def _serve(self, handler: Callable[[], None]) -> None:
         if not self._same_site():
             self._send(403, {"error": "origen no permitido"})
             return
@@ -333,15 +345,15 @@ class Handler(BaseHTTPRequestHandler):
             log.exception(f"Error interno atendiendo {self.command} {self.path}")
             self._send(500, {"error": "Error interno del dashboard"})
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         """Answer a GET."""
         self._serve(self._get)
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         """Answer a POST."""
         self._serve(self._post)
 
-    def _get(self):
+    def _get(self) -> None:
         self.path, _, query = self.path.partition("?")
         asset = self._asset()
         if asset:
@@ -350,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._route(GET_ROUTES, query)
 
-    def _asset(self):
+    def _asset(self) -> tuple[str, str] | None:
         name = self.path[1:]
         if self.path in PAGES:
             return PAGES[self.path] if session_cookie(self.headers) else LOGIN_TEMPLATE, "text/html; charset=utf-8"
@@ -360,7 +372,7 @@ class Handler(BaseHTTPRequestHandler):
             return os.path.join(SCRIPTS, name[3:]), "text/javascript; charset=utf-8"
         return FILES.get(self.path)
 
-    def _route(self, routes, argument):
+    def _route(self, routes: Mapping[str, tuple[Callable[[Handler, Any], None], bool]], argument: Any) -> None:
         route = routes.get(self.path)
         if route is None:
             self._send(404, {"error": "not found"})
@@ -369,30 +381,30 @@ class Handler(BaseHTTPRequestHandler):
         else:
             route[0](self, argument)
 
-    def _pair(self, query):
+    def _pair(self, query: str) -> None:
         session_id = spend_pairing(dict(parse_qsl(query)).get("t"))
         cookies = [(COOKIE_NAME, session_id)] if session_id else []
         self._send(303, b"", "text/plain", cookies=cookies, location="/" if session_id else "/login")
 
-    def _version(self, _query):
+    def _version(self, _query: str) -> None:
         self._send(200, {"version": process.source_version()})
 
-    def _config(self, _query):
+    def _config(self, _query: str) -> None:
         config, local = read_config(), self._local()
         shown = CONFIG_KEYS if local else ()
         self._send(200, dict({key: config.get(key, "") for key in shown}, configured=bool(config), local=local))
 
-    def _state(self, _query):
+    def _state(self, _query: str) -> None:
         self._send(200, state.read_state(_sessions[self.session]))
 
-    def _request(self, query):
+    def _request(self, query: str) -> None:
         self._send(*discord.own_request(new_client(self.session), dict(parse_qsl(query)).get("date")))
 
-    def _update_check(self, query):
+    def _update_check(self, query: str) -> None:
         answer = updates.check("fresh" in dict(parse_qsl(query, keep_blank_values=True)))
         self._send(200, dict(answer, local=self._local(), how=updates.how()))
 
-    def _data(self, query):
+    def _data(self, query: str) -> None:
         params = dict(parse_qsl(query, keep_blank_values=True))
         if params.get("employee"):
             self._someone_data(params)
@@ -406,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
         }
         self._send(200, dict(payload, **own))
 
-    def _someone_data(self, params):
+    def _someone_data(self, params: dict[str, str]) -> None:
         employee = params["employee"]
         if not employee.isdigit():
             self._send(400, {"error": f"Empleado no válido: {employee}"})
@@ -424,7 +436,7 @@ class Handler(BaseHTTPRequestHandler):
         }
         self._send(200, dict(payload, **someone))
 
-    def _team(self, query):
+    def _team(self, query: str) -> None:
         params = dict(parse_qsl(query, keep_blank_values=True))
         try:
             year, span = team_period(params)
@@ -444,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = team.fetch_team(client, span, fresh)
             self._send(200, dict(payload, can_edit=edits_punches(client), can_message=discord.configured()))
 
-    def _login(self, body):
+    def _login(self, body: dict[str, Any]) -> None:
         if not self._local():
             self._send(403, {"error": "En el móvil no se inicia sesión: empareja desde el ordenador"})
             return
@@ -481,7 +493,7 @@ class Handler(BaseHTTPRequestHandler):
             cookies.append((DEVICE_COOKIE, client.device))
         self._send(200, {"ok": True}, cookies=cookies)
 
-    def _logout(self, _body):
+    def _logout(self, _body: dict[str, Any]) -> None:
         session_id = session_cookie(self.headers)
         if session_id and read_config():
             with contextlib.suppress(SessionExpired):
@@ -492,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
         data.drop_data_cache(session_id)
         self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])
 
-    def _post(self):
+    def _post(self) -> None:
         declared = self.headers.get("Content-Length")  # pragma: no mutate - header names ignore case
         length = int(declared or 0)
         try:
@@ -502,9 +514,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._route(POST_ROUTES, body)
 
-    def _save_state(self, body):
+    def _save_state(self, body: dict[str, Any]) -> None:
         uid = _sessions[self.session]
-        changes = {}
+        changes: dict[str, Any] = {}
         for key, top in state.MINUTE_LIMITS.items():
             if key in body:
                 if state.valid_minutes(body[key], None, top) is None:
@@ -518,7 +530,7 @@ class Handler(BaseHTTPRequestHandler):
             changes["muted"] = bool(body["muted"])
         self._send(200, state.write_state(uid, **changes))
 
-    def _pairing(self, body):
+    def _pairing(self, body: dict[str, Any]) -> None:
         phone = lan.phone_access()
         if not self._local():
             self._send(403, {"error": "Solo se empareja desde el propio ordenador"})
@@ -530,16 +542,16 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
 
-    def _punch(self, body):
+    def _punch(self, body: dict[str, Any]) -> None:
         self._send(*data.punch(new_client(self.session), body.get("action")))
 
-    def _update(self, _body):
+    def _update(self, _body: dict[str, Any]) -> None:
         if not self._local():
             self._send(403, {"error": "Solo se actualiza desde el propio ordenador"})
         else:
             self._send(*updates.install(process.relaunch_args(), PORT))
 
-    def _for_team(self, body):
+    def _for_team(self, body: dict[str, Any]) -> None:
         act, editor = TEAM_ACTIONS[self.path]
         client = new_client(self.session)
         if not sees_others(client):
@@ -550,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*act(client, body))
 
 
-TEAM_ACTIONS = {
+TEAM_ACTIONS: dict[str, tuple[Callable[[OdooClient, dict[str, Any]], tuple[int, dict[str, Any]]], bool]] = {
     "/api/team/discord": (lambda client, body: discord.message_employee(client, body), False),
     "/api/team/discord/token": (lambda _client, body: discord.set_token(body.get("token")), False),
     "/api/team/discord/test": (lambda client, _body: discord.send_test(client), False),

@@ -25,12 +25,15 @@
   network changes.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import re
 import shutil
 import socket
 import subprocess
+from typing import cast
 from urllib.parse import urlsplit
 
 from odoo_wrapper import qr
@@ -64,31 +67,31 @@ log = logging.getLogger(__name__)
 _lan = {"off": HOST_OPTION}
 
 
-def expose(host):
+def expose(host: str) -> bool:
     """Record whether --host leaves the LAN out, and return whether the dashboard should listen on it."""
     _lan["off"] = HOST_OPTION if host in LOOPBACK else ""
     return not _lan["off"]
 
 
-def local_only(why):
+def local_only(why: str) -> None:
     """Keep the dashboard off the LAN, and log and remember why."""
     _lan["off"] = why
     log.warning(why)
 
 
-def lan_ip():
+def lan_ip() -> str:
     """Return the address this machine goes out from, without sending anything, or 127.0.0.1 offline."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.connect(("192.0.2.1", 53))
-        return sock.getsockname()[0]
+        return cast("str", sock.getsockname()[0])
     except OSError:
         return "127.0.0.1"
     finally:
         sock.close()
 
 
-def bonjour_name():
+def bonjour_name() -> str:
     """Return this machine's .local name: macOS's LocalHostName, else the hostname."""
     try:
         name = subprocess.run(
@@ -100,12 +103,12 @@ def bonjour_name():
     return name if name.endswith(".local") else f"{name}.local"
 
 
-def net_identity():
+def net_identity() -> str:
     """Return the name and address the certificate is for, empty when off the LAN; a change restarts."""
     return "" if _lan["off"] else f"{bonjour_name()}|{lan_ip()}"
 
 
-def ensure_cert():
+def ensure_cert() -> tuple[str, str] | None:
     """Return this network's certificate and key, made with openssl the first time, or None if it cannot be."""
     slug = SLUG_UNSAFE.sub("_", f"{bonjour_name()}-{lan_ip()}")
     cert, key = os.path.join(STATE_DIR, f"cert-{slug}.pem"), os.path.join(STATE_DIR, f"key-{slug}.pem")
@@ -115,7 +118,8 @@ def ensure_cert():
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
     openssl = next((path for path in OPENSSL_CANDIDATES if shutil.which(path)), None)
     if not openssl:
-        return local_only(NO_OPENSSL)
+        local_only(NO_OPENSSL)
+        return None
     try:
         subprocess.run(
             [
@@ -140,13 +144,14 @@ def ensure_cert():
             capture_output=True,
         )
     except (OSError, subprocess.CalledProcessError) as error:
-        return local_only(CERT_FAILED.format(error=error))
+        local_only(CERT_FAILED.format(error=error))
+        return None
     os.chmod(key, 0o600)
     log.info(f"Certificado creado para {names}")
     return cert, key
 
 
-def qr_or_empty(text):
+def qr_or_empty(text: str) -> str:
     """Return the QR of a text as SVG, or nothing when it is too long for the encoder."""
     try:
         return qr.svg(text)
@@ -154,14 +159,14 @@ def qr_or_empty(text):
         return ""
 
 
-def phone_access():
+def phone_access() -> dict[str, str]:
     """Return the phone's URLs, by address and by name, or why there are none."""
     if _lan["off"]:
         return {"off": _lan["off"]}
     return {"url": f"https://{lan_ip()}:{TLS_PORT}/", "name_url": f"https://{bonjour_name()}:{TLS_PORT}/"}
 
 
-def hostname_of(value):
+def hostname_of(value: str | None) -> str:
     """Return the host of a Host header or an Origin, without its port."""
     if not value:
         return ""
@@ -172,7 +177,7 @@ def hostname_of(value):
     return value.split(":")[0]
 
 
-def is_address(name, family):
+def is_address(name: str, family: int) -> bool:
     """Tell whether a name is an IP literal of a family."""
     try:
         socket.inet_pton(family, name)
@@ -181,7 +186,7 @@ def is_address(name, family):
     return True
 
 
-def is_local_name(name):
+def is_local_name(name: str) -> bool:
     """Tell whether a host is localhost, a .local name or an IP literal: the only ones the server answers."""
     return (
         name == "localhost"

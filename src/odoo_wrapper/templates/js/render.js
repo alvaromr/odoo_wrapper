@@ -64,7 +64,7 @@ import {
   plural,
 } from "./format.js";
 import { renderPhone, uncovered, unloggedGap } from "./hero.js";
-import { api, attachTip, el, tipRow } from "./shared.js";
+import { api, attachTip, byId, el, tipRow } from "./shared.js";
 import { DayFull, DayNames, store } from "./store.js";
 import { fillBar } from "./ui.js";
 import {
@@ -81,12 +81,31 @@ import {
   weeksSince,
 } from "./week.js";
 
+/**
+ * @typedef {import("./week.js").Day} Day
+ * @typedef {import("./week.js").Week} Week
+ * @typedef {import("./store.js").DaySession} DaySession
+ */
+
+/**
+ * One entry of the banner of punches to fix: a class, what it is and what it says of the day.
+ * @typedef {[string, string, string]} Piece
+ */
+
 /* ---------- KPIs ---------- */
+/** @param {Week[]} weeks */
 export function renderKpis(weeks) {
   const done = weeks.filter((w) => w.complete);
   const working = done.filter((w) => w.target > 0);
-  const kpis = document.getElementById("kpis");
+  const kpis = byId("kpis");
   kpis.replaceChildren();
+  /**
+   * @param {string} label
+   * @param {string} valueText
+   * @param {string | null} [foot]
+   * @param {string | null} [valueCls]
+   * @returns {HTMLDivElement}
+   */
   function tile(label, valueText, foot, valueCls) {
     const c = el("div", "card");
     c.appendChild(el("span", "label", label));
@@ -99,6 +118,7 @@ export function renderKpis(weeks) {
   if (!done.length) return;
   const balance = done.reduce((a, w) => a + w.delta, 0);
   const wrong = done.filter((w) => w.error).length;
+  /** @param {number} n */
   const unreliable = (n) =>
     el(
       "div",
@@ -125,7 +145,9 @@ export function renderKpis(weeks) {
   kpis.appendChild(balanceTile);
 
   const worked = weeks.flatMap((w) => w.days).filter((d) => d.sessions.length && !dayError(d));
+  /** @param {Date} d */
   const minsOf = (d) => d.getHours() * 60 + d.getMinutes();
+  /** @param {number[]} list */
   const avgTime = (list) => {
     if (!list.length) return null;
     const m = Math.round(list.reduce((a, v) => a + v, 0) / list.length);
@@ -133,26 +155,36 @@ export function renderKpis(weeks) {
   };
   const byLength = worked
     .filter((d) => d.scheduled > 0)
-    .reduce((m, d) => m.set(d.scheduled, [...(m.get(d.scheduled) || []), d]), new Map());
+    .reduce(
+      (m, d) => m.set(d.scheduled, [...(m.get(d.scheduled) || []), d]),
+      /** @type {Map<number, Day[]>} */ (new Map()),
+    );
   const split = byLength.size > 1;
-  (split ? [...byLength].sort(([a], [b]) => b - a) : [[0, worked]]).forEach(([hours, days]) => {
-    const entry = avgTime(days.map((d) => minsOf(d.sessions[0].in)));
-    const exit = avgTime(days.filter((d) => d.sessions.at(-1).out).map((d) => minsOf(d.sessions.at(-1).out)));
-    if (entry && exit) {
-      kpis.appendChild(
-        tile(
-          `Horario habitual${split ? ` · jornada de ${fmtHM(hours)}` : ""}`,
-          `${entry} – ${exit}`,
-          `entrada y salida medias · ${plural(days.length, "día", "días")}`,
-        ),
+  /** @type {[number, Day[]][]} */ (split ? [...byLength].sort(([a], [b]) => b - a) : [[0, worked]]).forEach(
+    ([hours, days]) => {
+      const entry = avgTime(days.map((d) => minsOf(d.sessions[0].in)));
+      const exit = avgTime(
+        days
+          .filter((d) => /** @type {DaySession} */ (d.sessions.at(-1)).out)
+          .map((d) => minsOf(/** @type {Date} */ (/** @type {DaySession} */ (d.sessions.at(-1)).out))),
       );
-    }
-  });
+      if (entry && exit) {
+        kpis.appendChild(
+          tile(
+            `Horario habitual${split ? ` · jornada de ${fmtHM(hours)}` : ""}`,
+            `${entry} – ${exit}`,
+            `entrada y salida medias · ${plural(days.length, "día", "días")}`,
+          ),
+        );
+      }
+    },
+  );
 }
 
 /* ---------- overview chart ---------- */
+/** @returns {string} */
 export function scheduleSentence() {
-  const groups = new Map();
+  const groups = /** @type {Map<number, string[]>} */ (new Map());
   store.expected.forEach((hours, day) => {
     if (hours <= 0) return;
     const names = groups.get(hours) || [];
@@ -166,11 +198,11 @@ export function scheduleSentence() {
   return parts.join(", ");
 }
 
+/** @param {Week[]} weeks */
 export function renderOverview(weeks) {
-  document.getElementById("overviewTitle").textContent =
-    `Total semanal frente al objetivo de ${fmtHM(store.weekTarget)}`;
+  byId("overviewTitle").textContent = `Total semanal frente al objetivo de ${fmtHM(store.weekTarget)}`;
   const adjusted = weeks.some((w) => w.target !== store.weekTarget && w.target > 0);
-  document.getElementById("overviewCaption").textContent =
+  byId("overviewCaption").textContent =
     "Cada columna es una semana; la actual, en azul claro; abajo, en morado, el descanso fichado; en naranja, " +
     "las semanas con un error de fichaje (una jornada muy larga, una entrada sin cerrar o un día sin fichar). " +
     "Pulsa una para verla arriba." +
@@ -186,6 +218,7 @@ export function renderOverview(weeks) {
     plotH = H - m.t - m.b;
   const maxTotal = Math.max(...weeks.filter((w) => !w.suspect).map((w) => w.total), store.weekTarget);
   const yMax = Math.max(44, Math.ceil((maxTotal + 2) / 4) * 4);
+  /** @param {number} v */
   const y = (v) => m.t + plotH - (v / yMax) * plotH;
   const band = plotW / weeks.length;
   const colW = Math.min(24, band * 0.55);
@@ -195,9 +228,15 @@ export function renderOverview(weeks) {
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", `Horas totales por semana frente al objetivo de ${fmtHM(store.weekTarget)}`);
+  /**
+   * @param {string} tag
+   * @param {Object<string, string | number>} attrs
+   * @param {string} [cls]
+   * @returns {SVGElement}
+   */
   function sEl(tag, attrs, cls) {
     const e = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, /** @type {string} */ (v));
     if (cls) e.setAttribute("class", cls);
     return e;
   }
@@ -206,7 +245,7 @@ export function renderOverview(weeks) {
   for (let v = gridStep; v <= yMax; v += gridStep) {
     if (v !== store.weekTarget) svg.appendChild(sEl("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }, "gridline"));
     const t = sEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, "ticklabel");
-    t.textContent = v;
+    t.textContent = /** @type {any} */ (v);
     svg.appendChild(t);
   }
   svg.appendChild(sEl("line", { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0) }, "axisline"));
@@ -267,7 +306,7 @@ export function renderOverview(weeks) {
       } else if (w.complete) {
         const r2 = tipRow(w.delta >= 0 ? "Sobre objetivo" : "Bajo objetivo", fmtDelta(w.delta));
         const tone = w.error ? "status-warning" : shortWeek(w) ? "destructive" : null;
-        if (tone) r2.querySelector(".v").style.color = `var(--${tone})`;
+        if (tone) /** @type {HTMLElement} */ (r2.querySelector(".v")).style.color = `var(--${tone})`;
         t.appendChild(r2);
       } else {
         t.appendChild(tipRow("Para el objetivo", fmtHM(Math.max(w.target - w.total, 0))));
@@ -286,7 +325,7 @@ export function renderOverview(weeks) {
     svg.style.width = `${W}px`;
     svg.style.height = `${H}px`;
   }
-  const host = document.getElementById("overviewChart");
+  const host = byId("overviewChart");
   const keep = host.scrollWidth - host.scrollLeft - host.clientWidth > 4 ? host.scrollLeft : null;
   host.replaceChildren(svg);
   host.scrollLeft = keep == null ? host.scrollWidth : keep;
@@ -296,6 +335,10 @@ export function renderOverview(weeks) {
 let calOffset = 0,
   calView = "horario";
 
+/**
+ * @param {Day} d
+ * @returns {HTMLSpanElement}
+ */
 export function vacIcon(d) {
   const vb = el("span", `vacbtn${d.auto ? " active" : ""}`, d.auto ? "🏖" : "");
   if (d.auto) vb.title = `Ausencia en Odoo: ${d.auto}`;
@@ -304,7 +347,7 @@ export function vacIcon(d) {
 
 export function renderCalendar() {
   const w = buildWeek(calOffset);
-  document.getElementById("weeksHint").textContent =
+  byId("weeksHint").textContent =
     (store.data.schedule
       ? `La marca vertical de cada día es la jornada prevista en Odoo: ${scheduleSentence()}.`
       : "Odoo no devuelve horario para tu calendario, así que no hay jornada prevista ni objetivo semanal.") +
@@ -316,11 +359,19 @@ export function renderCalendar() {
     " Los festivos y ausencias aprobadas se marcan solos (🏖) y no cuentan en el objetivo de su semana;" +
     " los permisos de horas (médico, etc.) restan de la jornada prevista de su día y aparecen en el horario" +
     " como bloque punteado.";
-  const card = document.getElementById("weekCal");
+  const card = byId("weekCal");
   card.replaceChildren();
   const barMax = Math.max(10, ...w.days.filter((d) => !longDay(d)).map((d) => Math.max(d.hours, d.expected)));
 
   const head = el("div", "week-head");
+  /**
+   * @param {string} cls
+   * @param {string} label
+   * @param {string} title
+   * @param {boolean} disabled
+   * @param {() => void} onClick
+   * @returns {HTMLButtonElement}
+   */
   function navButton(cls, label, title, disabled, onClick) {
     const b = el("button", cls, label);
     b.type = "button";
@@ -448,19 +499,32 @@ export function renderCalendar() {
 }
 
 /* ---------- horario semanal ---------- */
+/**
+ * @param {DaySession} s
+ * @returns {number}
+ */
 function spanDays(s) {
   const out = s.out || store.now;
   return Math.round(
-    (new Date(out.getFullYear(), out.getMonth(), out.getDate()) -
-      new Date(s.in.getFullYear(), s.in.getMonth(), s.in.getDate())) /
-      864e5,
+    /** @type {number} */ (
+      /** @type {any} */ (new Date(out.getFullYear(), out.getMonth(), out.getDate())) -
+        /** @type {any} */ (new Date(s.in.getFullYear(), s.in.getMonth(), s.in.getDate()))
+    ) / 864e5,
   );
 }
 
+/**
+ * @param {DaySession} s
+ * @returns {number}
+ */
 function endHour(s) {
   return dayKey(s.out || store.now) === dayKey(s.in) ? hourOf(s.out || store.now) : 24;
 }
 
+/**
+ * @param {HTMLElement} card
+ * @param {Week} w
+ */
 export function renderTimeline(card, w) {
   const days = w.days.filter((d, i) => i < 5 || d.hours >= 0.01 || d.vacation || missed(d));
   const ends = days.flatMap((d) => [
@@ -469,6 +533,7 @@ export function renderTimeline(card, w) {
   ]);
   const from = Math.floor(Math.min(8, ...ends)),
     to = Math.ceil(Math.max(18, ...ends));
+  /** @param {number} h */
   const pct = (h) => `${((h - from) / (to - from)) * 100}%`;
 
   const axis = el("div", "tl-axis");
@@ -493,10 +558,22 @@ export function renderTimeline(card, w) {
       line.style.left = pct(h);
       track.appendChild(line);
     }
+    /**
+     * @param {HTMLElement} block
+     * @param {number} from
+     * @param {number} to
+     */
     const span = (block, from, to) => {
       block.style.left = pct(from);
       block.style.width = `calc(${pct(to)} - ${pct(from)})`;
     };
+    /**
+     * @param {HTMLElement} block
+     * @param {Date} from
+     * @param {Date} to
+     * @param {string} kind
+     * @param {number} hours
+     */
     const place = (block, from, to, kind, hours) => {
       block.tabIndex = 0;
       span(block, hourOf(from), hourOf(to));
@@ -509,18 +586,18 @@ export function renderTimeline(card, w) {
     for (const l of d.leaves) {
       place(el("div", "leave", l.type), new Date(l.from), new Date(l.to), `Permiso · ${l.type}`, l.hours);
     }
-    const rests = [];
-    let prevBlock = null,
+    const rests = /** @type {HTMLElement[]} */ ([]);
+    let prevBlock = /** @type {HTMLElement | null} */ (null),
       prevStart = 0;
     d.sessions.forEach((s, k) => {
       const prev = d.sessions[k - 1];
-      const joined = prevBlock && prev.out && s.in - prev.out <= 60000;
+      const joined = prevBlock && prev.out && /** @type {any} */ (s.in) - /** @type {any} */ (prev.out) <= 60000;
       if (prev?.out) {
         for (const [a, b] of uncovered(prev.out, s.in, d.leaves).filter(([from, to]) => to - from > 60000)) {
           place(el("div", "gap", fmtShort((b - a) / 3.6e6)), new Date(a), new Date(b), "Sin fichar", (b - a) / 3.6e6);
         }
       }
-      const start = joined ? hourOf(prev.out) : hourOf(s.in),
+      const start = joined ? hourOf(/** @type {Date} */ (prev.out)) : hourOf(s.in),
         end = endHour(s);
       const days = spanDays(s);
       const later = days > 0 ? ` (+${days})` : "";
@@ -557,11 +634,11 @@ export function renderTimeline(card, w) {
       if (s.rest) {
         span(block, hourOf(s.in), end);
         rests.push(block);
-        if (joined) span(prevBlock, prevStart, end);
+        if (joined) span(/** @type {HTMLElement} */ (prevBlock), prevStart, end);
         else prevBlock = null;
         return;
       }
-      if (joined) prevBlock.classList.add("join-r");
+      if (joined) /** @type {HTMLElement} */ (prevBlock).classList.add("join-r");
       span(block, start, end);
       track.appendChild(block);
       prevBlock = block;
@@ -576,8 +653,9 @@ export function renderTimeline(card, w) {
 }
 
 /* ---------- tabla ---------- */
+/** @param {Week[]} weeks */
 export function renderTable(weeks) {
-  const host = document.getElementById("tableView");
+  const host = byId("tableView");
   host.replaceChildren();
   const hasWeekend = weeks.some((w) => w.days[5].hours > 0.01 || w.days[6].hours > 0.01);
   const dayCount = hasWeekend ? 7 : 5;
@@ -627,16 +705,22 @@ export function renderTable(weeks) {
 
 /* ---------- todo lo que depende del filtro de rango ---------- */
 let rangeMonths = 6;
+/** @param {number} n */
 export function setRangeMonths(n) {
   rangeMonths = n;
 }
 
+/** @param {Date} date */
 function showWeek(date) {
   calOffset = Math.min(weekOffsetOf(date), store.data.weeks - 1);
   renderCalendar();
-  document.getElementById("weekCal").scrollIntoView({ block: "start", behavior: "smooth" });
+  byId("weekCal").scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
+/**
+ * @param {Day} d
+ * @returns {HTMLSpanElement}
+ */
 function dayValue(d) {
   if (missed(d)) return el("span", "dvalue long", "sin fichar");
   if (d.hours < 0.01 && d.sessions.some(unclosed)) return el("span", "dvalue long", "sin cerrar");
@@ -649,16 +733,29 @@ function dayValue(d) {
 
 let errorsOpen = false;
 
+/**
+ * @param {import("./week.js").PunchError} s
+ * @returns {Piece}
+ */
 function errorPiece(s) {
-  return {
-    long: () => ["kind", `Jornada de ${fmtShort(s.hours)}`, s.count > 1 ? `en ${s.count} sesiones` : ""],
+  return /** @type {Record<string, () => Piece>} */ ({
+    long: () => [
+      "kind",
+      `Jornada de ${fmtShort(/** @type {number} */ (s.hours))}`,
+      /** @type {number} */ (s.count) > 1 ? `en ${s.count} sesiones` : "",
+    ],
     open: () => ["kind", "Sin cerrar", `entrada a las ${fmtTime(s.in)}, sin salida`],
-    empty: () => ["kind", "Sin fichar", `con jornada prevista de ${fmtShort(s.expected)}`],
-  }[s.kind]();
+    empty: () => ["kind", "Sin fichar", `con jornada prevista de ${fmtShort(/** @type {number} */ (s.expected))}`],
+  })[s.kind]();
 }
 
+/**
+ * @param {HTMLElement} button
+ * @param {string} [day]
+ * @returns {Promise<void>}
+ */
 export function openRequest(button, day) {
-  const tab = window.open("", "_blank");
+  const tab = /** @type {Window} */ (window.open("", "_blank"));
   tab.opener = null;
   return api(`/api/request${day ? `?date=${day}` : ""}`)
     .then(({ url }) => {
@@ -671,23 +768,28 @@ export function openRequest(button, day) {
     });
 }
 
+/**
+ * @param {import("./store.js").ChangeRequest} r
+ * @returns {Piece}
+ */
 function requestPiece(r) {
   const span = `${fmtTime(new Date(r.from))}${r.to ? `–${fmtTime(new Date(r.to))}` : ""}`;
   return ["req", "Solicitud pendiente", `${span}${r.reason ? ` · ${r.reason}` : ""}`];
 }
 
 export function renderErrors() {
-  const box = document.getElementById("errorsBanner");
+  const box = byId("errorsBanner");
   const errors = punchErrors();
   const requests = store.data.requests || [];
   box.classList.toggle("hidden", !errors.length && !requests.length);
   box.classList.toggle("requests", !errors.length);
   if (!errors.length && !requests.length) return;
-  const days = new Map();
+  const days = /** @type {Map<string, {date: Date, pieces: Piece[]}>} */ (new Map());
+  /** @param {Date} at */
   const on = (at) => {
     const key = isoDay(at);
     if (!days.has(key)) days.set(key, { date: new Date(at.getFullYear(), at.getMonth(), at.getDate()), pieces: [] });
-    return days.get(key).pieces;
+    return /** @type {{date: Date, pieces: Piece[]}} */ (days.get(key)).pieces;
   };
   for (const s of errors) on(s.in).push(errorPiece(s));
   for (const r of requests) on(new Date(r.from)).push(requestPiece(r));
@@ -763,6 +865,10 @@ export function renderErrors() {
 
 let rangeShort = false;
 
+/**
+ * @param {Week} w
+ * @returns {boolean}
+ */
 function shortWeek(w) {
   return rangeShort && w.delta <= -1 / 60;
 }

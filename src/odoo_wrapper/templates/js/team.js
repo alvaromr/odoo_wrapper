@@ -78,6 +78,7 @@ import { fmtDay, fmtDelta, fmtHM, fmtTime, fmtYear, isoDay, parseDay, plural, sh
 import {
   api,
   attachTip,
+  byId,
   el,
   hideTip,
   panScroll,
@@ -93,6 +94,32 @@ import { refreshDiscord, wireDiscord } from "./teamdiscord.js";
 import { loadFixes, renderFixes, wireFixes } from "./teamfixes.js";
 import { FixKinds, FlagText, named, team, thisDay } from "./teamstate.js";
 
+/**
+ * @typedef {import("./teamstate.js").Day} Day
+ * @typedef {import("./teamstate.js").Employee} Employee
+ * @typedef {import("./teamstate.js").Limits} Limits
+ * @typedef {import("./teamstate.js").Month} Month
+ * @typedef {import("./teamstate.js").TeamData} TeamData
+ * @typedef {import("./teamstate.js").Total} Total
+ * @typedef {import("./teamstate.js").ViewName} ViewName
+ * @typedef {import("./teamstate.js").WeekFlag} WeekFlag
+ * @typedef {import("./teamcharts.js").BarItem} BarItem
+ * @typedef {import("./teamcharts.js").Period} Period
+ * @typedef {Total & { days: Day[], flags: WeekFlag[] }} WeekTotal  What the total cell of a week draws
+ * @typedef {{ label: string, current: boolean, cell: (e: Employee) => HTMLElement }} Column
+ * @typedef {{ label: string, keep: (e: Employee) => boolean, none: string }} FilterSpec
+ * @typedef {{
+ *   key: () => string | null,
+ *   step: (n: number) => string,
+ *   now: () => string | undefined,
+ *   noun: string,
+ *   anchor: () => string,
+ *   keep: (data: TeamData) => void,
+ *   keyOf: (anchor: string) => string,
+ * }} ViewSpec
+ */
+
+/** @type {Record<string, FilterSpec>} */
 export const Filters = {
   issues: { label: "Con incidencias", keep: (e) => hasFlags(e), none: "Nadie tiene incidencias esta semana" },
   under: { label: "Bajo objetivo", keep: (e) => redRow(e).under, none: "Nadie bajo objetivo esta semana" },
@@ -105,13 +132,14 @@ export const Filters = {
   all: { label: "Todas", keep: () => true, none: "Nadie a la vista" },
 };
 
+/** @type {Record<ViewName, ViewSpec>} */
 export const Views = {
   week: {
     key: () => team.week,
-    step: (n) => shiftWeek(team.week, n),
+    step: (n) => shiftWeek(/** @type {string} */ (team.week), n),
     now: () => undefined,
     noun: "esta semana",
-    anchor: () => team.week,
+    anchor: () => /** @type {string} */ (team.week),
     keep: (data) => {
       team.week = data.week;
     },
@@ -141,41 +169,69 @@ export const Views = {
   },
 };
 
+/** @param {number} balance */
 export function gapText(balance) {
   if (Math.abs(balance) < 1 / 60) return "Al día";
   return balance < 0 ? `Faltan ${fmtHM(-balance)}` : `Sobran ${fmtHM(balance)}`;
 }
 
+/**
+ * @param {string} iso
+ * @param {number} weeks
+ */
 export function shiftWeek(iso, weeks) {
   return shiftDays(iso, 7 * weeks);
 }
 
+/**
+ * @param {string} month
+ * @param {number} months
+ */
 export function shiftMonth(month, months) {
   const [y, m] = month.split("-").map(Number);
   return isoDay(new Date(y, m - 1 + months, 1)).slice(0, 7);
 }
 
+/** @param {string} month */
 export function monthLabel(month) {
   const text = parseDay(`${month}-01`).toLocaleDateString("es", { month: "long", year: "numeric" });
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** @param {string} monday */
 function weekRange(monday) {
   return `${fmtDay(parseDay(monday))} – ${fmtDay(parseDay(shiftDays(monday, 6)))}`;
 }
 
+/**
+ * @param {number | null} balance
+ * @param {Limits} limits
+ */
 function shortOf(balance, limits) {
   return balance != null && balance <= -limits.under_margin;
 }
 
+/**
+ * @param {number | null} balance
+ * @param {Limits} limits
+ */
 function surplusOf(balance, limits) {
   return balance != null && balance > limits.over_margin;
 }
 
+/**
+ * @param {Total} total
+ * @param {Limits} limits
+ */
 function totalShort(total, limits) {
   return !total.flagged_days && shortOf(total.balance, limits);
 }
 
+/**
+ * @param {Employee} employee
+ * @param {number} w
+ * @param {Limits} limits
+ */
 function weekRed(employee, w, limits) {
   const { flags } = employee.weeks[w];
   return {
@@ -184,6 +240,11 @@ function weekRed(employee, w, limits) {
   };
 }
 
+/**
+ * @param {Employee} employee
+ * @param {Month} m
+ * @param {Limits} limits
+ */
 function monthRed(employee, m, limits) {
   return {
     under: totalShort(m, limits) && shortOf(employee.balance, limits),
@@ -191,8 +252,9 @@ function monthRed(employee, m, limits) {
   };
 }
 
+/** @param {Employee} employee */
 function redRow(employee) {
-  const limits = team.data.limits;
+  const limits = /** @type {TeamData} */ (team.data).limits;
   if (team.view === "week") return { under: employee.flags.includes("under"), over: employee.flags.includes("over") };
   const inside =
     team.view === "month"
@@ -204,6 +266,7 @@ function redRow(employee) {
   };
 }
 
+/** @param {Employee} employee */
 export function hasFlags(employee) {
   const red = redRow(employee);
   return (
@@ -214,6 +277,11 @@ export function hasFlags(employee) {
   );
 }
 
+/**
+ * @param {WeekFlag} kind
+ * @param {{ hours: number, target: number }} employee
+ * @param {Limits} limits
+ */
 export function whyWeek(kind, employee, limits) {
   const { hours, target } = employee;
   if (kind === "under") return `${fmtHM(hours)} de ${fmtHM(target)} previstas: faltan ${fmtHM(target - hours)}`;
@@ -223,18 +291,25 @@ export function whyWeek(kind, employee, limits) {
   );
 }
 
+/** @param {Day} day */
 export function hasData(day) {
   return day.sessions.length > 0 || day.requests.length > 0 || day.flags.length > 0;
 }
 
+/**
+ * @param {Employee} employee
+ * @param {Day} day
+ * @param {string} today
+ * @param {Limits} limits
+ */
 function dayCell(employee, day, today, limits) {
   const td = el("td", "day");
   td.tabIndex = 0;
   td.addEventListener("click", () => {
-    if (!gridPan.consume()) openDay(employee, day, team.data);
+    if (!gridPan.consume()) openDay(employee, day, /** @type {TeamData} */ (team.data));
   });
   td.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") openDay(employee, day, team.data);
+    if (e.key === "Enter") openDay(employee, day, /** @type {TeamData} */ (team.data));
   });
   if (day.date === today) td.classList.add("today");
   if (day.date > today) td.classList.add("future");
@@ -252,6 +327,12 @@ function dayCell(employee, day, today, limits) {
 
 export const SuspectText = "⚠ incluye una jornada muy larga: suma no fiable";
 
+/**
+ * @param {HTMLElement} td
+ * @param {Total} total
+ * @param {boolean} running
+ * @param {boolean} [started]
+ */
 function summary(td, { hours, target, balance, due, suspect, flagged_days: flagged }, running, started = true) {
   if (target != null && started) {
     td.appendChild(el("span", "gap", `${gapText(balance)}${running ? " hasta ayer" : ""}`));
@@ -263,18 +344,30 @@ function summary(td, { hours, target, balance, due, suspect, flagged_days: flagg
   if (suspect) td.appendChild(el("span", "flag warn", SuspectText));
 }
 
+/**
+ * @param {Employee} employee
+ * @param {ViewName} view
+ * @param {string} key
+ */
 function drillInto(employee, view, key) {
   team.search = employee.name;
-  document.getElementById("search").value = employee.name;
+  /** @type {HTMLInputElement} */ (byId("search")).value = employee.name;
   team.view = view;
   load(key, false, true);
 }
 
+/**
+ * @param {WeekTotal} employee
+ * @param {Limits} limits
+ * @param {string} today
+ * @param {string[]} [extra]
+ * @param {WeekFlag[]} [flags]
+ */
 function totalCell(employee, limits, today, extra = [], flags = employee.flags) {
   const td = el("td", "total");
   if (flags.length) td.classList.add("bad");
   const days = employee.days;
-  summary(td, employee, days.at(-1).date >= today, days[0].date < today);
+  summary(td, employee, /** @type {Day} */ (days.at(-1)).date >= today, days[0].date < today);
   for (const text of extra) td.appendChild(el("span", "flag warn", text));
   td.tabIndex = 0;
   attachTip(td, (tip) => {
@@ -292,6 +385,12 @@ function totalCell(employee, limits, today, extra = [], flags = employee.flags) 
   return td;
 }
 
+/**
+ * @param {Employee} employee
+ * @param {number} w
+ * @param {string} today
+ * @param {Limits} limits
+ */
 function weekCell(employee, w, today, limits) {
   const week = employee.weeks[w];
   const days = employee.days.slice(7 * w, 7 * w + 7);
@@ -320,6 +419,11 @@ function weekCell(employee, w, today, limits) {
   return td;
 }
 
+/**
+ * @param {Employee} employee
+ * @param {TeamData} data
+ * @param {string} today
+ */
 function monthCell(employee, data, today) {
   const td = el("td", "total");
   const running = today < data.stop;
@@ -329,7 +433,8 @@ function monthCell(employee, data, today) {
   td.tabIndex = 0;
   attachTip(td, (tip) => {
     tip.appendChild(el("div", "t-title", "Saldo de cada semana, entera"));
-    for (const w of employee.weeks) tip.appendChild(tipRow(weekRange(w.monday), fmtDelta(w.hours - w.target)));
+    for (const w of employee.weeks)
+      tip.appendChild(tipRow(weekRange(w.monday), fmtDelta(w.hours - /** @type {number} */ (w.target))));
     tip.appendChild(el("div", "t-sep"));
     const label = running ? "Días del mes hasta ayer" : "Solo los días del mes";
     tip.appendChild(tipRow(label, fmtDelta(employee.balance)));
@@ -337,6 +442,12 @@ function monthCell(employee, data, today) {
   return td;
 }
 
+/**
+ * @param {Employee} employee
+ * @param {Month} m
+ * @param {string} today
+ * @param {Limits} limits
+ */
 function yearMonthCell(employee, m, today, limits) {
   const td = el("td", "total week");
   if (m.month > today.slice(0, 7)) {
@@ -347,11 +458,11 @@ function yearMonthCell(employee, m, today, limits) {
   if (running) td.classList.add("today");
   summary(td, m, running);
   const red = monthRed(employee, m, limits);
-  const counts = [
+  const counts = /** @type {[number, string, string, string][]} */ ([
     [m.under, "semana bajo objetivo", "semanas bajo objetivo", red.under ? "flag" : "meta block"],
     [m.over, "semana con demasiadas horas", "semanas con demasiadas horas", red.over ? "flag" : "meta block"],
     [m.flagged_days, "día con errores de fichaje", "días con errores de fichaje", "flag warn"],
-  ].filter(([n]) => n > 0);
+  ]).filter(([n]) => n > 0);
   for (const [n, one, many, cls] of counts) td.appendChild(el("span", cls, plural(n, one, many)));
   if (red.under || red.over) td.classList.add("bad");
   td.tabIndex = 0;
@@ -368,6 +479,11 @@ function yearMonthCell(employee, m, today, limits) {
   return td;
 }
 
+/**
+ * @param {Employee} employee
+ * @param {string} today
+ * @param {Limits} limits
+ */
 function yearCell(employee, today, limits) {
   const td = el("td", "total");
   summary(td, employee, team.year === today.slice(0, 4));
@@ -375,6 +491,12 @@ function yearCell(employee, today, limits) {
   return td;
 }
 
+/**
+ * @param {TeamData} data
+ * @param {Employee[]} rows
+ * @param {string} today
+ * @returns {{ cols: Column[], total: [string, (e: Employee) => HTMLElement] }}
+ */
 function columns(data, rows, today) {
   if (team.view === "year") {
     return {
@@ -414,6 +536,7 @@ function columns(data, rows, today) {
   };
 }
 
+/** @param {Employee} employee */
 function nameCell(employee) {
   const name = el("td", "name");
   const link = el("a", null, employee.name);
@@ -422,6 +545,7 @@ function nameCell(employee) {
   return name;
 }
 
+/** @param {Limits} limits */
 export function criteria(limits) {
   return (
     `Bajo objetivo: una semana terminada con ${fmtHM(limits.under_margin)} o más por debajo de su ` +
@@ -437,34 +561,34 @@ export function criteria(limits) {
 }
 
 export function render() {
-  const data = team.data;
+  const data = /** @type {TeamData} */ (team.data);
   const today = isoDay(new Date());
-  document.getElementById("weekLabel").textContent = {
+  byId("weekLabel").textContent = {
     week: () =>
       `Semana del ${fmtDay(parseDay(data.week))} al ${fmtDay(parseDay(shiftDays(data.week, 6)))}` +
       fmtYear(parseDay(shiftDays(data.week, 6))),
     month: () => monthLabel(team.month),
     year: () => team.year,
   }[team.view]();
-  for (const button of document.getElementById("viewSeg").querySelectorAll("button")) {
+  for (const button of byId("viewSeg").querySelectorAll("button")) {
     button.setAttribute("aria-pressed", String(button.dataset.view === team.view));
   }
   const people = data.employees.filter((e) => named(e, team.search));
-  document.getElementById("criteria").textContent = criteria(data.limits);
+  byId("criteria").textContent = criteria(data.limits);
   const generated = new Date(data.generated_at);
-  document.getElementById("subtitle").textContent =
+  byId("subtitle").textContent =
     `${plural(people.length, "persona", "personas")} · actualizado el ${fmtDay(generated)} ` +
     `a las ${fmtTime(generated)}`;
 
-  for (const button of document.getElementById("filterSeg").querySelectorAll("button")) {
-    const filter = Filters[button.dataset.filter];
+  for (const button of byId("filterSeg").querySelectorAll("button")) {
+    const filter = Filters[/** @type {string} */ (button.dataset.filter)];
     button.textContent = `${filter.label} (${people.filter(filter.keep).length})`;
     button.setAttribute("aria-pressed", String(button.dataset.filter === team.filter));
   }
 
   renderFixes();
 
-  const table = document.getElementById("grid");
+  const table = byId("grid");
   const rows = people.filter(Filters[team.filter].keep).sort((a, b) => a.name.localeCompare(b.name, "es"));
   const { cols, total } = columns(data, rows, today);
   const head = el("tr");
@@ -495,14 +619,14 @@ export function render() {
     tr.appendChild(td);
     tbody.appendChild(tr);
   }
-  for (const button of document.getElementById("displaySeg").querySelectorAll("button")) {
+  for (const button of byId("displaySeg").querySelectorAll("button")) {
     button.setAttribute("aria-pressed", String(button.dataset.display === team.display));
   }
   const charts = team.display === "charts";
   if (charts) renderCharts(data, rows, today);
-  document.getElementById("loadmsg").classList.add("hidden");
-  document.getElementById("gridCard").classList.toggle("hidden", charts);
-  document.getElementById("charts").classList.toggle("hidden", !charts);
+  byId("loadmsg").classList.add("hidden");
+  byId("gridCard").classList.toggle("hidden", charts);
+  byId("charts").classList.toggle("hidden", !charts);
   saveState();
 }
 
@@ -520,20 +644,17 @@ export function stateHash() {
   return `#${params}`;
 }
 
+/** @param {string} hash */
 export function readState(hash) {
   const params = new URLSearchParams(hash.replace(/^#/, ""));
-  if (Views[params.get("v")]) team.view = params.get("v");
-  if (Filters[params.get("f")]) team.filter = params.get("f");
-  if (["table", "charts"].includes(params.get("d"))) team.display = params.get("d");
+  if (Views[/** @type {ViewName} */ (params.get("v"))]) team.view = /** @type {ViewName} */ (params.get("v"));
+  if (Filters[/** @type {string} */ (params.get("f"))]) team.filter = /** @type {string} */ (params.get("f"));
+  if (["table", "charts"].includes(/** @type {string} */ (params.get("d"))))
+    team.display = /** @type {"table" | "charts"} */ (params.get("d"));
   team.search = params.get("q") || "";
-  document.getElementById("search").value = team.search;
+  /** @type {HTMLInputElement} */ (byId("search")).value = team.search;
   if (params.has("k"))
-    team.fixKinds = new Set(
-      params
-        .get("k")
-        .split(",")
-        .filter((k) => FixKinds.includes(k)),
-    );
+    team.fixKinds = new Set(/** @type {string} */ (params.get("k")).split(",").filter((k) => FixKinds.includes(k)));
   return params.get("p") || undefined;
 }
 
@@ -563,9 +684,26 @@ const Series = {
   over: { key: "over", label: "Demasiadas horas", cls: "over" },
 };
 
+/**
+ * @param {TeamData} data
+ * @param {Employee[]} rows
+ * @param {string} today
+ * @returns {Period[]}
+ */
 function periods(data, rows, today) {
   const sorted = rows.slice().sort((a, b) => a.name.localeCompare(b.name, "es"));
+  /**
+   * @template T, U
+   * @param {Record<string, T>} object
+   * @param {(value: T) => U} fn
+   * @returns {Record<string, U>}
+   */
   const each = (object, fn) => Object.fromEntries(Object.entries(object).map(([key, value]) => [key, fn(value)]));
+  /**
+   * @template {{ label: string, title: string }} B
+   * @param {B} base
+   * @param {Record<string, (e: Employee) => boolean>} tests
+   */
   const period = (base, tests) => {
     const people = each(tests, (test) => sorted.filter(test).map((e) => e.name));
     return { ...base, people, values: each(people, (names) => names.length) };
@@ -603,8 +741,13 @@ function periods(data, rows, today) {
     );
 }
 
+/**
+ * @param {TeamData} data
+ * @param {Employee[]} rows
+ * @param {string} today
+ */
 function renderCharts(data, rows, today) {
-  const box = document.getElementById("charts");
+  const box = byId("charts");
   const running = today < data.stop;
   const noun = { week: "la semana", month: "el mes", year: "el año" }[team.view];
   const judged = rows.filter((e) => e.balance != null);
@@ -668,10 +811,15 @@ function renderCharts(data, rows, today) {
   box.appendChild(timeline);
 }
 
+/**
+ * @param {string | null} [key]
+ * @param {boolean} [fresh]
+ * @param {boolean} [push]
+ */
 export async function load(key, fresh, push = false) {
   const unit = team.view;
   const params = [key ? `${unit}=${key}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
-  const loadmsg = document.getElementById("loadmsg");
+  const loadmsg = byId("loadmsg");
   try {
     const data = await api(`/api/team${params ? `?${params}` : ""}`);
     team.data = data;
@@ -682,11 +830,15 @@ export async function load(key, fresh, push = false) {
     if (fresh || !team.fixes) loadFixes(fresh);
     if (unit !== "year") fetch(`/api/team?${unit}=${Views[unit].step(-1)}`).catch(warned("the prefetch"));
   } catch (e) {
-    loadmsg.textContent = `Error cargando datos de Odoo: ${e.message}`;
+    loadmsg.textContent = `Error cargando datos de Odoo: ${/** @type {Error} */ (e).message}`;
     loadmsg.classList.remove("hidden");
   }
 }
 
+/**
+ * @param {HTMLButtonElement} button
+ * @param {() => Promise<unknown>} work
+ */
 async function busyWhile(button, work) {
   button.disabled = true;
   try {
@@ -697,29 +849,30 @@ async function busyWhile(button, work) {
 }
 
 const view = () => Views[team.view];
+/** @type {[string, () => string | undefined][]} */
 const periodButtons = [
   ["prevWeek", () => view().step(-1)],
   ["nextWeek", () => view().step(1)],
   ["thisWeek", () => view().now()],
 ];
 for (const [id, key] of periodButtons) {
-  document
-    .getElementById(id)
-    .addEventListener("click", (e) => busyWhile(e.currentTarget, () => load(key(), false, true)));
+  byId(id).addEventListener("click", (e) =>
+    busyWhile(/** @type {HTMLButtonElement} */ (e.currentTarget), () => load(key(), false, true)),
+  );
 }
-document
-  .getElementById("refreshBtn")
-  .addEventListener("click", (e) => busyWhile(e.currentTarget, () => load(view().key(), true)));
-document.getElementById("viewSeg").addEventListener("click", (e) => {
-  const button = e.target.closest("button");
+byId("refreshBtn").addEventListener("click", (e) =>
+  busyWhile(/** @type {HTMLButtonElement} */ (e.currentTarget), () => load(view().key(), true)),
+);
+byId("viewSeg").addEventListener("click", (e) => {
+  const button = /** @type {HTMLElement} */ (e.target).closest("button");
   if (!button || button.dataset.view === team.view) return;
   const anchor = team.data ? view().anchor() : thisDay();
-  team.view = button.dataset.view;
+  team.view = /** @type {ViewName} */ (button.dataset.view);
   load(view().keyOf(anchor), false, true);
 });
 addEventListener("popstate", () => load(readState(location.hash)));
-document.getElementById("search").addEventListener("input", (e) => {
-  team.search = e.target.value;
+byId("search").addEventListener("input", (e) => {
+  team.search = /** @type {HTMLInputElement} */ (e.target).value;
   saveState();
   if (team.data) render();
   else if (team.fixes) renderFixes();
@@ -727,25 +880,25 @@ document.getElementById("search").addEventListener("input", (e) => {
 addEventListener("resize", () => {
   if (team.data && team.display === "charts") render();
 });
-document.getElementById("displaySeg").addEventListener("click", (e) => {
-  const button = e.target.closest("button");
+byId("displaySeg").addEventListener("click", (e) => {
+  const button = /** @type {HTMLElement} */ (e.target).closest("button");
   if (!button) return;
-  team.display = button.dataset.display;
+  team.display = /** @type {"table" | "charts"} */ (button.dataset.display);
   if (team.data) render();
 });
-document.getElementById("filterSeg").addEventListener("click", (e) => {
-  const button = e.target.closest("button");
+byId("filterSeg").addEventListener("click", (e) => {
+  const button = /** @type {HTMLElement} */ (e.target).closest("button");
   if (!button) return;
-  team.filter = button.dataset.filter;
+  team.filter = /** @type {string} */ (button.dataset.filter);
   if (team.data) render();
 });
-const gridPan = panScroll(document.getElementById("gridScroll"));
+const gridPan = panScroll(byId("gridScroll"));
 wireDayDialog();
 wireFixes(saveState);
 onDaySaved(() => load(view().key(), true));
-wireDiscord(document.getElementById("discordBtn"));
+wireDiscord(byId("discordBtn"));
 
-wireLogout(document.getElementById("logoutBtn"));
+wireLogout(/** @type {HTMLButtonElement} */ (byId("logoutBtn")));
 wireMouseHistory();
 wireUpdates();
 

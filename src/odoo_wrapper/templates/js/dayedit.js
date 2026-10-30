@@ -46,15 +46,38 @@
  */
 
 import { dayKey, fmtDate, fmtDay, fmtDelta, fmtHM, fmtTime, fmtYear, parseDay } from "./format.js";
-import { api, el, hideTip, tipRow, warned } from "./shared.js";
+import { api, byId, el, hideTip, tipRow, warned } from "./shared.js";
 import { DayNames } from "./store.js";
+
+/**
+ * What the day dialog reads and writes, as team.py sends it (data.py's session_of, fetch_requests).
+ *
+ * @typedef {{ id: number, in: string, out: string | null, hours: number | null, rest: boolean, reason: string | null, reason_id: number | null }} Session
+ * @typedef {Pick<Session, "in" | "out" | "hours"> & { rest?: boolean }} SessionLike  What a row of sessions needs
+ * @typedef {{ id: number, from: string, to: string | null, status: "new" | "pending" | "approved" | "refused", reason: string, can_approve: boolean }} ChangeRequest
+ * @typedef {"open" | "empty" | "long"} DayFlag
+ * @typedef {{ date: string, hours: number, target: number, absence: string | null, sessions: Session[], flags: DayFlag[], requests: ChangeRequest[] }} Day
+ * @typedef {{ long_day: number, under_margin: number, over_margin: number }} Limits
+ * @typedef {{ id: number, name: string }} Reason
+ * @typedef {{ id: number, name: string, discord?: string | null }} DayOwner
+ * @typedef {{ limits: Limits, can_edit: boolean, reasons: Reason[], can_message: boolean }} DayContext
+ * @typedef {{ s: Session | null, start: HTMLInputElement, end: HTMLInputElement, reason: HTMLSelectElement | null, gone: boolean }} PunchEntry
+ * @typedef {{ id?: number, gone?: boolean, check_in?: string, check_out?: string | null, reason?: number, employee?: number }} PunchChange
+ */
 
 export const RequestText = { new: "Borrador", pending: "Pendiente", approved: "Aprobada", refused: "Rechazada" };
 
+/** @param {SessionLike} s */
 export function sessionSpan(s) {
   return `${fmtTime(new Date(s.in))}–${s.out ? fmtTime(new Date(s.out)) : "abierto"}${s.rest ? " descanso" : ""}`;
 }
 
+/**
+ * @param {DayFlag} kind
+ * @param {{ sessions: SessionLike[], hours: number, target: number }} day
+ * @param {Limits} limits
+ * @returns {string[]}
+ */
 export function whyDay(kind, day, limits) {
   if (kind === "open") {
     return day.sessions.filter((s) => !s.out).map((s) => `Entrada a las ${fmtTime(new Date(s.in))} sin salida`);
@@ -63,25 +86,45 @@ export function whyDay(kind, day, limits) {
   return [`${fmtHM(day.hours)} fichadas en el día, más de ${fmtHM(limits.long_day)}`];
 }
 
+/** @param {Day} day */
 export function balanced(day) {
   return day.target > 0 && day.sessions.length > 0 && day.sessions.every((s) => s.out);
 }
 
+/**
+ * @param {string} iso
+ * @param {boolean} [year]
+ */
 export function dayLabel(iso, year = false) {
   const date = parseDay(iso);
   return `${DayNames[(date.getDay() + 6) % 7]} ${year ? fmtDate(date) : fmtDay(date) + fmtYear(date)}`;
 }
 
+/**
+ * @param {{ hours: number | null }} s
+ * @param {Pick<Limits, "long_day">} limits
+ */
 export function wrongSession(s, limits) {
-  return s.hours > limits.long_day;
+  return /** @type {number} */ (s.hours) > limits.long_day;
 }
 
+/**
+ * @param {SessionLike} s
+ * @param {Limits} limits
+ * @param {string} open
+ */
 export function sessionRow(s, limits, open) {
   const row = tipRow(sessionSpan(s), s.hours == null ? open : fmtHM(s.hours));
   if (wrongSession(s, limits)) row.classList.add("warn");
   return row;
 }
 
+/**
+ * @param {Day} day
+ * @param {Limits} limits
+ * @param {{ employee?: number | null, title?: boolean, sessions?: boolean }} [options]
+ * @returns {(tip: HTMLElement) => void}
+ */
 export function dayDetails(day, limits, { employee = null, title = true, sessions = true } = {}) {
   return (tip) => {
     if (title) tip.appendChild(el("div", "t-title", dayLabel(day.date)));
@@ -109,24 +152,34 @@ export function dayDetails(day, limits, { employee = null, title = true, session
   };
 }
 
+/** @param {Pick<ChangeRequest, "from" | "to" | "status">} r */
 export function requestLine(r) {
   const span = `${fmtTime(new Date(r.from))}${r.to ? `–${fmtTime(new Date(r.to))}` : ""}`;
   return `Solicitud ${RequestText[r.status].toLowerCase()} ${span}`;
 }
 
+/**
+ * @param {DayOwner} employee
+ * @param {Day} day
+ * @param {DayContext} context
+ */
 export function openDay(employee, day, { limits, can_edit: canEdit, reasons, can_message: canMessage }) {
   hideTip();
-  document.getElementById("dayDialogTitle").textContent = employee.name;
-  document.getElementById("dayDialogNote").textContent = "";
-  const body = document.getElementById("dayDialogBody");
+  byId("dayDialogTitle").textContent = employee.name;
+  byId("dayDialogNote").textContent = "";
+  const body = byId("dayDialogBody");
   body.replaceChildren(el("div", "t-title", dayLabel(day.date)));
   if (canEdit) body.appendChild(punchEditor(employee, day, limits, reasons));
   dayDetails(day, limits, { employee: employee.id, title: false, sessions: !canEdit })(body);
   if (day.flags.length) body.append(el("div", "t-sep"), noticeBox(employee, day, limits, canMessage));
-  const dialog = document.getElementById("dayDialog");
+  const dialog = /** @type {HTMLDialogElement} */ (byId("dayDialog"));
   if (!dialog.open) dialog.showModal();
 }
 
+/**
+ * @param {Day} day
+ * @param {Limits} limits
+ */
 export function noticeText(day, limits) {
   const date = parseDay(day.date).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
   const why = day.flags.flatMap((kind) => whyDay(kind, day, limits)).map((t) => t[0].toLowerCase() + t.slice(1));
@@ -136,6 +189,12 @@ export function noticeText(day, limits) {
   );
 }
 
+/**
+ * @param {DayOwner} employee
+ * @param {Day} day
+ * @param {Limits} limits
+ * @param {boolean} canMessage
+ */
 export function noticeBox(employee, day, limits, canMessage) {
   const box = el("div", "notice");
   const text = el("textarea");
@@ -181,13 +240,20 @@ export function noticeBox(employee, day, limits, canMessage) {
   return box;
 }
 
+/** @param {string} text */
 export function say(text) {
-  document.getElementById("dayDialogNote").textContent = text;
+  byId("dayDialogNote").textContent = text;
 }
 
+/**
+ * @param {string} label
+ * @param {string} failure
+ * @param {() => Promise<unknown>} work
+ */
 export function confirmButton(label, failure, work) {
   const button = el("button", "btn small", label);
   button.type = "button";
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let armed = null;
   button.addEventListener("click", async () => {
     if (!armed) {
@@ -206,7 +272,7 @@ export function confirmButton(label, failure, work) {
     try {
       await work();
     } catch (e) {
-      say(`${failure}: ${e.message}`);
+      say(`${failure}: ${/** @type {Error} */ (e).message}`);
     } finally {
       button.disabled = false;
       holdDialog(false);
@@ -215,6 +281,10 @@ export function confirmButton(label, failure, work) {
   return button;
 }
 
+/**
+ * @param {string | null | undefined} iso
+ * @param {string} label
+ */
 export function timeField(iso, label) {
   const input = el("input");
   input.type = "time";
@@ -223,44 +293,60 @@ export function timeField(iso, label) {
   return input;
 }
 
+/**
+ * @param {Session | null | undefined} s
+ * @param {Reason[]} reasons
+ */
 export function reasonField(s, reasons) {
   const own = s ? { id: s.reason_id ?? "", name: s.reason ?? "sin motivo" } : reasons[0];
   const select = el("select");
   select.setAttribute("aria-label", "Motivo");
   for (const r of reasons.some((r) => r.id === own.id) ? reasons : [own, ...reasons]) {
     const option = el("option", "", r.name);
-    option.value = r.id;
+    option.value = /** @type {any} */ (r.id);
     select.appendChild(option);
   }
   select.value = String(own.id);
   return select;
 }
 
+/**
+ * @param {string} date
+ * @param {PunchEntry[]} entries
+ * @returns {PunchChange[]}
+ */
 export function punchChanges(date, entries) {
-  const at = (time) => new Date(`${date}T${time}`).toISOString();
+  const at = (/** @type {string} */ time) => new Date(`${date}T${time}`).toISOString();
   const kept = entries
     .filter((e) => !e.gone)
     .flatMap(({ s, start, end, reason }) => {
       const [was, until] = s ? [fmtTime(new Date(s.in)), s.out ? fmtTime(new Date(s.out)) : ""] : ["", ""];
-      const another = Boolean(reason) && reason.value !== String(s?.reason_id ?? "");
+      const another = Boolean(reason) && /** @type {HTMLSelectElement} */ (reason).value !== String(s?.reason_id ?? "");
       if (start.value === was && end.value === until && !(s && another)) return [];
       if (!start.value || !end.value) throw new Error("cada fichaje necesita entrada y salida");
       return [
         {
           ...(s ? { id: s.id } : {}),
-          check_in: start.value === was ? s.in : at(start.value),
-          check_out: end.value === until ? s.out : at(end.value),
-          ...(another ? { reason: Number(reason.value) } : {}),
+          check_in: start.value === was ? /** @type {Session} */ (s).in : at(start.value),
+          check_out: end.value === until ? /** @type {Session} */ (s).out : at(end.value),
+          ...(another ? { reason: Number(/** @type {HTMLSelectElement} */ (reason).value) } : {}),
         },
       ];
     });
-  return [...entries.filter((e) => e.gone).map((e) => ({ id: e.s.id, gone: true })), ...kept];
+  return [...entries.filter((e) => e.gone).map((e) => ({ id: /** @type {Session} */ (e.s).id, gone: true })), ...kept];
 }
 
+/**
+ * @param {DayOwner} employee
+ * @param {Day} day
+ * @param {Limits} limits
+ * @param {Reason[]} reasons
+ */
 export function punchEditor(employee, day, limits, reasons) {
   const box = el("div", "editor");
+  /** @type {PunchEntry[]} */
   const entries = [];
-  const addRow = (s, before) => {
+  const addRow = (/** @type {Session | null} */ s, /** @type {Element | null} */ before) => {
     const row = el("div", `edit-row${s && wrongSession(s, limits) ? " warn" : ""}`);
     const start = timeField(s?.in, "Entrada"),
       end = timeField(s?.out, "Salida");
@@ -275,10 +361,13 @@ export function punchEditor(employee, day, limits, reasons) {
     if (s) {
       const drop = el("button", "btn ghost small", "✕");
       drop.type = "button";
-      const mark = (gone) => {
+      const mark = (/** @type {boolean} */ gone) => {
         entry.gone = gone;
         row.classList.toggle("gone", gone);
-        for (const field of [start, end, reason].filter(Boolean)) field.disabled = gone;
+        for (const field of /** @type {(HTMLInputElement | HTMLSelectElement)[]} */ (
+          [start, end, reason].filter(Boolean)
+        ))
+          field.disabled = gone;
         drop.title = gone ? "No eliminar este fichaje" : "Eliminar este fichaje";
         drop.setAttribute("aria-label", drop.title);
         drop.setAttribute("aria-pressed", String(gone));
@@ -301,6 +390,7 @@ export function punchEditor(employee, day, limits, reasons) {
     confirmButton("Guardar cambios", "No se pudo guardar", async () => {
       const changes = punchChanges(day.date, entries).map((c) => (c.id ? c : { ...c, employee: employee.id }));
       if (!changes.length) return say("No hay cambios que guardar.");
+      /** @type {Date[]} */
       const lost = [];
       let sent = 0,
         done = "Guardado.";
@@ -312,7 +402,7 @@ export function punchEditor(employee, day, limits, reasons) {
         }
       } catch (e) {
         if (!sent) throw e;
-        done = `Guardado solo en parte; no se pudo el resto: ${e.message}.`;
+        done = `Guardado solo en parte; no se pudo el resto: ${/** @type {Error} */ (e).message}.`;
       }
       const warnings = lost.map(
         (d) =>
@@ -327,10 +417,12 @@ export function punchEditor(employee, day, limits, reasons) {
   return box;
 }
 
+/** @type {() => unknown} */
 let Reload;
 
+/** @param {boolean} busy */
 function holdDialog(busy) {
-  document.getElementById("dayDialogClose").disabled = busy;
+  /** @type {HTMLButtonElement} */ (byId("dayDialogClose")).disabled = busy;
 }
 
 export function wireDayDialog() {
@@ -354,17 +446,27 @@ export function wireDayDialog() {
   document.body.appendChild(dialog);
 }
 
+/** @param {() => unknown} reload */
 export function onDaySaved(reload) {
   Reload = reload;
 }
 
+/**
+ * @param {number} employeeId
+ * @param {string} date
+ */
 export async function openDayOf(employeeId, date) {
-  const week = await api(`/api/team?week=${date}`);
+  const week = /** @type {import("./teamstate.js").TeamData} */ (await api(`/api/team?week=${date}`));
   const employee = week.employees.find((e) => e.id === employeeId);
   const day = employee?.days.find((d) => d.date === date);
-  if (day) openDay(employee, day, week);
+  if (day) openDay(/** @type {DayOwner} */ (employee), day, week);
 }
 
+/**
+ * @param {number} employeeId
+ * @param {string} date
+ * @param {string} message
+ */
 export async function refreshDay(employeeId, date, message) {
   await Reload();
   await openDayOf(employeeId, date).catch(warned("reopening the day"));

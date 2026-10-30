@@ -49,12 +49,16 @@
   the shared state. Without the Descanso reason, break and resume answer 409 and the page hides them.
 """
 
+from __future__ import annotations
+
 import threading
 import time
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta, timezone
+from typing import Any, Optional, cast
 
 from odoo_wrapper import state
-from odoo_wrapper.client import OdooError, SessionExpired
+from odoo_wrapper.client import OdooClient, OdooError, Row, SessionExpired
 
 MIN_WEEKS = 12
 MIN_SESSION = 1 / 60
@@ -63,24 +67,25 @@ DATA_TTL = 45
 VIEW_TTL = 300
 SATURDAY = 5
 _data_lock = threading.Lock()
-_data_cache: dict = {}
+_data_cache: dict[Any, tuple[float, Row]] = {}
+Punch = Callable[[OdooClient, Optional[Row], Optional[int], Optional[Row], bool], str]
 
 
-def local(ts):
+def local(ts: str) -> datetime:
     """Turn one of Odoo's UTC stamps into a time in the machine's zone."""
     return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone()
 
 
-def week_monday(dt):
+def week_monday(dt: datetime) -> datetime:
     """Return the midnight that starts a time's week."""
     return (dt - timedelta(days=dt.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def schedule_from(blocks):
+def schedule_from(blocks: Iterable[Row]) -> Row | None:
     """Return a calendar's hours and lunch start for each weekday, from its attendance blocks."""
     hours = [0.0] * 7
-    lunch_from: list = [None] * 7
-    spans: list = [[] for _ in range(7)]
+    lunch_from: list[float | None] = [None] * 7
+    spans: list[list[tuple[float, float]]] = [[] for _ in range(7)]
     for block in blocks:
         try:
             day = int(block["dayofweek"])
@@ -104,7 +109,7 @@ def schedule_from(blocks):
     return {"hours": [round(h, 2) for h in hours], "lunch_from": lunch_from}
 
 
-def fetch_schedule(client, calendar_id):
+def fetch_schedule(client: OdooClient, calendar_id: int | None) -> Row | None:
     """Return a calendar's schedule, or None without a calendar."""
     if not calendar_id:
         return None
@@ -117,9 +122,9 @@ def fetch_schedule(client, calendar_id):
     return schedule_from(blocks)
 
 
-def holiday_rows(client, since, until, calendar_ids):
+def holiday_rows(client: OdooClient, since: str, until: str | None, calendar_ids: Iterable[int | None]) -> list[Row]:
     """Return the public holidays from since to until, of these calendars or of none in particular."""
-    return client.call_kw(
+    rows: list[Row] = client.call_kw(
         "resource.calendar.leaves",
         "search_read",
         [
@@ -134,11 +139,12 @@ def holiday_rows(client, since, until, calendar_ids):
         ],
         {"fields": ["name", "date_from", "date_to", "calendar_id"]},
     )
+    return rows
 
 
-def leave_rows(client, employee_ids, since, until):
+def leave_rows(client: OdooClient, employee_ids: Sequence[int | None], since: str, until: str | None) -> list[Row]:
     """Return the approved leaves of these employees from since to until."""
-    return client.call_kw(
+    rows: list[Row] = client.call_kw(
         "hr.leave",
         "search_read",
         [
@@ -162,18 +168,19 @@ def leave_rows(client, employee_ids, since, until):
             ]
         },
     )
+    return rows
 
 
-def absences_from(holidays, leaves):
+def absences_from(holidays: Iterable[Row], leaves: Iterable[Row]) -> list[Row]:
     """Return the weekdays off, whole or by hours, from holidays and leaves; a holiday wins over a leave."""
-    absences = {}
+    absences: Row = {}
     for h in holidays:
         d0, d1 = local(h["date_from"]).date(), local(h["date_to"]).date()
         for i in range((d1 - d0).days + 1):
             d = d0 + timedelta(days=i)
             if d.weekday() < SATURDAY:
                 absences[d.isoformat()] = h["name"]
-    partial = []
+    partial: list[Row] = []
     for leave in leaves:
         d0 = date.fromisoformat(leave["request_date_from"])
         d1 = date.fromisoformat(leave["request_date_to"])
@@ -198,18 +205,18 @@ def absences_from(holidays, leaves):
     return [{"date": k, "type": v} for k, v in sorted(absences.items())] + partial
 
 
-def fetch_absences(client, since, calendar_ids):
+def fetch_absences(client: OdooClient, since: str, calendar_ids: Iterable[int | None]) -> list[Row]:
     """Return the employee's absences since a day."""
     holidays = holiday_rows(client, since, None, calendar_ids)
     return absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
 
 
-def real_punch(record):
+def real_punch(record: Row) -> bool:
     """Tell whether an attendance counts: open, or at least MIN_SESSION long."""
     return not record["check_out"] or record["worked_hours"] >= MIN_SESSION
 
 
-def session_of(record, reason_by_id):
+def session_of(record: Row, reason_by_id: dict[int, Row]) -> Row:
     """Return an attendance as the page's session: local times, hours and whether it is a break."""
     reason = next((reason_by_id[i] for i in record.get("attendance_reason_ids", []) if i in reason_by_id), None)
     return {
@@ -223,7 +230,7 @@ def session_of(record, reason_by_id):
     }
 
 
-def cached(key, fresh, build, ttl=DATA_TTL):
+def cached(key: tuple[Any, ...], fresh: bool, build: Callable[[], Row], ttl: float = DATA_TTL) -> Row:
     """Return what build made for a key within ttl seconds, or build it again."""
     with _data_lock:
         hit = _data_cache.get(key)
@@ -235,20 +242,20 @@ def cached(key, fresh, build, ttl=DATA_TTL):
     return payload
 
 
-def fetch_data(client, fresh, employee=None):
+def fetch_data(client: OdooClient, fresh: bool, employee: int | None = None) -> Row:
     """Return the personal page's payload, the session's own or an employee's, cached."""
     ttl = VIEW_TTL if employee else DATA_TTL
     return cached((client.session_id, employee), fresh, lambda: build_data(client, employee), ttl)
 
 
-def drop_data_cache(session_id=None):
+def drop_data_cache(session_id: str | None = None) -> None:
     """Forget the cached payloads of a session, or of every session."""
     with _data_lock:
         for key in [key for key in _data_cache if session_id in (None, key[0])]:
             del _data_cache[key]
 
 
-def fetch_contracts(client, ids, monday, end):
+def fetch_contracts(client: OdooClient, ids: Sequence[int | None], monday: date, end: date) -> dict[Any, list[Row]]:
     """Return the contracts in force between monday and end, by employee, or none if they cannot be read."""
     try:
         rows = client.call_kw(
@@ -273,40 +280,42 @@ def fetch_contracts(client, ids, monday, end):
         raise
     except OdooError:
         return {}
-    contracts: dict = {}
+    contracts: dict[Any, list[Row]] = {}
     for c in rows:
         contracts.setdefault(c["employee_id"][0], []).append(c)
     return contracts
 
 
-def calendar_on(contracts, fallback):
+def calendar_on(contracts: Sequence[Row], fallback: int | None) -> Callable[[str], Any]:
     """Return a function that gives the calendar in force on a day: its contract's, else the fallback."""
     if not contracts:
         return lambda _iso: fallback
 
-    def pick(iso):
+    def pick(iso: str) -> Any:
         c = next((c for c in contracts if c["date_start"] <= iso and (not c["date_end"] or iso <= c["date_end"])), None)
         return c and c["resource_calendar_id"] and c["resource_calendar_id"][0]
 
     return pick
 
 
-def contract_calendars(contracts):
+def contract_calendars(contracts: Iterable[Row]) -> set[int]:
     """Return the calendars the contracts name."""
     return {c["resource_calendar_id"][0] for c in contracts if c["resource_calendar_id"]}
 
 
-def contract_hours(client, schedule, contracts, monday0, end):
+def contract_hours(
+    client: OdooClient, schedule: Row | None, contracts: Sequence[Row], monday0: date, end: date
+) -> dict[str, float]:
     """Return the days whose expected hours a contract's calendar sets apart from the employee's own."""
     pick = calendar_on(contracts, client.calendar_id)
     others = contract_calendars(contracts) - {client.calendar_id}
-    schedules = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
+    schedules: dict[int | None, Row | None] = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
     schedules[client.calendar_id] = schedule
 
-    def hours_on(day, chosen):
+    def hours_on(day: date, chosen: Row | None) -> float:
         return chosen["hours"][day.weekday()] if chosen else 0
 
-    overrides = {}
+    overrides: dict[str, float] = {}
     for i in range((end - monday0).days):
         day = monday0 + timedelta(days=i)
         hours = hours_on(day, schedules.get(pick(day.isoformat())))
@@ -315,7 +324,7 @@ def contract_hours(client, schedule, contracts, monday0, end):
     return overrides
 
 
-def build_data(client, employee=None):
+def build_data(client: OdooClient, employee: int | None = None) -> Row:
     """Read from Odoo everything the personal page shows: sessions, schedule, absences and contracts."""
     if employee:
         client.load_other(employee)
@@ -338,7 +347,7 @@ def build_data(client, employee=None):
     monday0 = min(since, cur_monday - timedelta(weeks=MIN_WEEKS - 1))
     end = (cur_monday + timedelta(weeks=1)).date()
     contracts = fetch_contracts(client, [client.employee_id], monday0.date(), end).get(client.employee_id, [])
-    calendars = sorted((contract_calendars(contracts) | {client.calendar_id}) - {None})
+    calendars = sorted(cast("set[int]", (contract_calendars(contracts) | {client.calendar_id}) - {None}))
 
     schedule = fetch_schedule(client, client.calendar_id)
     lunch = not employee and state.read_state(client.uid)["lunch"]
@@ -361,7 +370,7 @@ def build_data(client, employee=None):
     }
 
 
-def punch_in(client, open_att, normal_id, _rest, _on_rest):
+def punch_in(client: OdooClient, open_att: Row | None, normal_id: int | None, _rest: Row | None, _on_rest: bool) -> str:
     """Check in as normal work, or say why not."""
     if open_att:
         return "Ya hay un fichaje abierto"
@@ -369,7 +378,9 @@ def punch_in(client, open_att, normal_id, _rest, _on_rest):
     return ""
 
 
-def punch_break(client, open_att, _normal_id, rest, on_rest):
+def punch_break(
+    client: OdooClient, open_att: Row | None, _normal_id: int | None, rest: Row | None, on_rest: bool
+) -> str:
     """Check out and back in as a break, or say why not."""
     if not rest:
         return "Este Odoo no tiene el motivo Descanso"
@@ -382,7 +393,9 @@ def punch_break(client, open_att, _normal_id, rest, on_rest):
     return ""
 
 
-def punch_resume(client, open_att, normal_id, _rest, on_rest):
+def punch_resume(
+    client: OdooClient, open_att: Row | None, normal_id: int | None, _rest: Row | None, on_rest: bool
+) -> str:
     """End a break: check out and back in as normal work, or say why not."""
     if not open_att or not on_rest:
         return "No hay un descanso abierto"
@@ -391,7 +404,9 @@ def punch_resume(client, open_att, normal_id, _rest, on_rest):
     return ""
 
 
-def punch_out(client, open_att, _normal_id, _rest, _on_rest):
+def punch_out(
+    client: OdooClient, open_att: Row | None, _normal_id: int | None, _rest: Row | None, _on_rest: bool
+) -> str:
     """Check out, or say why not."""
     if not open_att:
         return "No hay fichaje abierto"
@@ -399,17 +414,25 @@ def punch_out(client, open_att, _normal_id, _rest, _on_rest):
     return ""
 
 
-PUNCHES = {"checkin": punch_in, "checkout": punch_out, "break": punch_break, "resume": punch_resume, "lunch": punch_out}
+PUNCHES: dict[str, Punch] = {
+    "checkin": punch_in,
+    "checkout": punch_out,
+    "break": punch_break,
+    "resume": punch_resume,
+    "lunch": punch_out,
+}
 
 
-def punch(client, action):
+def punch(client: OdooClient, action: Any) -> tuple[int, Row]:
     """Clock as the page's button asks, stamp the shared state and answer (status, payload)."""
     step = PUNCHES.get(action) if isinstance(action, str) else None
     if step is None:
         return 400, {"error": f"Acción desconocida: {action}"}
     open_att = client.open_attendance()
     normal, rest = client.sign_in_reasons()
-    refused = step(client, open_att, normal and normal["id"], rest, client.open_is_rest(open_att, rest))
+    refused = step(
+        client, open_att, cast("Optional[int]", normal and normal["id"]), rest, client.open_is_rest(open_att, rest)
+    )
     if refused:
         return 409, {"error": refused}
     stamp = datetime.now().astimezone().isoformat()

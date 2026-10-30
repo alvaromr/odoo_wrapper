@@ -156,7 +156,7 @@ Start with the gate, one command that needs uv, pnpm and Node ≥ 22 and install
 pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
-python3 tests/check.py                   # Ruff, mypy, Biome, both suites, both coverages; its header lists each step
+python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages; its header lists each step
 python3 tests/fix.py                     # formats and applies the tools' safe fixes, then runs the gate
 ```
 
@@ -167,8 +167,10 @@ Its steps run alone too, while working on one side: `python3 -m unittest discove
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
 `node --test tests/app.test.mjs` (the page's logic). `ruff format` lays out every Python file, tests included,
 in 120 columns (`pyproject.toml`), and Biome the page's JS and CSS and the JS tests (`biome.jsonc`), which it
-also lints; run them rather than wrapping by hand. mypy checks the bodies of functions without annotations,
-which is all the package has; annotate only what it cannot infer.
+also lints; run them rather than wrapping by hand. Types are strict on both sides: mypy `--strict` over the
+package, every function annotated, each module starting with `from __future__ import annotations` (Ruff adds
+it) so they read as on 3.10+ while the package runs on 3.9; and TypeScript over the page's JS, typed in JSDoc
+(`tsconfig.json`), where an element the page always holds is reached with `byId` (`shared.js`).
 
 Mutation testing runs now and then rather than on every commit: it takes a couple of minutes, and its working
 copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess and the project's guards,

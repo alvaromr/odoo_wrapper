@@ -30,45 +30,78 @@
 import { notifyStatus, stopFlash } from "./alarms.js";
 import { saveState } from "./api.js";
 import { fmtDay, fmtDelta, fmtHM, fmtShort, fmtTime } from "./format.js";
-import { api, el, warned } from "./shared.js";
+import { api, byId, el, warned } from "./shared.js";
 import { DayNames, store } from "./store.js";
 import { actionButton, bellIcon, fillBar, gearIcon, openSettings, qrIcon } from "./ui.js";
 import { buildWeek, lunchHours, lunchOpen, targetLabel, weekRangeLabel } from "./week.js";
 
+/**
+ * A check-in (open while its session is) or a check-out, with the time it happened and whether it is a break's.
+ * @typedef {object} PunchEvent
+ * @property {Date} at
+ * @property {boolean} [open]
+ * @property {boolean} [out]
+ * @property {boolean} rest
+ */
+
 /* ---------- último fichaje ---------- */
+/** @returns {PunchEvent | null} */
 export function lastPunch() {
+  /** @type {PunchEvent[]} */
   const events = store.data.sessions.flatMap((s) => {
     const inEv = { at: new Date(s.in), open: !s.out, rest: s.rest };
     return s.out ? [inEv, { at: new Date(s.out), out: true, rest: s.rest }] : [inEv];
   });
-  return events.reduce((a, e) => (a && a.at >= e.at ? a : e), null);
+  return events.reduce((a, e) => (a && a.at >= e.at ? a : e), /** @type {PunchEvent | null} */ (null));
 }
 
+/**
+ * @param {Date} from
+ * @param {Date} to
+ * @param {import("./store.js").Leave[]} leaves
+ * @returns {[any, any][]} the stretches of the span no leave covers: Dates, or the milliseconds Math.min and
+ * Math.max turn them into
+ */
 export function uncovered(from, to, leaves) {
   return leaves
     .reduce(
       (free, l) =>
         free.flatMap(([a, b]) => [
-          [a, Math.min(b, new Date(l.from))],
-          [Math.max(a, new Date(l.to)), b],
+          [a, Math.min(b, /** @type {any} */ (new Date(l.from)))],
+          [Math.max(a, /** @type {any} */ (new Date(l.to))), b],
         ]),
-      [[from, to]],
+      /** @type {[any, any][]} */ ([[from, to]]),
     )
     .filter(([a, b]) => b > a);
 }
 
+/**
+ * @param {import("./store.js").DaySession[]} sessions
+ * @param {import("./store.js").Leave[]} leaves
+ * @returns {number}
+ */
 export function unloggedGap(sessions, leaves) {
   return sessions
-    .flatMap((s, i) => (i && sessions[i - 1].out ? uncovered(sessions[i - 1].out, s.in, leaves) : []))
+    .flatMap((s, i) =>
+      i && sessions[i - 1].out ? uncovered(/** @type {Date} */ (sessions[i - 1].out), s.in, leaves) : [],
+    )
     .reduce((a, [from, to]) => a + (to - from) / 3.6e6, 0);
 }
 
+/**
+ * @param {PunchEvent} ev
+ * @returns {boolean | undefined}
+ */
 export function leftOpen(ev) {
   return ev.open && ev.at < store.today;
 }
 
+/**
+ * @param {PunchEvent} ev
+ * @returns {string}
+ */
 export function punchText(ev) {
-  const elapsed = (Date.now() - ev.at) / 3.6e6;
+  const elapsed = (Date.now() - /** @type {any} */ (ev.at)) / 3.6e6;
   if (leftOpen(ev)) {
     return `Entrada del ${fmtDay(ev.at)} a las ${fmtTime(ev.at)} sin cerrar · hace ${fmtShort(elapsed)}`;
   }
@@ -84,8 +117,23 @@ export function punchText(ev) {
 }
 
 /* ---------- hero (hoy y semana actual, no dependen del filtro) ---------- */
+/**
+ * @param {import("./week.js").Day} day
+ * @param {number} dayRemaining
+ * @param {number} dayDelta
+ * @param {Date | null} leaveAt
+ * @param {number} lunchLeft
+ * @param {boolean} [leftover]
+ * @returns {HTMLDivElement}
+ */
 export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, leftover = false) {
   const main = el("div", "main");
+  /**
+   * @param {string} label
+   * @param {string} value
+   * @param {string} valueCls
+   * @param {{cls?: string, text: string | null}} detail
+   */
   const headline = (label, value, valueCls, detail) => {
     main.appendChild(el("span", "label", label));
     main.appendChild(el("div", `value ${valueCls}`, value));
@@ -127,6 +175,15 @@ export function heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, le
   return main;
 }
 
+/**
+ * @param {import("./week.js").Week} week
+ * @param {import("./week.js").Day} day
+ * @param {import("./store.js").PayloadSession | undefined} open
+ * @param {number} remaining
+ * @param {number} restToday
+ * @param {number} away
+ * @returns {HTMLDivElement}
+ */
 export function heroMeters(week, day, open, remaining, restToday, away) {
   const box = el("div", "meter-box");
 
@@ -158,7 +215,7 @@ export function heroMeters(week, day, open, remaining, restToday, away) {
     meter.appendChild(fill);
     const scale = el("div", "scale");
     for (const d of week.days.filter((d) => d.expected > 0)) {
-      scale.appendChild(el("div", "day")).style.setProperty("--hours", d.expected);
+      scale.appendChild(el("div", "day")).style.setProperty("--hours", /** @type {any} */ (d.expected));
     }
     meter.appendChild(scale);
     weekBlock.appendChild(meter);
@@ -205,6 +262,12 @@ export function heroMeters(week, day, open, remaining, restToday, away) {
   return box;
 }
 
+/**
+ * @param {import("./store.js").PayloadSession | undefined} open
+ * @param {import("./week.js").Day} day
+ * @param {number} dayRemaining
+ * @returns {HTMLDivElement}
+ */
 export function heroActions(open, day, dayRemaining) {
   const actions = el("div", "actions");
   const errBox = el("div", "err");
@@ -212,9 +275,9 @@ export function heroActions(open, day, dayRemaining) {
   if (outBtn && day.expected > 0 && dayRemaining <= 0) outBtn.classList.add("pulse");
   if (open?.rest) {
     actions.appendChild(actionButton("primary", "Volver del descanso", "resume", errBox));
-    actions.appendChild(outBtn);
+    actions.appendChild(/** @type {HTMLButtonElement} */ (outBtn));
   } else if (open) {
-    actions.appendChild(outBtn);
+    actions.appendChild(/** @type {HTMLButtonElement} */ (outBtn));
     if (!store.state.lunch_done && lunchOpen()) {
       actions.appendChild(actionButton("ghost", "Salir a comer", "lunch", errBox));
     }
@@ -252,7 +315,9 @@ export function heroActions(open, day, dayRemaining) {
 
 export function renderHero() {
   const week = buildWeek(0);
-  const day = week.days.find((d) => d.date.getTime() === store.today.getTime());
+  const day = /** @type {import("./week.js").Day} */ (
+    week.days.find((d) => d.date.getTime() === store.today.getTime())
+  );
   const dayRemaining = Math.max(day.expected - day.hours, 0);
   const dayDelta = day.hours - day.expected;
   const remaining = Math.max(week.target - week.total, 0);
@@ -263,7 +328,7 @@ export function renderHero() {
   const lunchLeft = away > 0.01 ? 0 : lunchHours(day);
   const leaveAt = working && dayRemaining > 0 ? new Date(Date.now() + (dayRemaining + lunchLeft) * 3.6e6) : null;
 
-  const hero = document.getElementById("hero");
+  const hero = byId("hero");
   hero.replaceChildren();
   hero.appendChild(heroHeadline(day, dayRemaining, dayDelta, leaveAt, lunchLeft, Boolean(open && !working)));
   hero.appendChild(heroMeters(week, day, open, remaining, restToday, away));
@@ -271,17 +336,26 @@ export function renderHero() {
 }
 
 /* ---------- acceso desde el móvil ---------- */
+/**
+ * A pairing the server issued: its link, the QR as SVG, and when it lapses (ms since the epoch).
+ * @typedef {object} Pairing
+ * @property {string} url
+ * @property {string} qr
+ * @property {number} expires_in
+ * @property {number} until
+ */
+
 let phoneView = "name";
-let pairing = null;
+let pairing = /** @type {Pairing | null} */ (null);
 let pairError = "";
 
 export function renderPhone() {
-  const host = document.getElementById("phone");
+  const host = byId("phone");
   const show = store.data.phone && location.protocol === "http:";
   host.classList.toggle("hidden", !show);
   if (!show) return;
   host.replaceChildren();
-  const phone = store.data.phone;
+  const phone = /** @type {import("./store.js").Phone} */ (store.data.phone);
   if (phone.off) {
     const off = el("div", "links");
     off.appendChild(el("h2", null, "Abrir en el móvil"));
@@ -297,6 +371,7 @@ export function renderPhone() {
     host.appendChild(off);
     return;
   }
+  /** @type {Object<string, {label: string, url?: string, note: string}>} */
   const views = {
     name: { label: "Por nombre", url: phone.name_url, note: "Si tu móvil resuelve mDNS, vale en todas las redes." },
     ip: { label: "Por IP", url: phone.url, note: "Vale en esta red; al cambiar de red, empareja de nuevo." },
@@ -357,6 +432,7 @@ export function renderPhone() {
   host.appendChild(links);
 }
 
+/** @param {HTMLButtonElement} button */
 async function pair(button) {
   button.disabled = true;
   pairError = "";
@@ -368,7 +444,7 @@ async function pair(button) {
       if (!pairing) clearInterval(timer);
     }, 1000);
   } catch (e) {
-    pairError = `No se pudo emparejar: ${e.message}`;
+    pairError = `No se pudo emparejar: ${/** @type {Error} */ (e).message}`;
   }
   renderPhone();
 }

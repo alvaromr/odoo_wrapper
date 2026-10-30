@@ -18,23 +18,26 @@
   write, create and unlink on hr.attendance (client.edits_punches); Odoo checks again on every call.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from odoo_wrapper import data
-from odoo_wrapper.client import OdooError, SessionExpired
+from odoo_wrapper.client import OdooClient, OdooError, SessionExpired
 
 LOST_ENTRY_MINUTES = 10
 REPLACE = 6
 STAMP = "%Y-%m-%d %H:%M:%S"
 
 
-def odoo_stamp(iso):
+def odoo_stamp(iso: str) -> str:
     """Turn an ISO time with its zone, as the page sends it, into Odoo's UTC stamp."""
     aware = iso.replace("Z", "+00:00")  # pragma: no mutate - mutmut runs on 3.12, which reads Z itself; 3.9 needs this
     return datetime.fromisoformat(aware).astimezone(timezone.utc).strftime(STAMP)
 
 
-def lost_entry(client, employee_id, old_out, new_out):
+def lost_entry(client: OdooClient, employee_id: int, old_out: str | None, new_out: str) -> str | None:
     """Return the old check-out, local, when shortening a punch past its day may lose that day's check-in, else None."""
     if not old_out or data.local(old_out).date() <= data.local(new_out).date():
         return None
@@ -48,7 +51,7 @@ def lost_entry(client, employee_id, old_out, new_out):
     return None if later else data.local(old_out).isoformat()
 
 
-def save_attendance(client, body):
+def save_attendance(client: OdooClient, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Correct an attendance, or create one when the body has no id, and answer (status, payload)."""
     try:
         check_in, check_out = odoo_stamp(body["check_in"]), odoo_stamp(body["check_out"])
@@ -81,7 +84,7 @@ def save_attendance(client, body):
     return 200, {"ok": True, "lost_entry": lost}
 
 
-def run_on(client, model, method, record_id, invalid):
+def run_on(client: OdooClient, model: str, method: str, record_id: Any, invalid: str) -> tuple[int, dict[str, Any]]:
     """Call a method of Odoo on one record by its id and answer (status, payload)."""
     try:
         record = int(record_id)
@@ -97,11 +100,11 @@ def run_on(client, model, method, record_id, invalid):
     return 200, {"ok": True}
 
 
-def approve_request(client, request_id):
+def approve_request(client: OdooClient, request_id: Any) -> tuple[int, dict[str, Any]]:
     """Approve a change request as the session's user."""
     return run_on(client, "approval.request", "action_approve", request_id, "Solicitud no válida")
 
 
-def delete_attendance(client, record_id):
+def delete_attendance(client: OdooClient, record_id: Any) -> tuple[int, dict[str, Any]]:
     """Delete an attendance for good."""
     return run_on(client, "hr.attendance", "unlink", record_id, "Fichaje no válido")

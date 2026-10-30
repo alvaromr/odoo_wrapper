@@ -387,6 +387,15 @@ function withData(sessions, extra) {
   return page;
 }
 
+test("byId returns the page's element and names the one it lacks", () => {
+  const page = load();
+  assert.equal(page.run("byId('hero') === document.getElementById('hero')"), true);
+  const real = page.document.getElementById;
+  page.document.getElementById = () => null;
+  assert.throws(() => page.run("byId('hero')"), /the page has no #hero/);
+  page.document.getElementById = real;
+});
+
 test("formats hours, deltas and clocks", () => {
   const { run } = load();
   assert.equal(run("fmtHM(1.5)"), "1h 30m");

@@ -23,8 +23,140 @@
  * - store.loadedAt/store.triedAt drive the reload policy in api.js; store.punchEl/store.punchEv/
  *   store.notifyEl/store.notifyArgs are the hero nodes the clock tick and the alarms refresh in place.
  */
+
+/**
+ * A session as /api/data sends it (data.py's session_of).
+ * @typedef {object} PayloadSession
+ * @property {number | null} id
+ * @property {string} in
+ * @property {string | null} out
+ * @property {number | null} hours
+ * @property {boolean} rest
+ * @property {string | null} reason
+ * @property {number | null} reason_id
+ */
+
+/**
+ * A day off as the payload sends it: a whole day has a type only, one shorter than a day (a leave) also its hours
+ * and span.
+ * @typedef {object} Absence
+ * @property {string} date
+ * @property {string} type
+ * @property {number} [hours]
+ * @property {string} [from]
+ * @property {string} [to]
+ */
+
+/**
+ * A leave shorter than a day: an Absence with its hours and span.
+ * @typedef {Absence & {hours: number, from: string, to: string}} Leave
+ */
+
+/**
+ * The expected hours per weekday (Monday first) and the minute-less hour each lunch starts from.
+ * @typedef {object} Schedule
+ * @property {number[]} hours
+ * @property {(number | null)[]} lunch_from
+ */
+
+/**
+ * The shared state (state.py).
+ * @typedef {object} SharedState
+ * @property {string | null} lunch
+ * @property {number} lunch_minutes
+ * @property {number} break_minutes
+ * @property {number} lunch_button_from
+ * @property {number} lunch_button_to
+ * @property {boolean} muted
+ * @property {boolean} lunch_done
+ * @property {string | null} punched_at
+ */
+
+/**
+ * How to reach the dashboard from a phone (lan.py): why not (off), or the two addresses.
+ * @typedef {object} Phone
+ * @property {string} [off]
+ * @property {string} [url]
+ * @property {string} [name_url]
+ */
+
+/**
+ * A pending attendance change request the viewer may approve (team.py's fetch_requests).
+ * @typedef {object} ChangeRequest
+ * @property {number | null} id
+ * @property {string} from
+ * @property {string | null} to
+ * @property {string} reason
+ * @property {string} status
+ * @property {boolean} can_approve
+ */
+
+/**
+ * The /api/data payload (data.py's build_data, and server.py's additions to it).
+ * @typedef {object} Payload
+ * @property {string} employee
+ * @property {number} employee_id
+ * @property {boolean} breaks
+ * @property {boolean} team
+ * @property {string} generated_at
+ * @property {number} weeks
+ * @property {string} since
+ * @property {PayloadSession[]} sessions
+ * @property {Absence[]} absences
+ * @property {Schedule | null} schedule
+ * @property {number} long_hours
+ * @property {Object<string, number>} contract_hours
+ * @property {Phone | null} phone
+ * @property {SharedState} state
+ * @property {boolean} can_edit
+ * @property {ChangeRequest[]} [requests]
+ */
+
+/**
+ * A payload session as the page indexes it: dates, and the hours it counts.
+ * @typedef {object} DaySession
+ * @property {Date} in
+ * @property {Date | null} out
+ * @property {number} hours
+ * @property {boolean} rest
+ */
+
+/**
+ * One calendar day's indexed sessions and their hours (week.js's indexSessions).
+ * @typedef {object} DayRecord
+ * @property {number} hours
+ * @property {number} rest
+ * @property {DaySession[]} sessions
+ */
+
+/**
+ * The shared mutable object. data, now and today are typed as set because nothing renders before
+ * loadAndRender fills them (the code that can run earlier checks store.data first).
+ * @typedef {object} Store
+ * @property {Payload} data
+ * @property {Date} now
+ * @property {Date} today
+ * @property {Map<string, DayRecord>} byDay
+ * @property {Map<string, string>} absMap
+ * @property {Map<string, Leave[]>} leaveMap
+ * @property {SharedState} state
+ * @property {number[]} expected
+ * @property {(number | null)[]} lunchFrom
+ * @property {number} weekTarget
+ * @property {Map<string, number>} contractHours
+ * @property {string} since
+ * @property {string | null} other
+ * @property {number} loadedAt
+ * @property {number} triedAt
+ * @property {HTMLElement | null} punchEl
+ * @property {import("./hero.js").PunchEvent | null} punchEv
+ * @property {HTMLElement | null} notifyEl
+ * @property {[PayloadSession | undefined, import("./week.js").Day, number] | null} notifyArgs
+ */
+
 export const LOOPBACK = ["localhost", "127.0.0.1", "[::1]", "::1"];
 
+/** @type {Schedule} */
 export const NoSchedule = { hours: [0, 0, 0, 0, 0, 0, 0], lunch_from: [null, null, null, null, null, null, null] };
 export const LunchMax = 240;
 export const AlarmGrace = 2;
@@ -36,10 +168,11 @@ export const TickMs = 20000;
 export const DataMaxAge = 300000;
 export const RetryAfter = 60000;
 
+/** @type {Store} */
 export const store = {
-  data: null,
-  now: null,
-  today: null,
+  data: /** @type {Payload} */ (/** @type {unknown} */ (null)),
+  now: /** @type {Date} */ (/** @type {unknown} */ (null)),
+  today: /** @type {Date} */ (/** @type {unknown} */ (null)),
   byDay: new Map(),
   absMap: new Map(),
   leaveMap: new Map(),

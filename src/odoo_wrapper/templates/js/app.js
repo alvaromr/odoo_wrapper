@@ -19,7 +19,7 @@ import { onDaySaved, wireDayDialog } from "./dayedit.js";
 import { isoDay } from "./format.js";
 import { punchText, renderHero } from "./hero.js";
 import { openRequest, renderAll, setRangeMonths } from "./render.js";
-import { warned, wireLogout, wireMouseHistory, wireUpdates } from "./shared.js";
+import { byId, warned, wireLogout, wireMouseHistory, wireUpdates } from "./shared.js";
 import { LOOPBACK, store, TickMs } from "./store.js";
 import { busy, wireSettings } from "./ui.js";
 import { indexSessions, setClock } from "./week.js";
@@ -33,6 +33,7 @@ document.addEventListener("visibilitychange", () => {
   if (stale() && !busy()) loadAndRender().catch(warned("the reload on returning to the tab"));
 });
 
+/** @returns {boolean} */
 function newDay() {
   const live = new Date();
   if (isoDay(live) === isoDay(store.today)) return false;
@@ -48,7 +49,7 @@ function newDay() {
 
 /* ---------- recarga sola al editar el código (solo en local) ---------- */
 const ReloadPoll = 2000;
-let SourceVersion = null;
+let SourceVersion = /** @type {string | null} */ (null);
 
 async function checkSources() {
   if (busy()) return;
@@ -77,7 +78,7 @@ function tick() {
   }
   refreshState();
   if (!store.data.sessions.some((s) => !s.out)) {
-    if (store.punchEv) store.punchEl.textContent = punchText(store.punchEv);
+    if (store.punchEv) /** @type {HTMLElement} */ (store.punchEl).textContent = punchText(store.punchEv);
     refreshNotifyNote();
     return;
   }
@@ -89,34 +90,38 @@ function tick() {
 }
 setInterval(tick, TickMs);
 
-document.getElementById("rangeSeg").addEventListener("click", (e) => {
-  const btn = e.target.closest("button");
+byId("rangeSeg").addEventListener("click", (e) => {
+  const btn = /** @type {Element} */ (e.target).closest("button");
   if (!btn) return;
   setRangeMonths(btn.dataset.months === "all" ? 0 : Number(btn.dataset.months));
-  for (const b of e.currentTarget.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
+  for (const b of /** @type {HTMLElement} */ (e.currentTarget).querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b === btn));
+  }
   renderAll();
 });
-document.getElementById("viewSeg").addEventListener("click", (e) => {
-  const btn = e.target.closest("button");
+byId("viewSeg").addEventListener("click", (e) => {
+  const btn = /** @type {Element} */ (e.target).closest("button");
   if (!btn) return;
-  for (const b of e.currentTarget.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === btn));
-  document.getElementById("chartsView").classList.toggle("hidden", btn.dataset.view === "table");
-  document.getElementById("tableView").classList.toggle("hidden", btn.dataset.view !== "table");
+  for (const b of /** @type {HTMLElement} */ (e.currentTarget).querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b === btn));
+  }
+  byId("chartsView").classList.toggle("hidden", btn.dataset.view === "table");
+  byId("tableView").classList.toggle("hidden", btn.dataset.view !== "table");
 });
 
-document.getElementById("refreshBtn").addEventListener("click", async (e) => {
-  e.target.disabled = true;
+byId("refreshBtn").addEventListener("click", async (e) => {
+  /** @type {HTMLButtonElement} */ (e.target).disabled = true;
   try {
     await loadAndRender(true);
   } finally {
-    e.target.disabled = false;
+    /** @type {HTMLButtonElement} */ (e.target).disabled = false;
   }
 });
 
-const requestBtn = document.getElementById("requestBtn");
+const requestBtn = byId("requestBtn");
 requestBtn.addEventListener("click", () => openRequest(requestBtn));
 
-wireLogout(document.getElementById("logoutBtn"));
+wireLogout(/** @type {HTMLButtonElement} */ (byId("logoutBtn")));
 wireMouseHistory();
 wireUpdates();
 wireDayDialog();

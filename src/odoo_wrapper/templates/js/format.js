@@ -9,6 +9,10 @@
  */
 import { MonthNames } from "./store.js";
 
+/**
+ * @param {number} h
+ * @returns {string}
+ */
 export function fmtHM(h) {
   const sign = h < 0 ? "−" : "";
   const totalMin = Math.round(Math.abs(h) * 60);
@@ -16,46 +20,101 @@ export function fmtHM(h) {
     M = totalMin % 60;
   return sign + [H || !M ? `${H}h` : "", M ? `${M}m` : ""].filter(Boolean).join(" ");
 }
+/**
+ * @param {number} n
+ * @param {string} one
+ * @param {string} many
+ * @returns {string}
+ */
 export function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
 }
+/**
+ * @param {number} h
+ * @returns {string}
+ */
 export function fmtDelta(h) {
   return (h >= 0 ? "+" : "") + fmtHM(h);
 }
+/**
+ * @param {number} h
+ * @returns {string}
+ */
 export function fmtShort(h) {
   return Math.round(h * 60) > 0 ? fmtHM(h) : "0m";
 }
+/**
+ * @param {number} h
+ * @returns {string}
+ */
 export function fmtClock(h) {
   const totalMin = Math.round(Math.abs(h) * 60);
   return `${Math.floor(totalMin / 60)}:${String(totalMin % 60).padStart(2, "0")}`;
 }
+/**
+ * @param {Date} d
+ * @returns {string}
+ */
 export function fmtDay(d) {
   return `${d.getDate()} ${MonthNames[d.getMonth()]}`;
 }
+/**
+ * @param {Date} d
+ * @returns {string}
+ */
 export function fmtDate(d) {
   return `${fmtDay(d)} ${d.getFullYear()}`;
 }
+/**
+ * @param {Date} d
+ * @returns {string}
+ */
 export function fmtYear(d) {
   return d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`;
 }
+/**
+ * @param {Date} d
+ * @returns {string}
+ */
 export function fmtTime(d) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+/**
+ * @param {Date} d
+ * @returns {string}
+ */
 export function dayKey(d) {
   return d.toDateString();
 }
+/**
+ * @param {string} iso
+ * @returns {Date}
+ */
 export function parseDay(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
+/**
+ * @param {string} iso
+ * @param {number} days
+ * @returns {string}
+ */
 export function shiftDays(iso, days) {
   const d = parseDay(iso);
   d.setDate(d.getDate() + days);
   return isoDay(d);
 }
+/**
+ * @param {Date} d
+ * @returns {string}
+ */
 export function isoDay(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+/**
+ * @param {Date} d
+ * @returns {number}
+ */
 export function hourOf(d) {
   return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
 }

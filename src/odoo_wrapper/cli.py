@@ -48,6 +48,8 @@ from a scheduled task, without an agent in between.
   place in the repo.
 """
 
+from __future__ import annotations
+
 import contextlib
 import getpass
 import json
@@ -56,14 +58,17 @@ import re
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from itertools import groupby
+from typing import Any
 
 from odoo_wrapper import discord, team
 from odoo_wrapper.client import (
     STATE_DIR,
     OdooClient,
     OdooError,
+    Row,
     SessionExpired,
     TotpRequired,
     load_config,
@@ -95,7 +100,7 @@ MONTHS = (
     "Noviembre",
     "Diciembre",
 )
-NOTICE_KINDS = (
+NOTICE_KINDS: tuple[tuple[str, Callable[[Row], bool]], ...] = (
     ("Solicitud", lambda d: any(r["status"] != "new" for r in d["requests"])),
     ("Solicitud (borrador)", lambda d: bool(d["requests"])),
     ("Incidencia", lambda d: bool(d["flags"])),
@@ -149,12 +154,12 @@ Ficheros, en {STATE_DIR}:
   discord_token    token del bot de Discord; bórralo para que el dashboard deje de enviar avisos"""
 
 
-def local_time(ts):
+def local_time(ts: str) -> datetime:
     """Turn one of Odoo's UTC stamps into a time in the machine's zone."""
     return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone()
 
 
-def status(client):
+def status(client: OdooClient) -> None:
     """Print whether the user is clocked in and since when, or their last attendance."""
     open_att = client.open_attendance()
     if open_att:
@@ -191,7 +196,7 @@ def status(client):
         ],
         {"fields": ["check_in", "check_out", "worked_hours"], "order": "check_in asc"},
     )
-    total_hours = 0
+    total_hours: float = 0
     for r in today_records:
         if r["check_out"]:
             total_hours += r["worked_hours"]
@@ -200,7 +205,7 @@ def status(client):
     print(f"Horas hoy: {total_hours:.2f}h")
 
 
-def toggle(client):
+def toggle(client: OdooClient) -> None:
     """Clock in if out and out if in, and print the result."""
     open_att = client.open_attendance()
     normal, _ = client.sign_in_reasons()
@@ -221,7 +226,7 @@ def toggle(client):
     print(f"Horas hoy: {hours_today:.2f}h")
 
 
-def check_in(client):
+def check_in(client: OdooClient) -> None:
     """Clock in as normal work, unless already in."""
     open_att = client.open_attendance()
     if open_att:
@@ -237,7 +242,7 @@ def check_in(client):
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 
-def check_out(client):
+def check_out(client: OdooClient) -> None:
     """Clock out, unless already out."""
     open_att = client.open_attendance()
     if not open_att:
@@ -253,7 +258,7 @@ def check_out(client):
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 
-def take_break(client):
+def take_break(client: OdooClient) -> None:
     """Clock out and back in as a break, when Odoo has the reason and the user is working."""
     open_att = client.open_attendance()
     _, rest = client.sign_in_reasons()
@@ -273,7 +278,7 @@ def take_break(client):
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 
-def resume(client):
+def resume(client: OdooClient) -> None:
     """End a break: clock out and back in as normal work."""
     open_att = client.open_attendance()
     normal, rest = client.sign_in_reasons()
@@ -290,7 +295,7 @@ def resume(client):
     print(f"Horas hoy: {result.get('hours_today', 0):.2f}h")
 
 
-def history(client, days=7):
+def history(client: OdooClient, days: int = 7) -> None:
     """Print the user's attendances of the last days, grouped by day, with each day's total."""
     client.load_employee()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
@@ -314,7 +319,7 @@ def history(client, days=7):
 
     for date_str, day in groupby(records, key=lambda r: local_time(r["check_in"]).strftime("%Y-%m-%d (%a)")):
         print(f"\n{date_str}")
-        daily_total = 0
+        daily_total: float = 0
         for r in day:
             ci_local = local_time(r["check_in"])
             ci_str = ci_local.strftime("%H:%M")
@@ -329,7 +334,7 @@ def history(client, days=7):
         print(f"  {'':>23} TOTAL: {daily_total:.2f}h")
 
 
-def save_sheet(url):
+def save_sheet(url: str) -> None:
     """Save the id of the warnings spreadsheet from its address."""
     found = SHEET_URL.search(url)
     if not found:
@@ -337,7 +342,7 @@ def save_sheet(url):
     write_private(SHEET_FILE, found.group(1))
 
 
-def saved_sheet():
+def saved_sheet() -> str:
     """Return the saved spreadsheet's id, or raise saying how to save one."""
     saved = read_private(SHEET_FILE)
     if not saved:
@@ -345,14 +350,14 @@ def saved_sheet():
     return saved
 
 
-def sheet(url=None):
+def sheet(url: str | None = None) -> None:
     """Save the warnings spreadsheet when given its address, and print the one saved."""
     if url:
         save_sheet(url)
     print(saved_sheet())
 
 
-def ledger():
+def ledger() -> dict[str, list[list[Any]]]:
     """Return the rows already written to each spreadsheet, by id."""
     try:
         return dict(json.loads(read_private(WRITTEN_FILE)))
@@ -360,12 +365,12 @@ def ledger():
         return {}
 
 
-def sheet_rows(sheets, month):
+def sheet_rows(sheets: Sheets, month: date) -> list[list[Any]]:
     """Return the rows of a year's tab, each as many cells as the notices have."""
     return [(row + [""] * SHEET_COLUMNS)[:SHEET_COLUMNS] for row in sheets.get(f"Avisos {month.year}!B4:E")]
 
 
-def add_notices(client, sheets, month):
+def add_notices(client: OdooClient, sheets: Sheets, month: date) -> None:
     """Append a month's notices so far that neither the tab nor the ledger has yet, and count them."""
     known = {(employee, day, kind) for employee, _, day, kind in sheet_rows(sheets, month)}
     book = ledger()
@@ -392,7 +397,7 @@ def add_notices(client, sheets, month):
     print(f"Avisos de {MONTHS[month.month - 1].lower()} añadidos a «Avisos {month.year}»: {len(rows)}")
 
 
-def add_totals(sheets, month):
+def add_totals(sheets: Sheets, month: date) -> None:
     """Append each employee's count of notices in a month to the totals tab."""
     name = MONTHS[month.month - 1]
     counts = Counter(employee for employee, row_month, _, _ in sheet_rows(sheets, month) if row_month == name)
@@ -400,7 +405,7 @@ def add_totals(sheets, month):
     print(f"Empleados con avisos en {name.lower()}, anotados en «{TOTALS_TAB}»: {len(counts)}")
 
 
-def notices(client, today):
+def notices(client: OdooClient, today: date) -> None:
     """Bring the spreadsheet up to date: close last month once, with its totals, then add this month's notices."""
     if not read_private(SHEET_FILE) and sys.stdin and sys.stdin.isatty():
         save_sheet(ask("Dirección de la hoja de avisos"))
@@ -415,13 +420,13 @@ def notices(client, today):
     add_notices(client, sheets, current)
 
 
-def ask(prompt, default=""):
+def ask(prompt: str, default: str = "") -> str:
     """Ask on the terminal, offering a default."""
     answer = input(f"{prompt} [{default}]: " if default else f"{prompt}: ").strip()
     return answer or default
 
 
-def cli_login():
+def cli_login() -> None:
     """Log in on the terminal, two-factor included, and save the CLI's session; never the password."""
     config = read_config()
     url = config.get("url") or ask("URL de Odoo")
@@ -439,7 +444,7 @@ def cli_login():
     print(f"Sesión guardada en {CLI_SESSION_FILE}")
 
 
-def cli_client():
+def cli_client() -> OdooClient:
     """Return a client on the CLI's saved session, or raise asking for a login."""
     config = load_config()
     session_id = read_private(CLI_SESSION_FILE)
@@ -448,7 +453,7 @@ def cli_client():
     return OdooClient(config["url"], config["db"], session_id)
 
 
-def keep_alive():
+def keep_alive() -> None:
     """Touch the CLI's session now and then, from the dashboard, so Odoo does not let it expire."""
     while True:
         with contextlib.suppress(OdooError, OSError):
@@ -466,13 +471,13 @@ COMMANDS = {
 }
 
 
-def discord_bot():
+def discord_bot() -> None:
     """Ask for the Discord bot's token, save it and print the bot's name."""
     name = discord.save_token(getpass.getpass("Token del bot de Discord: ").strip())
     print(f"Bot «{name}» guardado en {discord.TOKEN_FILE}")
 
 
-def run(cmd):
+def run(cmd: str) -> None:
     """Run a command other than login."""
     if cmd == "sheet":
         sheet(*sys.argv[2:3])
@@ -492,7 +497,7 @@ def run(cmd):
         COMMANDS[cmd](client)
 
 
-def main():
+def main() -> None:
     """Run the command line's command, logging in again on a terminal if needed; a failure prints and exits 1."""
     if not sys.argv[1:] or sys.argv[1] in ("-h", "--help", "help"):
         print(USAGE)

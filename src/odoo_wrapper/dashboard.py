@@ -18,6 +18,8 @@ encoder in qr.py,
 and what the Odoo side offers in AGENTS.md § Odoo API notes.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import ssl
@@ -26,6 +28,7 @@ import sys
 import threading
 import webbrowser
 from http.server import ThreadingHTTPServer
+from typing import NoReturn
 
 from odoo_wrapper import __version__, autostart, cli, lan, process, server
 from odoo_wrapper.client import STATE_DIR, read_config
@@ -95,13 +98,13 @@ ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the phone reaches it on the LAN, by d
 log = logging.getLogger(__name__)
 
 
-def option(name):
+def option(name: str) -> str | None:
     """Return the value that follows a flag on the command line, or None."""
     index = sys.argv.index(name) + 1
     return sys.argv[index] if index < len(sys.argv) else None
 
 
-def switch_autostart(choice):
+def switch_autostart(choice: str | None) -> NoReturn:
     """Turn the login entry on or off, say so and exit."""
     if choice not in AUTOSTART_DONE:
         print("ERROR: --autostart necesita on u off")
@@ -115,7 +118,7 @@ def switch_autostart(choice):
     sys.exit(0)
 
 
-def follow_update():
+def follow_update() -> None:
     """Log the update just installed and move the login entry to this install."""
     log.info(f"Actualizado a la versión {__version__}, en {sys.executable}")
     try:
@@ -127,7 +130,7 @@ def follow_update():
         )
 
 
-def main():
+def main() -> None:
     """Serve the dashboard on localhost and, with a certificate, on the LAN, until stopped."""
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
         print(USAGE)

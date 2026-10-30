@@ -8,11 +8,17 @@
  * - When Odoo wants a two-factor code the server answers 401 with totp: the code field appears and the next
  *   post carries user, password and code together.
  */
-const form = document.getElementById("login");
-const err = document.getElementById("err");
-const submit = document.getElementById("submit");
-const clock = document.getElementById("clock");
-const field = (id) => document.getElementById(id);
+const form = /** @type {HTMLFormElement} */ (document.getElementById("login"));
+const err = /** @type {HTMLElement} */ (document.getElementById("err"));
+const submit = /** @type {HTMLButtonElement} */ (document.getElementById("submit"));
+const clock = /** @type {HTMLElement} */ (document.getElementById("clock"));
+/**
+ * An element of the page, which always holds them all; typed as an input for the ones that are (the others are
+ * only given members every element has).
+ * @param {string} id
+ * @returns {HTMLInputElement}
+ */
+const field = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
 
 const tick = () => {
   const d = new Date();
@@ -78,7 +84,7 @@ form.addEventListener("submit", async (e) => {
     }
     err.textContent = answer.error || `HTTP ${res.status}`;
   } catch (e) {
-    err.textContent = e.message;
+    err.textContent = /** @type {Error} */ (e).message;
   }
   submit.disabled = false;
 });

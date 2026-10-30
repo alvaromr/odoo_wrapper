@@ -30,17 +30,40 @@
  */
 import { attachTip, el, tipRow } from "./shared.js";
 
+/**
+ * What team.js hands the builders. An Instant is a Date, typed any because TypeScript refuses to subtract
+ * or compare-by-number Dates, which the strips do to place a mark on the axis.
+ *
+ * @typedef {any} Instant
+ * @typedef {{ label: string, value: number, suspect: boolean, href?: string, rows: string[][] }} BarItem
+ * @typedef {{ key: string, label: string, cls: string }} Series
+ * @typedef {{ label: string, title?: string, values: Record<string, number>, people?: Record<string, string[]> }} Period
+ * @typedef {{ start: Instant, end: Instant, cls: string, tip: (tip: HTMLElement) => void, open: () => unknown }} Mark
+ * @typedef {{ at: Instant, label: string }} Tick
+ */
+
 const NS = "http://www.w3.org/2000/svg";
 const WIDTH = 1100;
 const MIN_WIDTH = 640;
 
+/**
+ * @template {keyof SVGElementTagNameMap} K
+ * @param {K} tag
+ * @param {Record<string, string | number>} [attrs]
+ * @param {string | number | null} [text]
+ * @returns {SVGElementTagNameMap[K]}
+ */
 function svg(tag, attrs = {}, text) {
   const node = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  if (text != null) node.textContent = text;
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, /** @type {string} */ (v));
+  if (text != null) node.textContent = /** @type {string} */ (text);
   return node;
 }
 
+/**
+ * @param {string} title
+ * @param {string} [note]
+ */
 export function chartCard(title, note) {
   const card = el("section", "card chart");
   card.appendChild(el("h3", "chart-title", title));
@@ -48,6 +71,11 @@ export function chartCard(title, note) {
   return card;
 }
 
+/**
+ * @param {BarItem[]} items
+ * @param {(value: number) => string} format
+ * @param {number} [size]
+ */
 export function divergingBars(items, format, size = WIDTH) {
   const width = Math.max(MIN_WIDTH, size);
   const labelWidth = 190,
@@ -67,9 +95,9 @@ export function divergingBars(items, format, size = WIDTH) {
     const x = short ? zero - length : zero;
     const group = svg("g", { class: item.href ? "mark link" : "mark", tabindex: 0 });
     if (item.href) {
-      group.addEventListener("click", () => location.assign(item.href));
+      group.addEventListener("click", () => location.assign(/** @type {string} */ (item.href)));
       group.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") location.assign(item.href);
+        if (e.key === "Enter") location.assign(/** @type {string} */ (item.href));
       });
     }
     group.appendChild(svg("rect", { x: 0, y, width, height: rowHeight, class: "hit" }));
@@ -106,6 +134,11 @@ export function divergingBars(items, format, size = WIDTH) {
   return chart;
 }
 
+/**
+ * @param {Period[]} periods
+ * @param {Series[]} series
+ * @param {number} [size]
+ */
 export function groupedColumns(periods, series, size = WIDTH) {
   const width = Math.max(MIN_WIDTH, size);
   const left = 30,
@@ -117,7 +150,7 @@ export function groupedColumns(periods, series, size = WIDTH) {
   const ticks = [...new Set([0, Math.ceil(max / 2), max])];
   const slot = (width - left) / Math.max(1, periods.length);
   const bar = Math.min(22, (slot - 8) / series.length - 2);
-  const y = (v) => top + plot - (v / max) * plot;
+  const y = (/** @type {number} */ v) => top + plot - (v / max) * plot;
   const chart = svg("svg", { viewBox: `0 0 ${width} ${height}`, class: "columns", role: "img" });
   for (const t of ticks) {
     chart.appendChild(svg("line", { x1: left, x2: width, y1: y(t), y2: y(t), class: t ? "grid" : "zero" }));
@@ -154,6 +187,7 @@ export function groupedColumns(periods, series, size = WIDTH) {
   return chart;
 }
 
+/** @param {Series[]} series */
 export function legend(series) {
   const row = el("div", "legend-row");
   for (const s of series) {
@@ -165,12 +199,26 @@ export function legend(series) {
   return row;
 }
 
+/**
+ * @param {string} cls
+ * @param {string} role
+ * @param {number} size
+ */
 function frame(cls, role, size) {
   return svg("svg", { viewBox: `0 0 ${size} 18`, width: size, height: 18, class: cls, role });
 }
 
+/**
+ * @param {SVGSVGElement} chart
+ * @param {Instant} from
+ * @param {Instant} to
+ * @param {number} size
+ * @param {number} y1
+ * @param {number} y2
+ */
 function dayLines(chart, from, to, size, y1, y2) {
   const span = to - from;
+  /** @type {Instant} */
   const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 1);
   for (; day < to; day.setDate(day.getDate() + 1)) {
     const x = ((day - from) / span) * size;
@@ -178,6 +226,12 @@ function dayLines(chart, from, to, size, y1, y2) {
   }
 }
 
+/**
+ * @param {Instant} from
+ * @param {Instant} to
+ * @param {Tick[]} ticks
+ * @param {number} size
+ */
 export function stripAxis(from, to, ticks, size) {
   const span = to - from;
   const chart = frame("strip-axis", "presentation", size);
@@ -190,6 +244,12 @@ export function stripAxis(from, to, ticks, size) {
   return chart;
 }
 
+/**
+ * @param {Instant} from
+ * @param {Instant} to
+ * @param {Mark[]} marks
+ * @param {number} size
+ */
 export function sessionStrip(from, to, marks, size) {
   const span = to - from;
   const chart = frame("strip", "img", size);

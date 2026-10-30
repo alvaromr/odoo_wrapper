@@ -28,9 +28,9 @@ import { AlarmGrace, NotifyEveryMs, store } from "./store.js";
 import { buildWeek, indexSessions } from "./week.js";
 
 const BaseTitle = document.title;
-const AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const AudioCtx = new (window.AudioContext || /** @type {any} */ (window).webkitAudioContext)();
 let NotifiedAt = 0,
-  FlashTimer = null;
+  FlashTimer = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 export const LastRing = { lunch: 0, rest: 0 };
 
 export function resetAlarms() {
@@ -70,6 +70,7 @@ function beep() {
   }
 }
 
+/** @param {string} text */
 function flashTitle(text) {
   if (FlashTimer) return;
   let on = false;
@@ -86,6 +87,12 @@ export function stopFlash() {
   document.title = BaseTitle;
 }
 
+/**
+ * @param {import("./store.js").PayloadSession | undefined} open
+ * @param {import("./week.js").Day} day
+ * @param {number} dayRemaining
+ * @returns {string}
+ */
 export function notifyStatus(open, day, dayRemaining) {
   if (store.state.muted) return "Silenciado hasta mañana";
   if (day.expected <= 0) return "Hoy sin jornada prevista";
@@ -93,13 +100,23 @@ export function notifyStatus(open, day, dayRemaining) {
   if (!open) {
     const due = lunchDueAt();
     if (!due) return "Sin fichaje abierto";
-    return (due > Date.now() ? `Comida hasta las ${fmtTime(due)}` : `Comida vencida a las ${fmtTime(due)}`) + silent;
+    return (
+      /** @type {string} */ (
+        /** @type {any} */ (due) > Date.now()
+          ? `Comida hasta las ${fmtTime(due)}`
+          : `Comida vencida a las ${fmtTime(due)}`
+      ) + silent
+    );
   }
   if (open.rest) {
     const due = breakDueAt(open);
     if (!due) return "En descanso · sin aviso configurado";
     return (
-      (due > Date.now() ? `Descanso hasta las ${fmtTime(due)}` : `Descanso vencido a las ${fmtTime(due)}`) + silent
+      /** @type {string} */ (
+        /** @type {any} */ (due) > Date.now()
+          ? `Descanso hasta las ${fmtTime(due)}`
+          : `Descanso vencido a las ${fmtTime(due)}`
+      ) + silent
     );
   }
   if (dayRemaining > 0) return `Sonará al cumplir la jornada${silent}`;
@@ -107,16 +124,26 @@ export function notifyStatus(open, day, dayRemaining) {
   return `Avisando cada ${Math.round(NotifyEveryMs / 60000)} min · siguiente ${left < 60000 ? "en menos de 1 min" : `en ${Math.round(left / 60000)} min`}`;
 }
 
+/** @returns {Date | null} */
 function lunchDueAt() {
   return store.state.lunch ? new Date(new Date(store.state.lunch).getTime() + store.state.lunch_minutes * 60000) : null;
 }
 
+/**
+ * @param {import("./store.js").PayloadSession | undefined} open
+ * @returns {Date | null}
+ */
 function breakDueAt(open) {
   return open?.rest && store.state.break_minutes > 0
     ? new Date(new Date(open.in).getTime() + store.state.break_minutes * 60000)
     : null;
 }
 
+/**
+ * @param {Date | null} due
+ * @param {"lunch" | "rest"} kind
+ * @param {string} title
+ */
 function ringWhenDue(due, kind, title) {
   const late = due ? (Date.now() - due.getTime()) / 3.6e6 : -1;
   if (late < 0 || late > AlarmGrace) return stopFlash();

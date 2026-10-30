@@ -20,9 +20,13 @@
 
 import { checkAlarms } from "./alarms.js";
 import { loadAndRender, saveState } from "./api.js";
-import { api, attachTip, el, hideTip, showUpdate, tipOpen } from "./shared.js";
+import { api, attachTip, byId, el, hideTip, showUpdate, tipOpen } from "./shared.js";
 import { LunchMax, store } from "./store.js";
 
+/**
+ * @param {import("./store.js").DaySession[]} sessions
+ * @returns {{from: number, to: number}[]}
+ */
 function restSpans(sessions) {
   let before = 0;
   return sessions.flatMap((s) => {
@@ -32,6 +36,13 @@ function restSpans(sessions) {
   });
 }
 
+/**
+ * @template {HTMLElement} T
+ * @param {T} bar
+ * @param {import("./store.js").DaySession[]} sessions
+ * @param {number} total
+ * @returns {T}
+ */
 export function fillBar(bar, sessions, total) {
   for (const span of restSpans(sessions)) {
     const seg = el("div", "rest");
@@ -43,6 +54,7 @@ export function fillBar(bar, sessions, total) {
 }
 
 /* ---------- estado ocupado ---------- */
+/** @returns {boolean} */
 export function busy() {
   return tipOpen() || Boolean(document.querySelector(".btn.arm, .actions .btn:disabled, .lunch-input:focus"));
 }
@@ -72,6 +84,7 @@ const Themes = [
   ["dark", "Oscuro"],
 ];
 
+/** @returns {HTMLDivElement} */
 function themeField() {
   const seg = el("div", "seg");
   seg.setAttribute("role", "group");
@@ -90,9 +103,9 @@ function themeField() {
   for (const b of buttons) {
     const { theme } = b.dataset;
     b.addEventListener("click", () => {
-      const kept = window.chooseTheme(theme);
+      const kept = /** @type {any} */ (window).chooseTheme(theme);
       press();
-      document.getElementById("settingsNote").textContent = kept
+      byId("settingsNote").textContent = kept
         ? ""
         : "Este navegador no deja guardar el tema: vuelve al del sistema al recargar la página.";
     });
@@ -102,11 +115,12 @@ function themeField() {
   return seg;
 }
 
+/** @returns {HTMLButtonElement} */
 function updatesField() {
   const b = el("button", "btn ghost small", "Buscar ahora");
   b.type = "button";
   b.addEventListener("click", async () => {
-    const note = document.getElementById("settingsNote");
+    const note = byId("settingsNote");
     b.disabled = true;
     try {
       const answer = showUpdate(await api("/api/update?fresh"));
@@ -116,7 +130,7 @@ function updatesField() {
           ? "Hay una versión nueva: el aviso de arriba dice cómo instalarla."
           : `Tienes la última versión, la ${answer.current}.`);
     } catch (e) {
-      note.textContent = `No se pudo buscar actualizaciones: ${e.message}`;
+      note.textContent = `No se pudo buscar actualizaciones: ${/** @type {Error} */ (e).message}`;
     } finally {
       b.disabled = false;
     }
@@ -124,18 +138,23 @@ function updatesField() {
   return b;
 }
 
+/**
+ * @param {string} label
+ * @param {"lunch_minutes" | "break_minutes"} key
+ * @returns {HTMLLabelElement}
+ */
 export function minutesField(label, key) {
   const field = el("label", "duration");
   const input = el("input", "lunch-input");
   input.type = "number";
-  input.min = 0;
-  input.max = LunchMax;
-  input.step = 5;
-  input.value = store.state[key];
+  input.min = /** @type {any} */ (0);
+  input.max = /** @type {any} */ (LunchMax);
+  input.step = /** @type {any} */ (5);
+  input.value = /** @type {any} */ (store.state[key]);
   input.setAttribute("aria-label", `Minutos de ${label.toLowerCase()}`);
   input.addEventListener("change", async () => {
     await saveState({ [key]: Math.min(LunchMax, Math.max(0, Math.round(Number(input.value) || 0))) });
-    input.value = store.state[key];
+    input.value = /** @type {any} */ (store.state[key]);
   });
   field.appendChild(input);
   field.append(" min");
@@ -144,9 +163,16 @@ export function minutesField(label, key) {
 
 const WindowBackwards = "No se ha guardado: el botón tiene que aparecer antes de la hora en que desaparece.";
 
+/** @param {number} n */
 const twoDigits = (n) => String(n).padStart(2, "0");
+/** @param {number} minutes */
 const clockText = (minutes) => `${twoDigits(Math.floor(minutes / 60))}:${twoDigits(minutes % 60)}`;
 
+/**
+ * @param {string} label
+ * @param {"lunch_button_from" | "lunch_button_to"} key
+ * @returns {HTMLInputElement}
+ */
 function clockField(label, key) {
   const input = el("input", "clock-input");
   input.type = "time";
@@ -156,13 +182,19 @@ function clockField(label, key) {
     const [hours, minutes] = input.value.split(":").map(Number);
     const next = { ...store.state, [key]: hours * 60 + minutes };
     const fits = next.lunch_button_from < next.lunch_button_to;
-    document.getElementById("settingsNote").textContent = !input.value || fits ? "" : WindowBackwards;
+    byId("settingsNote").textContent = !input.value || fits ? "" : WindowBackwards;
     if (input.value && fits) await saveState({ [key]: next[key] });
     input.value = clockText(store.state[key]);
   });
   return input;
 }
 
+/**
+ * @param {string} label
+ * @param {string} tip
+ * @param {...(string | Node)} controls
+ * @returns {HTMLDivElement}
+ */
 function settingRow(label, tip, ...controls) {
   const row = el("div", "setting");
   row.tabIndex = 0;
@@ -186,7 +218,7 @@ export function wireSettings() {
   close.addEventListener("click", () => dialog.close());
   dialog.addEventListener("close", () => {
     hideTip();
-    document.body.appendChild(document.getElementById("tip"));
+    document.body.appendChild(byId("tip"));
   });
   actions.appendChild(close);
   dialog.append(title, body, note, actions);
@@ -212,13 +244,17 @@ export function openSettings() {
     settingRow("Tema", SettingsTips.theme, themeField()),
     settingRow("Actualizaciones", SettingsTips.updates, updatesField()),
   );
-  document.getElementById("settingsBody").replaceChildren(...rows);
-  document.getElementById("settingsNote").textContent = "";
-  const dialog = document.getElementById("settingsDialog");
-  dialog.appendChild(document.getElementById("tip"));
+  byId("settingsBody").replaceChildren(...rows);
+  byId("settingsNote").textContent = "";
+  const dialog = /** @type {HTMLDialogElement} */ (byId("settingsDialog"));
+  dialog.appendChild(byId("tip"));
   dialog.showModal();
 }
 
+/**
+ * @param {string[]} shapes
+ * @returns {SVGSVGElement}
+ */
 function icon(shapes) {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
@@ -233,7 +269,7 @@ function icon(shapes) {
     "stroke-linejoin": "round",
     "aria-hidden": "true",
   }))
-    svg.setAttribute(k, v);
+    svg.setAttribute(k, /** @type {string} */ (v));
   for (const d of shapes) {
     const path = document.createElementNS(NS, "path");
     path.setAttribute("d", d);
@@ -242,6 +278,10 @@ function icon(shapes) {
   return svg;
 }
 
+/**
+ * @param {boolean} muted
+ * @returns {SVGSVGElement}
+ */
 export function bellIcon(muted) {
   return icon([
     "M10.3 21a2 2 0 0 0 3.4 0",
@@ -250,6 +290,7 @@ export function bellIcon(muted) {
   ]);
 }
 
+/** @returns {SVGSVGElement} */
 export function gearIcon() {
   return icon([
     "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38" +
@@ -262,6 +303,7 @@ export function gearIcon() {
   ]);
 }
 
+/** @returns {SVGSVGElement} */
 export function qrIcon() {
   return icon([
     "M3 3h5v5H3z",
@@ -279,9 +321,16 @@ export function qrIcon() {
   ]);
 }
 
+/**
+ * @param {string} cls
+ * @param {string} label
+ * @param {string} action
+ * @param {HTMLElement} errBox
+ * @returns {HTMLButtonElement}
+ */
 export function actionButton(cls, label, action, errBox) {
   const b = el("button", `btn ${cls}`, label);
-  let armed = null;
+  let armed = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
   b.addEventListener("click", async () => {
     if (!armed) {
       const hadPulse = b.classList.contains("pulse");
@@ -309,10 +358,10 @@ export function actionButton(cls, label, action, errBox) {
       checkAlarms();
     } catch (e) {
       if (punched) {
-        errBox.textContent = `Fichado, pero no se pudo recargar: ${e.message}`;
+        errBox.textContent = `Fichado, pero no se pudo recargar: ${/** @type {Error} */ (e).message}`;
         return;
       }
-      errBox.textContent = `Error: ${e.message}`;
+      errBox.textContent = `Error: ${/** @type {Error} */ (e).message}`;
       b.disabled = false;
       b.textContent = label;
       b.classList.remove("arm");

@@ -20,12 +20,17 @@
   applies there, and muted keeps the alarms from ringing for another person's day.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import threading
 from datetime import datetime
+from typing import Any, TypeVar
 
-from odoo_wrapper.client import STATE_DIR, write_private
+from odoo_wrapper.client import STATE_DIR, Row, write_private
+
+Default = TypeVar("Default")
 
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 LUNCH_DEFAULT = 30
@@ -44,27 +49,27 @@ MINUTE_LIMITS = {
     "lunch_button_from": LAST_MINUTE,
     "lunch_button_to": LAST_MINUTE,
 }
-OTHER_STATE = {"lunch": None, **SETTINGS, "muted": True, "lunch_done": False, "punched_at": None}
+OTHER_STATE: Row = {"lunch": None, **SETTINGS, "muted": True, "lunch_done": False, "punched_at": None}
 _state_lock = threading.Lock()
 
 
-def today_iso():
+def today_iso() -> str:
     """Return today's date in the machine's zone, as ISO."""
     return datetime.now().astimezone().date().isoformat()
 
 
-def valid_minutes(value, default, top=MINUTES_MAX):
+def valid_minutes(value: Any, default: Default, top: int = MINUTES_MAX) -> int | Default:
     """Return value if it is a whole number of minutes from 0 to top, else default."""
     ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= top
     return value if ok else default
 
 
-def window_ok(settings):
+def window_ok(settings: dict[str, int]) -> bool:
     """Tell whether the lunch button appears before it disappears."""
     return settings["lunch_button_from"] < settings["lunch_button_to"]
 
 
-def read_users():
+def read_users() -> dict[str, Row]:
     """Return every Odoo user's record in the state file, or none if it cannot be read."""
     try:
         with open(STATE_FILE) as f:
@@ -74,7 +79,7 @@ def read_users():
         return {}
 
 
-def read_settings(raw):
+def read_settings(raw: Row) -> dict[str, int]:
     """Return the durations and lunch window of a record, each valid or its default."""
     settings = {key: valid_minutes(raw.get(key), default, MINUTE_LIMITS[key]) for key, default in SETTINGS.items()}
     if not window_ok(settings):
@@ -82,7 +87,7 @@ def read_settings(raw):
     return settings
 
 
-def read_state(uid):
+def read_state(uid: int | None) -> Row:
     """Return a user's state for today: lunch, mute, settings and the last punch's stamp."""
     raw = read_users().get(str(uid), {})
     started, muted, lunch_day, punched_at = (raw.get(k) for k in ("lunch", "muted", "lunch_day", "punched_at"))
@@ -100,7 +105,7 @@ def read_state(uid):
     }
 
 
-def write_state(uid, **changes):
+def write_state(uid: int | None, **changes: Any) -> Row:
     """Apply changes to a user's state, write the file privately and return the new state."""
     with _state_lock:
         current, users = read_state(uid), read_users()

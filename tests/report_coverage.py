@@ -9,7 +9,9 @@ BRANCH_RIGHT say which way each one went); on an older Python only lines are mea
 A branch is named by its line and the line it goes to («42→45»). As in coverage.py, only a branch whose two
 ways both leave its line counts: an if, a while or an elif, not a conditional inside one line («a if c else
 b», a comprehension's filter) nor what the compiler adds on its own (a with block's exception exit, an except
-clause that does not match, a for loop's end).
+clause that does not match, a for loop's end). For the same reason the __annotate__ function Python 3.14 compiles
+for every annotated signature is left out: it runs only when something reads the annotations, and it would count
+each line of a signature split over several as never run.
 
 Nothing is handed to the tracer as ignoredirs on purpose: trace caches its ignore decision by the file's
 bare module name, so once the stdlib's http/client.py and http/server.py are ignored, this package's
@@ -29,17 +31,11 @@ SRC = os.path.join(os.path.dirname(TESTS), "src")
 PACKAGE = os.path.join(SRC, "odoo_wrapper")
 sys.path.insert(0, SRC)
 BRANCHES = hasattr(types.CodeType, "co_branches")
+ANNOTATE = "__annotate__"
 
 
 def executable_lines(path):
-    with open(path) as f:
-        pending = [compile(f.read(), path, "exec")]
-    lines = set()
-    while pending:
-        code = pending.pop()
-        lines.update(line for _, line in dis.findlinestarts(code) if line)
-        pending.extend(const for const in code.co_consts if hasattr(const, "co_code"))
-    return lines
+    return {line for code in code_objects(path) for _, line in dis.findlinestarts(code) if line}
 
 
 def code_objects(path):
@@ -48,7 +44,9 @@ def code_objects(path):
     while pending:
         code = pending.pop()
         yield code
-        pending.extend(const for const in code.co_consts if isinstance(const, types.CodeType))
+        pending.extend(
+            const for const in code.co_consts if isinstance(const, types.CodeType) and const.co_name != ANNOTATE
+        )
 
 
 def code_key(code):

@@ -17,12 +17,15 @@
   reach, and Google's own refusals, each with what it usually means here (HINTS) next to Google's message.
 """
 
+from __future__ import annotations
+
 import json
 import shutil
 import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any, cast
 
 API = "https://sheets.googleapis.com/v4/spreadsheets"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - a URL, not a password
@@ -42,7 +45,7 @@ class SheetsError(Exception):
     """A failure the user can act on, in their words."""
 
 
-def credentials():
+def credentials() -> dict[str, str]:
     """Return the client id, secret and refresh token gws holds for the Google account it is signed in with."""
     gws = shutil.which("gws")
     if not gws:
@@ -54,7 +57,7 @@ def credentials():
         raise SheetsError(f"gws no tiene una sesión de Google. Ejecuta: {LOGIN}") from error
 
 
-def send(opener, request):
+def send(opener: urllib.request.OpenerDirector, request: urllib.request.Request) -> Any:
     """Make a request to Google and return its JSON answer; Google's own refusals are raised as they come."""
     try:
         with opener.open(request, timeout=TIMEOUT) as response:
@@ -67,10 +70,10 @@ def send(opener, request):
         raise SheetsError("Google no responde (su respuesta no es JSON)") from error
 
 
-def reason(error):
+def reason(error: urllib.error.HTTPError) -> str:
     """Return Google's message for a refused request, or its HTTP status."""
     try:
-        return json.load(error)["error"]["message"]
+        return cast("str", json.load(error)["error"]["message"])
     except (ValueError, KeyError, TypeError):
         return f"HTTP {error.code}"
 
@@ -78,19 +81,19 @@ def reason(error):
 class Sheets:
     """One spreadsheet, by its id, read and appended to with an access token traded on first use."""
 
-    def __init__(self, spreadsheet):
+    def __init__(self, spreadsheet: str) -> None:
         self.id = spreadsheet
         self.opener = urllib.request.build_opener()
-        self.token = None
+        self.token: str | None = None
 
-    def _authorize(self):
+    def _authorize(self) -> None:
         body = urllib.parse.urlencode(dict(credentials(), grant_type="refresh_token")).encode()
         try:
             self.token = send(self.opener, urllib.request.Request(TOKEN_URL, data=body))["access_token"]
         except (urllib.error.HTTPError, KeyError, TypeError) as error:
             raise SheetsError(f"Google ya no acepta la sesión de gws. Ejecuta: {LOGIN}") from error
 
-    def _call(self, cells, verb="", rows=None, **query):
+    def _call(self, cells: str, verb: str = "", rows: list[list[Any]] | None = None, **query: str) -> Any:
         if not self.token:
             self._authorize()
         quoted = urllib.parse.quote(cells, safe="")  # pragma: no mutate - letters are never quoted: safe="XXXX" is ""
@@ -109,11 +112,11 @@ class Sheets:
                 f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})"
             ) from error
 
-    def get(self, cells):
+    def get(self, cells: str) -> list[list[Any]]:
         """Return the rows of a range, unformatted."""
-        return self._call(cells, valueRenderOption="UNFORMATTED_VALUE").get("values", [])
+        return cast("list[list[Any]]", self._call(cells, valueRenderOption="UNFORMATTED_VALUE").get("values", []))
 
-    def append(self, cells, rows):
+    def append(self, cells: str, rows: list[list[Any]]) -> None:
         """Write rows after the last row of the table in a range, as if typed."""
         if rows:
             self._call(cells, ":append", rows, valueInputOption="USER_ENTERED", insertDataOption="OVERWRITE")

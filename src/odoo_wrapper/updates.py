@@ -49,6 +49,8 @@
   (AGENTS.md, known limitations); updating from a dashboard started there installs there again.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -59,8 +61,11 @@ import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Mapping, Sequence
+from typing import Any, cast
 
 from odoo_wrapper import __version__, process
+from odoo_wrapper.client import Row
 
 REPO = "alvaromr/odoo_wrapper"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -84,15 +89,15 @@ FRESH_MIN = 60
 log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _installing = threading.Lock()
-_last: dict = {"at": None, "answer": None}
+_last: dict[str, Any] = {"at": None, "answer": None}
 
 
-def numbers(version):
+def numbers(version: str) -> tuple[int, ...]:
     """Return a version, with or without its v, as a tuple of numbers to compare."""
     return tuple(int(part) for part in version.removeprefix("v").split("."))
 
 
-def latest():
+def latest() -> tuple[str, str]:
     """Return the version and page of the latest release on GitHub."""
     # pragma: no mutate start - header names ignore case
     request = urllib.request.Request(
@@ -108,7 +113,7 @@ def latest():
     return release["tag_name"].removeprefix("v"), release["html_url"]
 
 
-def ask():
+def ask() -> Row:
     """Ask GitHub whether a newer release is out, and answer with what the banner needs or why it failed."""
     try:
         version, url = latest()
@@ -125,16 +130,16 @@ def ask():
     return {"available": newer, "current": __version__, "latest": version, "url": url, "error": ""}
 
 
-def check(fresh=False):
+def check(fresh: bool = False) -> Row:
     """Return GitHub's last answer, asking again when it is older than CHECK_TTL, or FRESH_MIN when forced."""
     with _lock:
         age = time.monotonic() - _last["at"] if _last["at"] is not None else None
         if age is None or age >= (FRESH_MIN if fresh else CHECK_TTL):
             _last.update(at=time.monotonic(), answer=ask())
-        return _last["answer"]
+        return cast("Row", _last["answer"])
 
 
-def find(program):
+def find(program: str) -> str | None:
     """Return a program's path: on the PATH, then where its installer puts it, else None."""
     name = f"{program}.exe" if sys.platform == "win32" else program
     home = os.path.expanduser("~")
@@ -142,12 +147,17 @@ def find(program):
     return shutil.which(program) or next((place for place in places if os.path.isfile(place)), None)
 
 
-def update_skills():
+def update_skills() -> str:
     """Update the Claude Code plugin when claude has it, and return why it failed, or nothing."""
     claude = find("claude")
     if not claude:
         return ""
-    quiet: dict = {"capture_output": True, "text": True, "stdin": subprocess.DEVNULL, "timeout": CLAUDE_TIMEOUT}
+    quiet: dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "stdin": subprocess.DEVNULL,
+        "timeout": CLAUDE_TIMEOUT,
+    }
     try:
         listed = subprocess.run([claude, "plugin", "list", "--json"], check=True, **quiet)
         if PLUGIN not in {plugin.get("id") for plugin in json.loads(listed.stdout)}:
@@ -162,7 +172,7 @@ def update_skills():
     return failure
 
 
-def receipt():
+def receipt() -> str:
     """Return the uv receipt of the install running now, or nothing outside a uv tool."""
     try:
         with open(os.path.join(sys.prefix, RECEIPT), encoding="utf-8") as f:  # pragma: no mutate - UTF-8 here too
@@ -171,14 +181,14 @@ def receipt():
         return ""
 
 
-def how():
+def how() -> str:
     """Tell the page how this install is updated: auto, git or manual."""
     if "editable =" in receipt():
         return "git"
     return "auto" if find("uv") else "manual"
 
 
-def placement(found):
+def placement(found: str) -> dict[str, str]:
     """Return the tools and commands folders a receipt names, for uv to install in the same place."""
     if not found:
         return {}
@@ -189,14 +199,14 @@ def placement(found):
     return folders
 
 
-def interpreter(tools, windowed=False):
+def interpreter(tools: str, windowed: bool = False) -> str:
     """Return where uv puts the tool's interpreter in a tools folder, on this system."""
     if sys.platform == "win32":
         return os.path.join(tools, TOOL, "Scripts", "pythonw.exe" if windowed else "python.exe")
     return os.path.join(tools, TOOL, "bin", "python")
 
 
-def run_uv(command, env, installed):
+def run_uv(command: Sequence[str], env: Mapping[str, str], installed: str) -> str:
     """Run uv's install and return what it printed when it failed, or nothing."""
     try:
         done = subprocess.run(command, check=False, env=env, capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
@@ -207,14 +217,14 @@ def run_uv(command, env, installed):
     return "" if os.path.exists(installed) else f"no aparece {installed}"
 
 
-def install(args, port):
+def install(args: Sequence[str], port: int) -> tuple[int, Row]:
     """Install the latest release with uv, update the skills and restart into it; answer (status, payload)."""
     if how() != "auto":
         return 409, {"error": "Esta instalación no se actualiza desde aquí: pídeselo a tu agente"}
     free = _installing.acquire(blocking=False)  # pragma: no mutate - None does not block either
     if not free:
         return 409, {"error": "Ya se está instalando una actualización"}
-    uv, folders = find("uv"), placement(receipt())
+    uv, folders = cast("str", find("uv")), placement(receipt())
     env = {**os.environ, **folders}
     python = "{}.{}".format(*sys.version_info[:2])  # pragma: no mutate - format reads only the first two
     command = [uv, "tool", "install", "--force", "--python", python, SOURCE]
@@ -245,7 +255,7 @@ def install(args, port):
     return 200, {"ok": True, "skills": skills}
 
 
-def hand_over(command, folders, tools, args, port):
+def hand_over(command: Sequence[str], folders: dict[str, str], tools: str, args: Sequence[str], port: int) -> None:
     """On Windows, leave the install to a detached helper and exit so it can replace the interpreter."""
     plan = {
         "command": command,
@@ -264,7 +274,7 @@ def hand_over(command, folders, tools, args, port):
     threading.Timer(RESTART_DELAY, os._exit, [0]).start()
 
 
-def detach(command, env):
+def detach(command: Sequence[str], env: Mapping[str, str]) -> None:
     """Start a process that outlives this one, with no console and no streams."""
     subprocess.Popen(
         command,
@@ -277,7 +287,7 @@ def detach(command, env):
     )
 
 
-def finish(plan):
+def finish(plan: Row) -> None:
     """The Windows helper: wait for the port, run uv, and start the new dashboard, or the old one if uv failed."""
     process.own_the_output()
     process.port_taken(plan["port"], HANDOVER_GRACE)

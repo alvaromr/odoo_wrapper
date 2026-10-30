@@ -29,11 +29,35 @@
  *   server to report the new version and reloads, unless the skills failed: then it stays, saying why and
  *   with the command to retry; the development install is told to use git; anywhere else, or without uv, the
  *   commands for the dashboard and the skills. While it installs the poll leaves the banner alone, so the button and its note stay.
+ * - byId is getElementById for an element the page's HTML always holds: a missing one is a broken page, and it
+ *   throws saying which, where getElementById's null failed later on an unrelated property. Code for an element
+ *   a page may lack keeps getElementById and its null check.
+ */
+/**
+ * @param {string} what
+ * @returns {(error: unknown) => void}
  */
 export function warned(what) {
   return (error) => console.warn(`[odoo] ${what} failed:`, error);
 }
 
+/**
+ * @param {string} id
+ * @returns {HTMLElement}
+ */
+export function byId(id) {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`[odoo] the page has no #${id}`);
+  return node;
+}
+
+/**
+ * @template {keyof HTMLElementTagNameMap} K
+ * @param {K} tag
+ * @param {string | null} [cls]
+ * @param {string | null} [text]
+ * @returns {HTMLElementTagNameMap[K]}
+ */
 export function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -43,11 +67,17 @@ export function el(tag, cls, text) {
 
 let Pending = 0;
 
+/** @param {number} delta */
 function loading(delta) {
   Pending += delta;
-  document.getElementById("loadbar").classList.toggle("on", Pending > 0);
+  byId("loadbar").classList.toggle("on", Pending > 0);
 }
 
+/**
+ * @param {string} path
+ * @param {object} [body]
+ * @returns {Promise<any>} the server's JSON, whose shape each endpoint owns
+ */
 export async function api(path, body) {
   loading(1);
   try {
@@ -66,6 +96,7 @@ export async function api(path, body) {
   }
 }
 
+/** @type {Object<number, number>} */
 const MouseHistory = { 3: -1, 4: 1 };
 
 export function wireMouseHistory() {
@@ -76,6 +107,7 @@ export function wireMouseHistory() {
   });
 }
 
+/** @param {HTMLButtonElement} button */
 export function wireLogout(button) {
   button.addEventListener("click", async () => {
     button.disabled = true;
@@ -84,25 +116,42 @@ export function wireLogout(button) {
       location.replace("/login");
     } catch (err) {
       button.textContent = "Error al cerrar sesión";
-      button.title = err.message;
+      button.title = /** @type {Error} */ (err).message;
       button.disabled = false;
     }
   });
 }
 
 /* ---------- tooltip ---------- */
-const tip = () => document.getElementById("tip");
+const tip = () => byId("tip");
 export function tipOpen() {
   return tip().style.display === "block";
 }
+/**
+ * @param {string} k
+ * @param {string | null} v
+ * @returns {HTMLDivElement}
+ */
 export function tipRow(k, v) {
   const r = el("div", "t-row");
   r.appendChild(el("span", "k", k));
   r.appendChild(el("span", "v", v));
   return r;
 }
+/** @type {EventTarget | null} */
 let TipOwner = null;
 
+/**
+ * Fills the tooltip's box when it opens.
+ * @typedef {(box: HTMLElement) => void} TipBuilder
+ */
+
+/**
+ * @param {TipBuilder} build
+ * @param {number} x
+ * @param {number} y
+ * @param {EventTarget} owner
+ */
 function showTip(build, x, y, owner) {
   TipOwner = owner;
   tip().replaceChildren();
@@ -110,6 +159,10 @@ function showTip(build, x, y, owner) {
   tip().style.display = "block";
   moveTip(x, y);
 }
+/**
+ * @param {number} x
+ * @param {number} y
+ */
 function moveTip(x, y) {
   const r = tip().getBoundingClientRect();
   let left = x + 14,
@@ -119,6 +172,7 @@ function moveTip(x, y) {
   tip().style.left = `${left}px`;
   tip().style.top = `${top}px`;
 }
+/** @param {EventTarget} [owner] */
 export function hideTip(owner) {
   if (owner && TipOwner !== owner) return;
   TipOwner = null;
@@ -126,11 +180,20 @@ export function hideTip(owner) {
 }
 const PanSlop = 3;
 
+/**
+ * A press on a pannable box: where it began and the box's scroll then.
+ * @typedef {{x: number, y: number, left: number, top: number, moved: boolean, pointer: number}} Press
+ */
+
+/**
+ * @param {HTMLElement} scroller
+ * @returns {{consume: () => boolean}}
+ */
 export function panScroll(scroller) {
-  let press = null,
+  let press = /** @type {Press | null} */ (null),
     panned = false;
   scroller.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || e.pointerType === "touch" || e.target.closest("a")) return;
+    if (e.button !== 0 || e.pointerType === "touch" || /** @type {Element} */ (e.target).closest("a")) return;
     press = {
       x: e.clientX,
       y: e.clientY,
@@ -180,6 +243,7 @@ const RestartPollMs = 2000;
 const RestartTries = 90;
 let Installing = false;
 
+/** @param {string} old */
 async function restarted(old) {
   for (let i = 0; i < RestartTries; i++) {
     await new Promise((resolve) => setTimeout(resolve, RestartPollMs));
@@ -193,10 +257,27 @@ async function restarted(old) {
   throw new Error("el panel no ha vuelto en tres minutos: mira ~/.odoo_dashboard/dashboard.log");
 }
 
+/**
+ * What /api/update answers (updates.py, plus whether the dashboard is on this machine and how it was installed).
+ * @typedef {object} UpdateAnswer
+ * @property {boolean} available
+ * @property {string} current
+ * @property {string} latest
+ * @property {string} url
+ * @property {string} [error]
+ * @property {boolean} local
+ * @property {string} how
+ */
+
+/**
+ * @param {UpdateAnswer} answer
+ * @param {HTMLElement} note
+ * @returns {HTMLButtonElement}
+ */
 function installButton(answer, note) {
   const b = el("button", "btn primary small", "Actualizar ahora");
   b.type = "button";
-  let armed = null;
+  let armed = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
   b.addEventListener("click", async () => {
     if (!armed) {
       b.textContent = `¿Instalar la ${answer.latest}?`;
@@ -227,7 +308,7 @@ function installButton(answer, note) {
         " y recarga esta página.",
       );
     } catch (e) {
-      note.textContent = `No se pudo actualizar: ${e.message}`;
+      note.textContent = `No se pudo actualizar: ${/** @type {Error} */ (e).message}`;
       b.disabled = Installing = false;
       b.textContent = "Actualizar ahora";
     }
@@ -235,12 +316,20 @@ function installButton(answer, note) {
   return b;
 }
 
+/**
+ * @param {...(string | Node)} parts
+ * @returns {HTMLParagraphElement}
+ */
 function line(...parts) {
   const p = el("p");
   p.append(...parts);
   return p;
 }
 
+/**
+ * @param {UpdateAnswer} answer
+ * @returns {HTMLDivElement}
+ */
 function installRow(answer) {
   const note = el("span", null, "");
   note.setAttribute("role", "status");
@@ -249,6 +338,10 @@ function installRow(answer) {
   return row;
 }
 
+/**
+ * @param {UpdateAnswer} answer
+ * @returns {HTMLParagraphElement}
+ */
 function handLine(answer) {
   if (answer.local && answer.how === "git") return line("Es la instalación de desarrollo: tráela con git.");
   return line(
@@ -259,9 +352,13 @@ function handLine(answer) {
   );
 }
 
+/**
+ * @param {UpdateAnswer} answer
+ * @returns {UpdateAnswer}
+ */
 export function showUpdate(answer) {
   if (Installing) return answer;
-  const banner = document.getElementById("updateBanner");
+  const banner = byId("updateBanner");
   banner.classList.toggle("hidden", !answer.available);
   if (answer.available) {
     const notes = el("a", null, "Novedades");
@@ -297,7 +394,12 @@ export function wireUpdates() {
   setInterval(poll, UpdateEveryMs);
 }
 
-export function attachTip(node, build) {
+/**
+ * @param {HTMLElement | SVGElement} element
+ * @param {TipBuilder} build
+ */
+export function attachTip(element, build) {
+  const node = /** @type {HTMLElement} */ (element);
   node.addEventListener("pointerenter", (e) => showTip(build, e.clientX, e.clientY, node));
   node.addEventListener("pointermove", (e) => moveTip(e.clientX, e.clientY));
   node.addEventListener("pointerleave", () => hideTip(node));

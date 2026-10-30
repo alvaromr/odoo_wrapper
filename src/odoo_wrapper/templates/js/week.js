@@ -27,56 +27,141 @@
 import { dayKey, fmtDay, fmtHM, fmtYear, isoDay } from "./format.js";
 import { MonthNames, store } from "./store.js";
 
+/**
+ * One day of a week: its expected and punched hours, and why it expects none when it does not.
+ * @typedef {object} Day
+ * @property {Date} date
+ * @property {string | null} auto the absence's name (a holiday, a leave of the whole day)
+ * @property {boolean} vacation
+ * @property {import("./store.js").Leave[]} leaves
+ * @property {number} scheduled
+ * @property {number} expected
+ * @property {number} hours
+ * @property {number} rest
+ * @property {import("./store.js").DaySession[]} sessions
+ */
+
+/**
+ * A week, Monday to Sunday, with its totals and what is wrong with it.
+ * @typedef {object} Week
+ * @property {Date} monday
+ * @property {Date} sunday
+ * @property {Day[]} days
+ * @property {number} total
+ * @property {number} rest
+ * @property {number} target
+ * @property {number} delta
+ * @property {boolean} current
+ * @property {boolean} complete
+ * @property {boolean} allVacation
+ * @property {boolean} suspect
+ * @property {number} missedDays
+ * @property {number} openDays
+ * @property {boolean} error
+ */
+
+/**
+ * A punch to fix: a session left open, a day too long or a day with hours expected and none punched.
+ * @typedef {object} PunchError
+ * @property {"open" | "long" | "empty"} kind
+ * @property {Date} in
+ * @property {number} [hours]
+ * @property {number} [count]
+ * @property {number} [expected]
+ */
+
+/**
+ * @param {Date} date
+ * @returns {number | null}
+ */
 export function lunchFrom(date) {
   return store.lunchFrom[(date.getDay() + 6) % 7];
 }
 
+/** @param {Date} [at] */
 export function lunchOpen(at = new Date()) {
   const minute = at.getHours() * 60 + at.getMinutes();
   return lunchFrom(at) != null && minute >= store.state.lunch_button_from && minute < store.state.lunch_button_to;
 }
 
+/**
+ * @param {Day} day
+ * @returns {number}
+ */
 export function lunchHours(day) {
   return day.vacation || lunchFrom(day.date) == null ? 0 : store.state.lunch_minutes / 60;
 }
 
+/**
+ * @param {Day} d
+ * @returns {boolean}
+ */
 export function longDay(d) {
   return d.hours > store.data.long_hours;
 }
 
+/**
+ * @param {{in: Date, out: Date | null}} s
+ * @returns {boolean}
+ */
 export function unclosed(s) {
   return !s.out && s.in < store.today;
 }
 
+/**
+ * @param {Day} d
+ * @returns {boolean}
+ */
 export function dayError(d) {
   return longDay(d) || d.sessions.some(unclosed);
 }
 
+/**
+ * @param {Day} d
+ * @returns {boolean}
+ */
 export function missed(d) {
   return d.date < store.today && d.expected > 0 && d.sessions.length === 0;
 }
 
+/** @returns {PunchError[]} */
 export function punchErrors() {
+  /** @type {PunchError[]} */
   const open = store.data.sessions
     .filter((s) => !s.out && new Date(s.in) < store.today)
     .map((s) => ({ kind: "open", in: new Date(s.in) }));
   const days = Array.from({ length: store.data.weeks }, (_, k) => buildWeek(k).days).flat();
+  /** @type {PunchError[]} */
   const long = days
     .filter((d) => d.sessions.every((s) => s.out) && longDay(d))
     .map((d) => ({ kind: "long", in: d.date, hours: d.hours, count: d.sessions.length }));
+  /** @type {PunchError[]} */
   const empty = days.filter(missed).map((d) => ({ kind: "empty", in: d.date, expected: d.expected }));
-  return [...open, ...long, ...empty].sort((a, b) => b.in - a.in);
+  return [...open, ...long, ...empty].sort((a, b) => /** @type {any} */ (b.in) - /** @type {any} */ (a.in));
 }
 
+/**
+ * @param {Date} date
+ * @returns {number}
+ */
 export function weekOffsetOf(date) {
+  /**
+   * @param {Date} d
+   * @returns {any} a Date, which TypeScript will not subtract
+   */
   const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
   return Math.round((monday(store.today) - monday(date)) / (7 * 864e5));
 }
 
+/**
+ * @param {Week} w
+ * @returns {string}
+ */
 export function targetLabel(w) {
   return fmtHM(w.target);
 }
 
+/** @param {Date} date */
 export function setClock(date) {
   store.now = date;
   store.today = new Date(store.now.getFullYear(), store.now.getMonth(), store.now.getDate());
@@ -87,16 +172,25 @@ export function indexSessions() {
   for (const s of store.data.sessions) {
     const inD = new Date(s.in);
     const outD = s.out ? new Date(s.out) : null;
-    const hours = s.hours != null ? s.hours : unclosed({ in: inD, out: outD }) ? 0 : (store.now - inD) / 3.6e6;
+    const hours =
+      s.hours != null
+        ? s.hours
+        : unclosed({ in: inD, out: outD })
+          ? 0
+          : /** @type {number} */ (/** @type {any} */ (store.now) - /** @type {any} */ (inD)) / 3.6e6;
     const key = dayKey(inD);
     if (!store.byDay.has(key)) store.byDay.set(key, { hours: 0, rest: 0, sessions: [] });
-    const d = store.byDay.get(key);
+    const d = /** @type {import("./store.js").DayRecord} */ (store.byDay.get(key));
     d.hours += hours;
     if (s.rest) d.rest += hours;
     d.sessions.push({ in: inD, out: outD, hours, rest: s.rest });
   }
 }
 
+/**
+ * @param {number} offset weeks back from the current one
+ * @returns {Week}
+ */
 export function buildWeek(offset) {
   const monday = new Date(store.today);
   monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) - 7 * offset);
@@ -144,16 +238,32 @@ export function buildWeek(offset) {
   };
 }
 
+/**
+ * @param {number} months
+ * @returns {number}
+ */
 export function weeksSince(months) {
   const start = new Date(store.today.getFullYear(), store.today.getMonth() - months, store.today.getDate());
+  /**
+   * @param {Date} d
+   * @returns {any} a Date, which TypeScript will not subtract
+   */
   const monday = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
   return Math.round((monday(store.today) - monday(start)) / (7 * 864e5)) + 1;
 }
 
+/**
+ * @param {number} nWeeks
+ * @returns {Week[]} the oldest first
+ */
 export function buildWeeks(nWeeks) {
   return Array.from({ length: nWeeks }, (_, i) => buildWeek(nWeeks - 1 - i));
 }
 
+/**
+ * @param {Week} w
+ * @returns {string}
+ */
 export function weekRangeLabel(w) {
   const a = w.monday,
     b = w.sunday;

@@ -16,15 +16,17 @@ import { LastRing } from "./alarms.js";
 import { fmtDay, fmtTime } from "./format.js";
 import { renderHero } from "./hero.js";
 import { renderAll } from "./render.js";
-import { api, warned } from "./shared.js";
+import { api, byId, warned } from "./shared.js";
 import { DataMaxAge, NoSchedule, RetryAfter, store } from "./store.js";
 import { busy } from "./ui.js";
 import { indexSessions, setClock } from "./week.js";
 
+/** @returns {boolean} */
 export function stale() {
   return Date.now() - store.loadedAt > DataMaxAge && Date.now() - store.triedAt > RetryAfter;
 }
 
+/** @param {Partial<import("./store.js").SharedState>} changes */
 export async function saveState(changes) {
   const previous = store.state;
   store.state = { ...store.state, ...changes };
@@ -52,7 +54,7 @@ export async function refreshState() {
       await loadAndRender();
       return;
     }
-    if (Object.keys(next).every((k) => next[k] === store.state[k])) return;
+    if (Object.keys(next).every((k) => next[k] === /** @type {Object<string, unknown>} */ (store.state)[k])) return;
     if (next.lunch !== store.state.lunch) LastRing.lunch = 0;
     store.state = next;
     renderHero();
@@ -61,10 +63,11 @@ export async function refreshState() {
   }
 }
 
+/** @param {boolean} [fresh] */
 export async function loadAndRender(fresh) {
   store.triedAt = Date.now();
   const query = [store.other ? `employee=${store.other}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
-  const data = await api(`/api/data${query ? `?${query}` : ""}`);
+  const data = /** @type {import("./store.js").Payload} */ (await api(`/api/data${query ? `?${query}` : ""}`));
   store.data = data;
   store.loadedAt = Date.now();
   store.state = data.state || store.state;
@@ -75,25 +78,27 @@ export async function loadAndRender(fresh) {
   store.contractHours = new Map(Object.entries(data.contract_hours || {}));
   store.since = data.since || "";
   const absences = data.absences || [];
-  store.absMap = new Map(absences.filter((a) => !a.hours).map((a) => [a.date, a.type]));
-  store.leaveMap = absences
-    .filter((a) => a.hours)
-    .reduce((m, a) => m.set(a.date, [...(m.get(a.date) || []), a]), new Map());
+  store.absMap = new Map(
+    absences.filter((a) => !a.hours).map((a) => /** @type {[string, string]} */ ([a.date, a.type])),
+  );
+  store.leaveMap = /** @type {import("./store.js").Leave[]} */ (absences.filter((a) => a.hours)).reduce(
+    (m, a) => m.set(a.date, [...(m.get(a.date) || []), a]),
+    /** @type {Map<string, import("./store.js").Leave[]>} */ (new Map()),
+  );
   setClock(new Date(store.data.generated_at));
   indexSessions();
-  document.getElementById("title").textContent = store.data.employee;
-  document.getElementById("subtitle").textContent =
-    `Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
-  document.getElementById("teamLink").classList.toggle("hidden", !store.data.team);
-  document.getElementById("requestBtn").classList.toggle("hidden", Boolean(store.other));
-  document.getElementById("loadmsg").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
+  byId("title").textContent = store.data.employee;
+  byId("subtitle").textContent = `Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
+  byId("teamLink").classList.toggle("hidden", !store.data.team);
+  byId("requestBtn").classList.toggle("hidden", Boolean(store.other));
+  byId("loadmsg").classList.add("hidden");
+  byId("app").classList.remove("hidden");
   renderHero();
   renderAll();
 }
 
 export function loadFirst() {
   loadAndRender().catch((e) => {
-    document.getElementById("loadmsg").textContent = `Error cargando datos de Odoo: ${e.message}`;
+    byId("loadmsg").textContent = `Error cargando datos de Odoo: ${e.message}`;
   });
 }
