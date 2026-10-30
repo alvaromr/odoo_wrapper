@@ -639,6 +639,7 @@ class PunchTest(unittest.TestCase):
 
         cases = [
             (("bogus",), (400, {"error": "Acción desconocida: bogus"})),
+            ((["checkin"],), (400, {"error": "Acción desconocida: ['checkin']"})),
             (("checkin", {"id": 1}), refused("Ya hay un fichaje abierto")),
             (("checkout",), refused("No hay fichaje abierto")),
             (("break", {"id": 1}, (NORMAL, None)), refused("Este Odoo no tiene el motivo Descanso")),

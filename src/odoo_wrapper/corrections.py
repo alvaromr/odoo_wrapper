@@ -38,7 +38,7 @@ def lost_entry(client, employee_id, old_out, new_out):
     """Return the old check-out, local, when shortening a punch past its day may lose that day's check-in, else None."""
     if not old_out or data.local(old_out).date() <= data.local(new_out).date():
         return None
-    out = datetime.strptime(old_out, STAMP).replace(tzinfo=timezone.utc)
+    out = datetime.strptime(old_out, STAMP).replace(tzinfo=timezone.utc)  # pragma: no mutate - strftime drops the zone
     until = (out + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime(STAMP)
     later = client.call_kw(
         "hr.attendance",

@@ -98,6 +98,10 @@ class StateTest(unittest.TestCase):
         self.assertIsNone(state["lunch"])
         self.assertTrue(state["lunch_done"])
 
+    def test_lunch_done_can_be_undone(self):
+        st.write_state(3, lunch_done=True)
+        self.assertFalse(st.write_state(3, lunch_done=False)["lunch_done"])
+
     def test_each_user_keeps_their_own(self):
         st.write_state(3, lunch_minutes=45, muted=True)
         st.write_state(4, break_minutes=10)

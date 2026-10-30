@@ -64,6 +64,6 @@ files = ["src/odoo_wrapper"]
 check_untyped_defs = true
 
 [tool.mutmut]
-paths_to_mutate = ["src/odoo_wrapper/"]
-tests_dir = ["tests/"]
+source_paths = ["src/odoo_wrapper/"]
+pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-q", "-p", "no:cacheprovider"]

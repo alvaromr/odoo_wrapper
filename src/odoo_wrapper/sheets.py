@@ -95,10 +95,12 @@ class Sheets:
             self._authorize()
         quoted = urllib.parse.quote(cells, safe="")  # pragma: no mutate - letters are never quoted: safe="XXXX" is ""
         url = f"{API}/{self.id}/values/{quoted}{verb}?{urllib.parse.urlencode(query)}"
+        # pragma: no mutate start - header names ignore case
         headers = {
-            "Authorization": f"Bearer {self.token}",  # pragma: no mutate - names ignore case
-            "Content-Type": "application/json",  # pragma: no mutate - as above
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
         }
+        # pragma: no mutate end
         data = json.dumps({"values": rows}).encode() if rows else None
         try:
             return send(self.opener, urllib.request.Request(url, data=data, headers=headers))

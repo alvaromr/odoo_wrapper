@@ -94,13 +94,15 @@ def numbers(version):
 
 def latest():
     """Return the version and page of the latest release on GitHub."""
+    # pragma: no mutate start - header names ignore case
     request = urllib.request.Request(
         LATEST,
         headers={
-            "Accept": "application/vnd.github+json",  # pragma: no mutate - names ignore case
-            "User-Agent": USER_AGENT,  # pragma: no mutate - as above
+            "Accept": "application/vnd.github+json",
+            "User-Agent": USER_AGENT,
         },
     )
+    # pragma: no mutate end
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         release = json.load(response)
     return release["tag_name"].removeprefix("v"), release["html_url"]

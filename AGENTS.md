@@ -170,21 +170,21 @@ in 120 columns (`pyproject.toml`), and Biome the page's JS and CSS and the JS te
 also lints; run them rather than wrapping by hand. mypy checks the bodies of functions without annotations,
 which is all the package has; annotate only what it cannot infer.
 
-Mutation testing runs now and then rather than on every commit: it takes minutes, and its working copy,
-`mutants/`, is ignored by git. mutmut 3.3 needs pytest 8.3, and skips the one test that starts a subprocess and
-the project's guards, which read the repo its copy lacks.
-On macOS the run also needs `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`: without it the forked child of every
-mutant crashes, and mutmut reports them all as segfault.
+Mutation testing runs now and then rather than on every commit: it takes a couple of minutes, and its working
+copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess and the project's guards,
+which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
+calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
+unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. pytest stays at 9.1, because
+mutmut 3.8.0 reads a test's `_nodeid`, which pytest 9.2 removed.
 
 ```bash
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 run  # pyproject.toml
-uvx --python 3.12 --with pytest==8.3.5 mutmut@3.3.1 results  # the mutants no test killed
+no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 mutmut@3.8.0 run  # pyproject.toml
+no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 mutmut@3.8.0 results  # the mutants no test killed
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
 that takes the wrong branch would otherwise start a real dashboard and end the test with exit code 0, which
-mutmut counts as a survivor. mutmut 3.3 also reports a few mutants whose code is identical to the original;
-those need nothing.
+mutmut counts as a survivor. A mutant reported as timeout made a loop endless, and the suite caught it.
 
 The page's JS runs under StrykerJS, through pnpm, with no package.json: `stryker.config.json` points it at
 `node --test`, so every mutant runs the whole page suite and a full round takes about 45 minutes. Its working
@@ -197,9 +197,10 @@ pnpm dlx @stryker-mutator/core@10.0.0 run    # stryker.config.json; the survivor
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
 original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences
-every mutant starting on that line, not only the equivalent one: on a line whose other mutants a test kills, the
-equivalent part moves to a line of its own first, unless splitting reads worse, as in a dict of HTTP headers,
-whose names are equivalent in any case. In the JS the comment is `// Stryker disable next-line <mutator>:
+every mutant starting on that line, not only the equivalent one, and counts only on the first line of a
+statement: on a line whose other mutants a test kills, the equivalent part moves to a line of its own first,
+unless splitting reads worse, as in a dict of HTTP headers, whose names are equivalent in any case and whose
+statement goes between `# pragma: no mutate start - <reason>` and `# pragma: no mutate end`. In the JS the comment is `// Stryker disable next-line <mutator>:
 <reason>` on the line above, and it silences only that mutator. A message moved to a constant to escape its
 mutants proves nothing: constants are for what reads better or repeats.
 

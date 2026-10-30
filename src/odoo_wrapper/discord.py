@@ -99,11 +99,13 @@ def refusal(error):
 
 def call(token, path, body=None):
     """Call Discord's API as the bot and return its JSON answer, or raise DiscordError."""
+    # pragma: no mutate start - header names ignore case
     headers = {
-        "Authorization": f"Bot {token}",  # pragma: no mutate - names ignore case
-        "User-Agent": USER_AGENT,  # pragma: no mutate - as above
-        "Content-Type": "application/json",  # pragma: no mutate - as above
+        "Authorization": f"Bot {token}",
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
     }
+    # pragma: no mutate end
     request = urllib.request.Request(
         API + path, data=None if body is None else json.dumps(body).encode(), headers=headers
     )

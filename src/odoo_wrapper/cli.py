@@ -482,7 +482,7 @@ def run(cmd):
         return
     client = cli_client()
     if cmd == "history":
-        arg = (sys.argv[2:3] or ["7"])[0]
+        arg = (sys.argv[2:3] or ["7"])[0]  # pragma: no mutate - a wider slice starts at the same, only read, item
         if not arg.isdigit() or not int(arg):
             raise OdooError(f"history espera un número de días, no «{arg}»")
         history(client, int(arg))

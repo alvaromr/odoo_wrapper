@@ -204,6 +204,7 @@ class InstallTest(unittest.TestCase):
             (None, [], "", 0),
             (self.uv, [Ran(stdout='[{"id": "other@x"}]')], "", 1),
             (self.uv, [listed, Ran()], "", 2),
+            (self.uv, [listed, Ran(stdout="Plugin updated", stderr="notice")], "", 2),
             (self.uv, [listed, Ran(1, stdout="", stderr="marketplace not found")], "marketplace not found", 2),
             (
                 self.uv,
