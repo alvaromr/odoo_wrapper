@@ -4,6 +4,8 @@ __pycache__/
 build/
 dist/
 mutants/
+.stryker-tmp/
+reports/
 .DS_Store
 *.pem
 .claude/settings.local.json

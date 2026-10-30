@@ -8,6 +8,8 @@
 // The clock is replaced too: Date starts every run at TUESDAY and ticks on from there, here and in the pages.
 // With the real one the suite passed or failed, and covered every branch or not, by the day and the hour it ran:
 // Thursdays, weekends, before nine, the days a fixture crossed a daylight-saving change, the last ones of a year.
+// Under StrykerJS the context also gets __stryker__ with the mutant to switch on: its instrumented code looks for
+// it on the global object, which in a vm context is the sandbox, not node's.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -195,6 +197,7 @@ function load({ data = null, fetchImpl = null, entry = "app.js", path = "/", sto
     clearInterval: () => {},
     setTimeout: (fn, ms) => (calls.timeouts ||= []).push([fn, ms]),
     clearTimeout: () => {},
+    __stryker__: { activeMutant: process.env.__STRYKER_ACTIVE_MUTANT__ },
     ...globals,
   };
   const ctx = vm.createContext(sandbox);
