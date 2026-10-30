@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from helpers import logged, temp_state
+
 from odoo_wrapper import process as pr
 
 
@@ -144,7 +145,7 @@ class OutputTest(unittest.TestCase):
     def test_the_launch_command_needs_no_pythonpath(self):
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
         done = subprocess.run(
-            pr.launch_command(["--help"]), env=env, cwd=temp_state(self), capture_output=True, text=True
+            pr.launch_command(["--help"]), check=False, env=env, cwd=temp_state(self), capture_output=True, text=True
         )
         self.assertEqual(done.returncode, 0)
         self.assertIn("Uso: odoo-dashboard", done.stdout)

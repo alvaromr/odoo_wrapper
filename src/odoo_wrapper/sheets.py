@@ -48,7 +48,7 @@ def credentials():
     if not gws:
         raise SheetsError("Falta el programa gws, con el que se inicia sesión en Google")
     try:
-        answer = json.loads(subprocess.run([gws, *EXPORT], capture_output=True).stdout)
+        answer = json.loads(subprocess.run([gws, *EXPORT], check=False, capture_output=True).stdout)
         return {key: answer[key] for key in CREDENTIALS}
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise SheetsError(f"gws no tiene una sesión de Google. Ejecuta: {LOGIN}") from error

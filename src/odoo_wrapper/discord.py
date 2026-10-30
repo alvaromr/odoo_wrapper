@@ -55,8 +55,8 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, time, timedelta, timezone
 
-from . import team
-from .client import STATE_DIR, OdooError, SessionExpired, read_private, write_private
+from odoo_wrapper import team
+from odoo_wrapper.client import STATE_DIR, OdooError, SessionExpired, read_private, write_private
 
 API = "https://discord.com/api/v10"
 TOKEN_FILE = os.path.join(STATE_DIR, "discord_token")

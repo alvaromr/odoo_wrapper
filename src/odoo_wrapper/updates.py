@@ -60,7 +60,7 @@ import threading
 import time
 import urllib.request
 
-from . import __version__, process
+from odoo_wrapper import __version__, process
 
 REPO = "alvaromr/odoo_wrapper"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -144,7 +144,7 @@ def update_skills():
         listed = subprocess.run([claude, "plugin", "list", "--json"], check=True, **quiet)
         if PLUGIN not in {plugin.get("id") for plugin in json.loads(listed.stdout)}:
             return ""
-        done = subprocess.run([claude, "plugin", "update", PLUGIN], **quiet)
+        done = subprocess.run([claude, "plugin", "update", PLUGIN], check=False, **quiet)
     except (OSError, ValueError, AttributeError, subprocess.SubprocessError) as error:
         failure = str(error)
     else:
@@ -186,7 +186,7 @@ def interpreter(tools, windowed=False):
 
 def run_uv(command, env, installed):
     try:
-        done = subprocess.run(command, env=env, capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
+        done = subprocess.run(command, check=False, env=env, capture_output=True, text=True, timeout=INSTALL_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as error:
         return str(error)
     if done.returncode != 0:

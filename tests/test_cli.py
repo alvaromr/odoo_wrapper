@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from helpers import CONFIG, EMPLOYEE, NORMAL, REST, client, kw, temp_state, utc
+
 from odoo_wrapper import cli
 from odoo_wrapper import client as c
 

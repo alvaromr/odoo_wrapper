@@ -9,7 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from helpers import temp_state
-from odoo_wrapper import autostart as au, process as pr
+
+from odoo_wrapper import autostart as au
+from odoo_wrapper import process as pr
 
 
 class AutostartCase(unittest.TestCase):
@@ -62,8 +64,8 @@ class MacTest(AutostartCase):
         self.assertEqual(
             [(c.args, c.kwargs) for c in self.run_.call_args_list],
             [
-                ((["launchctl", "bootout", f"{session}/{au.LABEL}"],), {"capture_output": True}),
-                ((["launchctl", "bootstrap", session, path],), {"capture_output": True}),
+                ((["launchctl", "bootout", f"{session}/{au.LABEL}"],), {"check": False, "capture_output": True}),
+                ((["launchctl", "bootstrap", session, path],), {"check": False, "capture_output": True}),
             ],
         )
 

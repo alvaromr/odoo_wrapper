@@ -46,7 +46,7 @@ import sys
 import threading
 import time
 
-from .client import STATE_DIR
+from odoo_wrapper.client import STATE_DIR
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALLED_BOOTSTRAP = "from odoo_wrapper.dashboard import main; main()"

@@ -57,7 +57,7 @@ def node_major():
 
 def run(name, command):
     try:
-        done = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        done = subprocess.run(command, check=False, cwd=ROOT, capture_output=True, text=True)
     except FileNotFoundError:
         print(f"FAIL {name}: {command[0]} is not installed")
         return False
@@ -69,8 +69,10 @@ def run(name, command):
 
 
 def install_hook():
-    inside = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
-    hooks = subprocess.run(["git", "config", "core.hooksPath"], cwd=ROOT, capture_output=True, text=True)
+    inside = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"], check=False, cwd=ROOT, capture_output=True, text=True
+    )
+    hooks = subprocess.run(["git", "config", "core.hooksPath"], check=False, cwd=ROOT, capture_output=True, text=True)
     if inside.stdout.strip() == "true" and hooks.stdout.strip() != HOOKS:
         subprocess.run(["git", "config", "core.hooksPath", HOOKS], cwd=ROOT, check=True)
         print(f"hook installed: git runs {HOOKS}/pre-commit before each commit")

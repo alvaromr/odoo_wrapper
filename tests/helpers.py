@@ -19,7 +19,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from odoo_wrapper import cli, client as c, discord as dc, lan, process as pr, state as st  # noqa: E402
+from odoo_wrapper import cli, lan  # noqa: E402
+from odoo_wrapper import client as c
+from odoo_wrapper import discord as dc
+from odoo_wrapper import process as pr
+from odoo_wrapper import state as st
 
 CONFIG = {"url": "https://odoo.example", "db": "db", "user": "u"}
 NORMAL = {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True}

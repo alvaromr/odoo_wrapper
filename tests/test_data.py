@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from helpers import NORMAL, REST, ScriptedClient, temp_state, utc
+
 from odoo_wrapper import data as dt
 from odoo_wrapper import state as st
 

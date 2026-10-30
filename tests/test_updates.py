@@ -10,6 +10,7 @@ import urllib.error
 from unittest.mock import patch
 
 from helpers import temp_state
+
 from odoo_wrapper import __version__
 from odoo_wrapper import updates as up
 
@@ -229,7 +230,7 @@ class InstallTest(unittest.TestCase):
             self.runs,
             [
                 ([self.uv, "plugin", "list", "--json"], dict(quiet, check=True)),
-                ([self.uv, "plugin", "update", up.PLUGIN], quiet),
+                ([self.uv, "plugin", "update", up.PLUGIN], dict(quiet, check=False)),
             ],
         )
 
@@ -277,6 +278,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(
             kwargs,
             {
+                "check": False,
                 "env": dict(os.environ, UV_TOOL_DIR=self.tools),
                 "capture_output": True,
                 "text": True,

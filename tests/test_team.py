@@ -6,7 +6,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 
 from helpers import NORMAL, REST, ScriptedClient
-from odoo_wrapper import data as dt, team as tm
+
+from odoo_wrapper import data as dt
+from odoo_wrapper import team as tm
 from odoo_wrapper.client import OdooError, SessionExpired
 
 MONDAY = date(2025, 3, 3)

@@ -53,8 +53,8 @@ import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 
-from . import state
-from .client import OdooError, SessionExpired
+from odoo_wrapper import state
+from odoo_wrapper.client import OdooError, SessionExpired
 
 MIN_WEEKS = 12
 MIN_SESSION = 1 / 60

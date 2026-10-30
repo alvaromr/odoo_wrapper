@@ -59,8 +59,8 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from itertools import groupby
 
-from . import discord, team
-from .client import (
+from odoo_wrapper import discord, team
+from odoo_wrapper.client import (
     STATE_DIR,
     OdooClient,
     OdooError,
@@ -72,8 +72,8 @@ from .client import (
     save_config,
     write_private,
 )
-from .discord import DiscordError
-from .sheets import Sheets, SheetsError
+from odoo_wrapper.discord import DiscordError
+from odoo_wrapper.sheets import Sheets, SheetsError
 
 CLI_SESSION_FILE = os.path.join(STATE_DIR, "cli_session")
 CLI_DEVICE_FILE = os.path.join(STATE_DIR, "cli_device")

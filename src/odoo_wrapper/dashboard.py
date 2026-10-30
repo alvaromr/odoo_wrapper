@@ -27,8 +27,8 @@ import threading
 import webbrowser
 from http.server import ThreadingHTTPServer
 
-from . import __version__, autostart, cli, lan, process, server
-from .client import STATE_DIR, read_config
+from odoo_wrapper import __version__, autostart, cli, lan, process, server
+from odoo_wrapper.client import STATE_DIR, read_config
 
 USAGE = f"""Uso: odoo-dashboard [--host <ip>] [--open]
        odoo-dashboard --autostart on|off

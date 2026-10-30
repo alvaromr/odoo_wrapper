@@ -20,8 +20,8 @@
 
 from datetime import datetime, timedelta, timezone
 
-from . import data
-from .client import OdooError, SessionExpired
+from odoo_wrapper import data
+from odoo_wrapper.client import OdooError, SessionExpired
 
 LOST_ENTRY_MINUTES = 10
 REPLACE = 6

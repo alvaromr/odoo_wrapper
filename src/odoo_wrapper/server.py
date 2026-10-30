@@ -109,8 +109,8 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
 
-from . import corrections, data, discord, lan, process, state, team, updates
-from .client import (
+from odoo_wrapper import corrections, data, discord, lan, process, state, team, updates
+from odoo_wrapper.client import (
     CONFIG_KEYS,
     AccessDenied,
     OdooClient,

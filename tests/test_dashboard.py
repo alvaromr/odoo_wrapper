@@ -12,8 +12,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from helpers import CONFIG, logged, temp_state
+
+from odoo_wrapper import cli, lan
 from odoo_wrapper import dashboard as d
-from odoo_wrapper import cli, lan, process as pr, server as sv
+from odoo_wrapper import process as pr
+from odoo_wrapper import server as sv
 
 
 class MainTest(unittest.TestCase):

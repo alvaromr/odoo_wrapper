@@ -84,8 +84,8 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
-from . import data
-from .client import OdooError, SessionExpired
+from odoo_wrapper import data
+from odoo_wrapper.client import OdooError, SessionExpired
 
 LOOKBACK_WEEKS = 12
 LONG_DAY = data.LONG_HOURS

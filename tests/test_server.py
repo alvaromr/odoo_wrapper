@@ -16,8 +16,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from helpers import CONFIG, logged, temp_state
+
 from odoo_wrapper import client as c
-from odoo_wrapper import data as dt, lan, server as sv, state as st
+from odoo_wrapper import data as dt
+from odoo_wrapper import lan
+from odoo_wrapper import server as sv
+from odoo_wrapper import state as st
 from odoo_wrapper.client import AccessDenied, OdooDown, OdooError, SessionExpired, TotpRequired
 
 

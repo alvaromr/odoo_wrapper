@@ -11,6 +11,7 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from helpers import ScriptedClient, temp_state
+
 from odoo_wrapper import discord as dc
 
 

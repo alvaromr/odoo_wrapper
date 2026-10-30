@@ -5,7 +5,8 @@ import unittest.mock
 from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 
-from odoo_wrapper import corrections as co, data as dt
+from odoo_wrapper import corrections as co
+from odoo_wrapper import data as dt
 from odoo_wrapper.client import OdooError, SessionExpired
 
 MONDAY = date(2025, 3, 3)

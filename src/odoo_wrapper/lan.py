@@ -33,8 +33,8 @@ import socket
 import subprocess
 from urllib.parse import urlsplit
 
-from . import qr
-from .client import STATE_DIR
+from odoo_wrapper import qr
+from odoo_wrapper.client import STATE_DIR
 
 TLS_PORT = 8443
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -88,7 +88,9 @@ def lan_ip():
 
 def bonjour_name():
     try:
-        name = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True, text=True).stdout.strip()
+        name = subprocess.run(
+            ["scutil", "--get", "LocalHostName"], check=False, capture_output=True, text=True
+        ).stdout.strip()
     except OSError:
         name = ""  # pragma: no mutate - any empty name falls back to the hostname below
     name = name or socket.gethostname().split(".")[0] or "localhost"

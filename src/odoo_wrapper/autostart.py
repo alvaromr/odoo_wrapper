@@ -37,7 +37,7 @@ import sys
 import time
 from contextlib import suppress
 
-from .process import launch_command
+from odoo_wrapper.process import launch_command
 
 LABEL = "com.github.alvaromr.odoo-dashboard"
 UNIT = "odoo-dashboard.service"
@@ -89,10 +89,10 @@ def mac_follow():
 def mac_on():
     mac_write()
     session = f"gui/{os.getuid()}"
-    subprocess.run(["launchctl", "bootout", f"{session}/{LABEL}"], capture_output=True)
+    subprocess.run(["launchctl", "bootout", f"{session}/{LABEL}"], check=False, capture_output=True)
     bootstrap = ["launchctl", "bootstrap", session, launch_agent()]
     for _ in range(BOOTSTRAP_TRIES - 1):
-        if subprocess.run(bootstrap, capture_output=True).returncode == 0:
+        if subprocess.run(bootstrap, check=False, capture_output=True).returncode == 0:
             return
         time.sleep(BOOTSTRAP_PAUSE)
     subprocess.run(bootstrap, capture_output=True, check=True)

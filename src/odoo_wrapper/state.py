@@ -25,7 +25,7 @@ import os
 import threading
 from datetime import datetime
 
-from .client import STATE_DIR, write_private
+from odoo_wrapper.client import STATE_DIR, write_private
 
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 LUNCH_DEFAULT = 30

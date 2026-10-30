@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import helpers  # noqa: F401
+
 from odoo_wrapper import sheets as sh
 
 EXPORTED = {"type": "authorized_user", "client_id": "cid", "client_secret": "s3cret", "refresh_token": "r3fresh"}
@@ -51,7 +52,7 @@ class CredentialsTest(unittest.TestCase):
     def test_gws_is_asked_for_its_credentials_by_the_path_it_was_found_at(self):
         self.assertEqual(self.export(), {"client_id": "cid", "client_secret": "s3cret", "refresh_token": "r3fresh"})
         self.which.assert_called_once_with("gws")
-        self.ran.assert_called_once_with(["/bin/gws", "auth", "export", "--unmasked"], capture_output=True)
+        self.ran.assert_called_once_with(["/bin/gws", "auth", "export", "--unmasked"], check=False, capture_output=True)
 
     def test_without_gws_it_says_so(self):
         with self.assertRaises(sh.SheetsError) as caught:

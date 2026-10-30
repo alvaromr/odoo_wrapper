@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from helpers import logged, temp_state
+
 from odoo_wrapper import lan
 
 
@@ -33,7 +34,7 @@ class NetworkTest(unittest.TestCase):
     def test_bonjour_name_from_scutil(self):
         with patch.object(subprocess, "run", return_value=SimpleNamespace(stdout="mac\n")) as run:
             self.assertEqual(lan.bonjour_name(), "mac.local")
-        run.assert_called_once_with(["scutil", "--get", "LocalHostName"], capture_output=True, text=True)
+        run.assert_called_once_with(["scutil", "--get", "LocalHostName"], check=False, capture_output=True, text=True)
         with patch.object(subprocess, "run", return_value=SimpleNamespace(stdout="ya.local")):
             self.assertEqual(lan.bonjour_name(), "ya.local")
 
