@@ -52,6 +52,10 @@ thresholds) are data_rules.py's, and tests/test_project.py checks that this modu
   date of their date_start, owner matched to the employee through its user. They are not flags: a pending one
   usually explains a flag next to it. Each row counts its pending ones in the period (pending), which survives
   the year's summary, for the page's «Con solicitudes» filter.
+- A notice, for `odoo notices`' spreadsheet (notices), is a day already over with a punch error still unfixed
+  (any day flag, «Incidencia») or an attendance change request («Solicitud», or «Solicitud (borrador)» while it is
+  a draft nobody has submitted yet), as the first kind of NOTICE_KINDS the day holds: a request is the error being
+  dealt with, and a row for each counted it twice in the totals.
 - The payload's reasons are the ones a punch may be given, for the day dialog's selector; each session carries its
   own as reason_id. Without the module the list is empty.
 - Each employee carries its Discord user id (discord), for the day dialog's message about a punch to fix: the
@@ -83,6 +87,11 @@ Span = Union[tuple[date], tuple[date, int, Optional[date], Optional[date]]]
 DayFlag = Literal["open", "empty", "long"]
 WeekFlag = Literal["under", "over"]
 WEEK_FLAGS: tuple[WeekFlag, ...] = ("under", "over")
+NOTICE_KINDS: tuple[tuple[str, Callable[[Day], bool]], ...] = (
+    ("Solicitud", lambda d: any(r["status"] != "new" for r in d["requests"])),
+    ("Solicitud (borrador)", lambda d: bool(d["requests"])),
+    ("Incidencia", lambda d: bool(d["flags"])),
+)
 
 
 class EmployeeRow(TypedDict):
@@ -402,6 +411,19 @@ def fixes_payload(payload: TeamPayload) -> FixesPayload:
         "limits": payload["limits"],
         "employees": [r for r in rows if r["items"]],
     }
+
+
+def notices(payload: TeamPayload) -> list[tuple[date, str, str]]:
+    """Return a payload's notices, by date and name: the day, the employee and the first kind the day holds."""
+    stop = min(payload["stop"], payload["generated_at"][:10])
+    return sorted(
+        (date.fromisoformat(d["date"]), e["name"], kinds[0])
+        for e in payload["employees"]
+        for d in e["days"]
+        if payload["start"] <= d["date"] < stop
+        for kinds in [[kind for kind, holds in NOTICE_KINDS if holds(d)]]
+        if kinds
+    )
 
 
 def year_employee(employee: TeamEmployee, months: list[Month]) -> YearEmployee:

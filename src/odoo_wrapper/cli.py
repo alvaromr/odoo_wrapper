@@ -24,11 +24,8 @@ notices brings the warnings spreadsheet up to date, a Google Sheets file reached
 <year>» gets a row per notice (employee, month, date, kind) and «Avisos Totales» each employee's count, once a
 month. It is one command with nothing to decide, so that someone who is not technical can run it, by hand or
 from a scheduled task, without an agent in between.
-- A notice is a day already over, of anyone the session can read (team.py says who), with a punch error still
-  unfixed (team.py's day flags, «Incidencia») or an attendance change request («Solicitud», or «Solicitud
-  (borrador)» while it is a draft nobody has submitted yet). One row per employee and day, the first kind of
-  NOTICE_KINDS the day holds: a request is the error being dealt with, and two rows counted it twice in the
-  totals. Only the rows the sheet lacks are appended, so a second run adds nothing, and none is ever
+- A notice is what team_rules.notices finds, for anyone the session can read (team.py says who): one row per
+  employee and day. Only the rows the sheet lacks are appended, so a second run adds nothing, and none is ever
   rewritten: people fill the sheet's other columns by hand, which is also why those are left empty.
 - Each run covers the month in progress up to yesterday and, before it, the previous month if it is not closed
   yet: its notices, then its totals. A month is closed when «Avisos Totales» has a row with its name, so the
@@ -63,7 +60,6 @@ import re
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from itertools import groupby
 from typing import TypedDict
@@ -103,11 +99,6 @@ MONTHS = (
     "Octubre",
     "Noviembre",
     "Diciembre",
-)
-NOTICE_KINDS: tuple[tuple[str, Callable[[team_rules.Day], bool]], ...] = (
-    ("Solicitud", lambda d: any(r["status"] != "new" for r in d["requests"])),
-    ("Solicitud (borrador)", lambda d: bool(d["requests"])),
-    ("Incidencia", lambda d: bool(d["flags"])),
 )
 TOTALS_TAB = "Avisos Totales"
 SHEET_COLUMNS = 4
@@ -392,19 +383,9 @@ def add_notices(client: OdooClient, sheets: Sheets, month: date) -> None:
     known = {(employee, day, kind) for employee, _, day, kind in sheet_rows(sheets, month)}
     book = ledger()
     written = book.setdefault(sheets.id, [])
-    payload = team.build_team(client, *team_rules.month_span(month))
-    stop = min(payload["stop"], payload["generated_at"][:10])
-    found = sorted(
-        (date.fromisoformat(d["date"]), e["name"], kinds[0])
-        for e in payload["employees"]
-        for d in e["days"]
-        if payload["start"] <= d["date"] < stop
-        for kinds in [[kind for kind, holds in NOTICE_KINDS if holds(d)]]
-        if kinds
-    )
     rows = [
         [employee, MONTHS[day.month - 1], day.strftime("%d/%m/%Y"), kind]
-        for day, employee, kind in found
+        for day, employee, kind in team_rules.notices(team.build_team(client, *team_rules.month_span(month)))
         if (employee, (day - SHEET_EPOCH).days, kind) not in known
     ]
     rows = [row for row in rows if row not in written]
