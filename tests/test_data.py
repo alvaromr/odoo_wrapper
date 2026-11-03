@@ -17,7 +17,7 @@ class TimeTest(unittest.TestCase):
         self.assertEqual(stamp.astimezone(timezone.utc).hour, 7)
         self.assertIsNotNone(stamp.tzinfo)
 
-    def test_week_monday(self):
+    def test_a_week_starts_at_midnight_of_its_monday(self):
         monday = dt.week_monday(datetime(2026, 9, 9, 15, 30))
         self.assertEqual(monday, datetime(2026, 9, 7))
         self.assertEqual(dt.week_monday(monday), monday)

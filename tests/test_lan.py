@@ -47,7 +47,7 @@ class NetworkTest(unittest.TestCase):
         with patch.object(subprocess, "run", side_effect=OSError), patch.object(socket, "gethostname", return_value=""):
             self.assertEqual(lan.bonjour_name(), "localhost.local")
 
-    def test_expose_and_net_identity(self):
+    def test_the_phone_listens_on_the_lan_address_unless_host_names_another(self):
         with (
             patch.object(lan, "bonjour_name", return_value="mac.local"),
             patch.object(lan, "lan_ip", return_value="10.0.0.2"),
@@ -192,13 +192,13 @@ class PhoneTest(unittest.TestCase):
                 lan.phone_access(), {"url": "https://10.0.0.2:8443/", "name_url": "https://mac.local:8443/"}
             )
 
-    def test_qr_or_empty(self):
+    def test_a_link_too_long_for_a_qr_draws_none(self):
         self.assertTrue(lan.qr_or_empty("https://10.0.0.2:8443/").startswith("<svg"))
         self.assertEqual(lan.qr_or_empty("x" * 200), "")
 
 
 class SameSiteNamesTest(unittest.TestCase):
-    def test_hostname_of(self):
+    def test_the_host_of_a_header_or_origin_comes_without_its_port(self):
         cases = {
             "localhost:8931": "localhost",
             "http://localhost:8931/x": "localhost",

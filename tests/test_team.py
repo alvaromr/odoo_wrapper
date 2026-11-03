@@ -154,7 +154,7 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(tm.year_span(2029), (date(2029, 1, 1), 53, date(2029, 1, 1), date(2030, 1, 1)))
         self.assertIsInstance(tm.year_span(2029)[1], int)
 
-    def test_monday_of(self):
+    def test_any_day_belongs_to_the_week_of_its_monday(self):
         self.assertEqual(tm.monday_of(date(2025, 3, 9)), MONDAY)
         self.assertEqual(tm.monday_of(MONDAY), MONDAY)
 

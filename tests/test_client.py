@@ -354,7 +354,7 @@ class EmployeeTest(unittest.TestCase):
             client(kw([])).load_employee()
         self.assertEqual(str(caught.exception), "No se encontró empleado asociado a tu usuario")
 
-    def test_open_attendance(self):
+    def test_the_open_attendance_is_the_unclosed_one_or_none(self):
         odoo = client(kw([EMPLOYEE]), kw([{"id": 1, "check_in": utc(5)}]), kw([]))
         self.assertEqual(odoo.open_attendance()["id"], 1)
         self.assertIsNone(odoo.open_attendance())
@@ -382,7 +382,7 @@ class EmployeeTest(unittest.TestCase):
         odoo.punch()
         self.assertEqual([p for _, p, _ in odoo.opener.calls], [{"attendance_reason_id": 5}, {}])
 
-    def test_sign_in_reasons(self):
+    def test_sign_in_reasons_are_the_offered_normal_and_rest_ones_read_once(self):
         rows = [
             {"id": 3, "name": "Descanso", "is_rest": True, "action_type": "sign_in", "show_on_attendance_screen": True},
             {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True},

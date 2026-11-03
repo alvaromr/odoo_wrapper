@@ -17,7 +17,7 @@ from odoo_wrapper import process as pr
 
 
 class PortTest(unittest.TestCase):
-    def test_port_taken(self):
+    def test_a_port_is_taken_when_a_connection_to_it_succeeds(self):
         sock = Mock()
         sock.__enter__ = lambda s: s
         sock.__exit__ = lambda s, *a: None

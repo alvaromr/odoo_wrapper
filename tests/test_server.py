@@ -583,7 +583,7 @@ class HandlerTest(unittest.TestCase):
             status, headers, payload = self.post("/api/login", body, cookie=None, **kw)
         return status, headers, payload, odoo, sleep
 
-    def test_login(self):
+    def test_a_login_needs_the_right_password_and_sets_the_session_cookie(self):
         status, _, payload, odoo, sleep = self.login({"user": "ana", "password": "no"})
         self.assertEqual((status, payload["error"]), (401, "Usuario o contraseña incorrectos"))
         sleep.assert_called_once_with(sv.LOGIN_PENALTY)

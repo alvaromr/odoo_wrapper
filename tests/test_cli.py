@@ -197,7 +197,7 @@ class CommandTest(unittest.TestCase):
         odoo = client(self.EMP, kw([]), kw([]), {"result": {"attendance_state": "?", "hours_today": 3}})
         self.assertEqual(self.run_cmd(odoo, "toggle").strip(), "Horas hoy: 3.00h")
 
-    def test_check_in(self):
+    def test_check_in_refuses_an_open_session_and_punches_with_the_normal_reason(self):
         start, now = utc(30), utc(0)
         odoo = client(self.EMP, kw([{"id": 1, "check_in": start}]))
         self.assertEqual(
@@ -210,7 +210,7 @@ class CommandTest(unittest.TestCase):
         )
         self.assertEqual(odoo.opener.calls[-1][1], {"attendance_reason_id": 5})
 
-    def test_check_out(self):
+    def test_check_out_needs_an_open_session_and_reports_its_hours(self):
         self.assertEqual(
             self.run_cmd(client(self.EMP, kw([])), "check_out"), "No hay fichaje abierto. Usa 'checkin' para entrar.\n"
         )
@@ -251,7 +251,7 @@ class CommandTest(unittest.TestCase):
         )
         self.assertEqual([call[1] for call in odoo.opener.calls[-2:]], [{}, {"attendance_reason_id": 3}])
 
-    def test_resume(self):
+    def test_resume_needs_an_open_break_and_comes_back_with_the_normal_reason(self):
         open_att = kw([{"id": 1, "check_in": utc(10)}])
         none_open = "No hay un descanso abierto. Usa 'break' para salir a descanso.\n"
         self.assertEqual(self.run_cmd(client(self.EMP, kw([]), kw([NORMAL, REST])), "resume"), none_open)
