@@ -58,7 +58,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, cast
 
 from odoo_wrapper import state
-from odoo_wrapper.client import OdooClient, OdooError, Row, SessionExpired
+from odoo_wrapper.client import OdooClient, OdooError, Row, SessionExpired, degrade
 
 MIN_WEEKS = 12
 MIN_SESSION = 1 / 60
@@ -278,7 +278,8 @@ def fetch_contracts(client: OdooClient, ids: Sequence[int | None], monday: date,
         )
     except SessionExpired:
         raise
-    except OdooError:
+    except OdooError as error:
+        degrade("Odoo no da los contratos: las horas previstas siguen el horario actual de cada empleado", error)
         return {}
     contracts: dict[Any, list[Row]] = {}
     for c in rows:

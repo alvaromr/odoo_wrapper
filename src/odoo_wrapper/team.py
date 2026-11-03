@@ -86,7 +86,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, cast
 
 from odoo_wrapper import data
-from odoo_wrapper.client import OdooClient, OdooError, SessionExpired
+from odoo_wrapper.client import OdooClient, OdooError, SessionExpired, degrade
 
 LOOKBACK_WEEKS = 12
 LONG_DAY = data.LONG_HOURS
@@ -261,7 +261,8 @@ def fetch_requests(
         )
     except SessionExpired:
         raise
-    except OdooError:
+    except OdooError as error:
+        degrade("Odoo no da las solicitudes de cambio de fichaje: no se muestran", error)
         return []
     return [
         {
@@ -409,9 +410,10 @@ def read_employees(client: OdooClient, ids: list[int], fields: list[str]) -> lis
         rows = client.call_kw("hr.employee", "read", [ids, fields + ([discord] if discord else [])])
     except SessionExpired:
         raise
-    except OdooError:
+    except OdooError as error:
         if not discord:
             raise
+        degrade("Odoo no deja leer el campo Discord de los empleados: los avisos no se envían por Discord", error)
         rows = client.call_kw("hr.employee", "read", [ids, fields])
     return [dict(r, discord=str(r.get(discord) or "").strip() or None) for r in rows]
 

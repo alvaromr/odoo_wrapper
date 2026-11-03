@@ -19,6 +19,7 @@ from helpers import (
     TOTP_PAGE,
     client,
     kw,
+    logged,
     temp_state,
     utc,
 )
@@ -246,11 +247,26 @@ class RpcTest(unittest.TestCase):
         )
         self.assertFalse(client(kw(True), kw(False)).edits_punches())
         self.assertFalse(client(kw(True), kw(True), kw(False)).edits_punches())
-        self.assertFalse(
-            client({"error": {"code": 200, "message": "Odoo Server Error", "data": {"message": "no"}}}).edits_punches()
+        refused = {"error": {"code": 200, "message": "Odoo Server Error", "data": {"message": "no"}}}
+        with patch.object(c, "_degraded", set()), logged() as out:
+            self.assertFalse(client(refused).edits_punches())
+            self.assertFalse(client(refused).edits_punches())
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no deja comprobar si puedes corregir fichajes: el diálogo del día queda de solo lectura"
+            " (no)\n",
         )
         with self.assertRaises(c.SessionExpired):
             client({"error": {"code": 100}}).edits_punches()
+
+    def test_what_the_tools_go_without_is_logged_once_per_thing(self):
+        with patch.object(c, "_degraded", set()), logged() as out:
+            c.degrade("Falta algo: se sigue sin ello", OSError("no"))
+            c.degrade("Falta algo: se sigue sin ello", OSError("otra vez"))
+            c.degrade("Falta otra cosa: también", ValueError("x"))
+        self.assertEqual(
+            out.getvalue(), "WARNING Falta algo: se sigue sin ello (no)\nWARNING Falta otra cosa: también (x)\n"
+        )
 
     def test_logout_destroys_the_session(self):
         odoo = client({"result": None})
@@ -407,9 +423,14 @@ class EmployeeTest(unittest.TestCase):
     def test_reasons_are_optional(self):
         missing = {"error": {"code": 200, "data": {"name": "builtins.KeyError", "message": "hr.attendance.reason"}}}
         odoo = client(missing)
-        self.assertEqual(odoo.attendance_reasons(), [])
-        self.assertEqual(odoo.sign_in_reasons(), (None, None))
+        with patch.object(c, "_degraded", set()), logged() as out:
+            self.assertEqual(odoo.attendance_reasons(), [])
+            self.assertEqual(odoo.sign_in_reasons(), (None, None))
         self.assertEqual(len(odoo.opener.calls), 1)
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no da los motivos de fichaje: se ficha sin motivo y sin descansos (hr.attendance.reason)\n",
+        )
         with self.assertRaises(c.SessionExpired):
             client({"error": {"code": 100}}).attendance_reasons()
 

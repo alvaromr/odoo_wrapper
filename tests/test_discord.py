@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from helpers import NORMAL, REST, ScriptedClient, logged, temp_state
 
+from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
 from odoo_wrapper import discord as dc
 from odoo_wrapper import team as tm
@@ -206,7 +207,12 @@ class DiscordTest(unittest.TestCase):
         odoo.rows["approval.category"] = []
         self.assertIsNone(dc.request_link(odoo))
         odoo.rows["approval.category"] = lambda args, kwargs: (_ for _ in ()).throw(dc.OdooError("sin acceso"))
-        self.assertIsNone(dc.request_link(odoo))
+        with patch.object(c, "_degraded", set()), logged() as out:
+            self.assertIsNone(dc.request_link(odoo))
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no da la categoría de las solicitudes de cambio: el aviso va sin botón (sin acceso)\n",
+        )
         odoo.rows["approval.category"] = lambda args, kwargs: (_ for _ in ()).throw(dc.SessionExpired("caducada"))
         with self.assertRaises(dc.SessionExpired):
             dc.request_link(odoo)

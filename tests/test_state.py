@@ -4,9 +4,11 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
-from helpers import temp_state
+from helpers import logged, temp_state
 
+from odoo_wrapper import client as c
 from odoo_wrapper import state as st
 
 
@@ -55,7 +57,13 @@ class StateTest(unittest.TestCase):
         for content in ("{roto", "", "[]", '"texto"'):
             with open(st.STATE_FILE, "w") as f:
                 f.write(content)
-            self.assertEqual(st.read_state(3)["lunch_minutes"], st.LUNCH_DEFAULT, content)
+            with patch.object(c, "_degraded", set()), logged() as out:
+                self.assertEqual(st.read_state(3)["lunch_minutes"], st.LUNCH_DEFAULT, content)
+            self.assertTrue(out.getvalue().startswith(f"WARNING No se puede leer {st.STATE_FILE}: "), content)
+        os.remove(st.STATE_FILE)
+        with logged() as out:
+            st.read_state(3)
+        self.assertEqual(out.getvalue(), "")
 
     def test_writes_merge_instead_of_replacing(self):
         st.write_state(3, lunch_minutes=45)

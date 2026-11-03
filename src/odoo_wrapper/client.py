@@ -28,12 +28,17 @@
   message the user can read, so neither the CLI nor the dashboard shows a traceback or a generic 500 when
   Odoo is simply down. A response that is not JSON (a maintenance page, a proxy error page) is OdooDown too.
 - config.json keeps url, db and user only, written with mode 600 and replaced atomically.
+- What the tools can go without when Odoo will not serve it (the reasons, the rights to edit punches, contracts,
+  change requests, the Discord field) still leaves a trace: degrade() logs what is missing and what the tools do
+  instead, once per process and thing, so an employee without the rights gets one line, not one per reload. The
+  CLI keeps its output as it was: the package's logger only writes where the dashboard points it.
 """
 
 from __future__ import annotations
 
 import http.client
 import json
+import logging
 import os
 import platform
 import re
@@ -56,6 +61,8 @@ REDIRECTS = (301, 302, 303, 307, 308)
 USER_AGENT = f"Mozilla/5.0 ({platform.system()}) odoo-wrapper"
 SESSION_EXPIRED_CODE = 100
 ACCESS_DENIED = "odoo.exceptions.AccessDenied"
+log = logging.getLogger(__name__)
+_degraded: set[str] = set()
 
 
 class OdooError(Exception):
@@ -93,6 +100,13 @@ class KeepRedirects(urllib.request.HTTPRedirectHandler):
         return fp
 
     http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+
+def degrade(what: str, error: Exception) -> None:
+    """Log, the first time in this process, what the tools go without and why."""
+    if what not in _degraded:
+        _degraded.add(what)
+        log.warning(f"{what} ({error})")
 
 
 def set_cookies(headers: Message) -> dict[str, str]:
@@ -260,7 +274,10 @@ class OdooClient:
             )
         except SessionExpired:
             raise
-        except OdooError:
+        except OdooError as error:
+            degrade(
+                "Odoo no deja comprobar si puedes corregir fichajes: el diálogo del día queda de solo lectura", error
+            )
             return False
 
     def logout(self) -> None:
@@ -340,7 +357,8 @@ class OdooClient:
                 )
             except SessionExpired:
                 raise
-            except OdooError:
+            except OdooError as error:
+                degrade("Odoo no da los motivos de fichaje: se ficha sin motivo y sin descansos", error)
                 self._reasons = []
         return self._reasons
 

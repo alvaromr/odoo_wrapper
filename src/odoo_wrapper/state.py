@@ -28,7 +28,7 @@ import threading
 from datetime import datetime
 from typing import Any, TypeVar
 
-from odoo_wrapper.client import STATE_DIR, Row, write_private
+from odoo_wrapper.client import STATE_DIR, Row, degrade, write_private
 
 Default = TypeVar("Default")
 
@@ -75,7 +75,10 @@ def read_users() -> dict[str, Row]:
         with open(STATE_FILE) as f:
             raw = json.load(f)
         return {uid: record for uid, record in raw.items() if isinstance(record, dict)}
-    except (OSError, ValueError, AttributeError):
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, AttributeError) as error:
+        degrade(f"No se puede leer {STATE_FILE}: se empieza sin lo guardado y se reescribe al siguiente cambio", error)
         return {}
 
 

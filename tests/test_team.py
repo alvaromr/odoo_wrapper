@@ -4,9 +4,11 @@ import unittest
 import unittest.mock
 from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from helpers import NORMAL, REST, ScriptedClient
+from helpers import NORMAL, REST, ScriptedClient, logged
 
+from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
 from odoo_wrapper import team as tm
 from odoo_wrapper.client import OdooError, SessionExpired
@@ -386,10 +388,16 @@ class BuildTeamTest(unittest.TestCase):
         self.client.labelled[("hr.employee", "discord")] = "x_studio_discord"
         self.client.rows["hr.employee"] = public_only
         self.client.queries.clear()
-        payload = tm.build_team(self.client, MONDAY)
+        with patch.object(c, "_degraded", set()), logged() as out:
+            payload = tm.build_team(self.client, MONDAY)
         self.assertEqual(
             [(e["name"], e["discord"]) for e in payload["employees"]],
             [("Ana", None), ("Bea", None), ("Carl", None), ("Dani", None)],
+        )
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no deja leer el campo Discord de los empleados: los avisos no se envían por Discord"
+            " (no disponibles para los perfiles públicos)\n",
         )
         reads = [query for query in self.client.queries if query[0] == "hr.employee"]
         self.assertEqual(
@@ -562,8 +570,13 @@ class BuildTeamTest(unittest.TestCase):
         def refuse(args, kwargs):
             raise OdooError("acceso denegado")
 
-        payload = tm.build_team(ScriptedClient(rows(**{"approval.request": refuse})), MONDAY)
+        with patch.object(c, "_degraded", set()), logged() as out:
+            payload = tm.build_team(ScriptedClient(rows(**{"approval.request": refuse})), MONDAY)
         self.assertTrue(all(d["requests"] == [] for e in payload["employees"] for d in e["days"]))
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no da las solicitudes de cambio de fichaje: no se muestran (acceso denegado)\n",
+        )
 
         def expire(args, kwargs):
             raise SessionExpired("caducada")

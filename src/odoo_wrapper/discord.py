@@ -60,7 +60,15 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
 from odoo_wrapper import team
-from odoo_wrapper.client import STATE_DIR, OdooClient, OdooError, SessionExpired, read_private, write_private
+from odoo_wrapper.client import (
+    STATE_DIR,
+    OdooClient,
+    OdooError,
+    SessionExpired,
+    degrade,
+    read_private,
+    write_private,
+)
 
 API = "https://discord.com/api/v10"
 TOKEN_FILE = os.path.join(STATE_DIR, "discord_token")
@@ -170,7 +178,8 @@ def request_link(client: OdooClient) -> str | None:
         )
     except SessionExpired:
         raise
-    except OdooError:
+    except OdooError as error:
+        degrade("Odoo no da la categoría de las solicitudes de cambio: el aviso va sin botón", error)
         return None
     return f"{client.url}/odoo/approvals/{found[0]['id']}/approval.request/new" if found else None
 

@@ -5,10 +5,12 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import NORMAL, REST, ScriptedClient, temp_state, utc
+from helpers import NORMAL, REST, ScriptedClient, logged, temp_state, utc
 
+from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
 from odoo_wrapper import state as st
+from odoo_wrapper.client import OdooError
 
 
 class TimeTest(unittest.TestCase):
@@ -407,6 +409,19 @@ class BuildDataTest(unittest.TestCase):
         }
         payload, _ = self.build([], rows={"hr.contract": [contract]})
         self.assertEqual(payload["contract_hours"], {})
+
+    def test_contracts_odoo_will_not_serve_leave_the_current_calendar_and_say_so(self):
+        def refuse(args, kwargs):
+            raise OdooError("acceso denegado")
+
+        with patch.object(c, "_degraded", set()), logged() as out:
+            payload, _ = self.build([], rows={"hr.contract": refuse})
+        self.assertEqual(payload["contract_hours"], {})
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no da los contratos: las horas previstas siguen el horario actual de cada empleado"
+            " (acceso denegado)\n",
+        )
 
     def test_without_attendance_reasons(self):
         payload, client = self.build(
