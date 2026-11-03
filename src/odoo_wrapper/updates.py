@@ -63,6 +63,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import TypedDict, cast
@@ -146,8 +147,12 @@ def latest() -> tuple[str, str]:
         },
     )
     # pragma: no mutate end
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        release: Release = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            release: Release = json.load(response)
+    except urllib.error.HTTPError as error:
+        with error:
+            raise
     return release["tag_name"].removeprefix("v"), release["html_url"]
 
 

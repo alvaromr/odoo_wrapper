@@ -95,12 +95,13 @@ def write_to_the_log_file() -> None:
     os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
     if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > LOG_MAX:
         os.replace(LOG_FILE, LOG_FILE + ".1")
-    file = open(LOG_FILE, "a", buffering=1)  # noqa: SIM115 - it stays open as the process's output
+    file = open(LOG_FILE, "a", buffering=1)  # noqa: SIM115 - with no output to point at, it becomes the output
     if sys.stdout is None:
         sys.stdout = sys.stderr = file
         return
-    for stream in (sys.stdout, sys.stderr):
-        os.dup2(file.fileno(), stream.fileno())
+    with file:
+        for stream in (sys.stdout, sys.stderr):
+            os.dup2(file.fileno(), stream.fileno())
 
 
 def source_version() -> float:

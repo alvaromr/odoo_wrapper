@@ -160,7 +160,8 @@ def call(token: str, path: str, body: Mapping[str, object] | None = None) -> Dis
             answer: DiscordObject = json.load(response)
             return answer
     except urllib.error.HTTPError as error:
-        raise DiscordError(refusal(error)) from None
+        with error:
+            raise DiscordError(refusal(error)) from None
     except OSError:
         raise DiscordError("Discord no responde") from None
 

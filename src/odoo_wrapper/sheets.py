@@ -106,11 +106,16 @@ class Sheets:
 
     def _authorize(self) -> None:
         body = urllib.parse.urlencode(dict(credentials(), grant_type="refresh_token")).encode()
+        expired = f"Google ya no acepta la sesión de gws. Ejecuta: {LOGIN}"
         try:
             answer: Token = send(self.opener, urllib.request.Request(TOKEN_URL, data=body))
+        except urllib.error.HTTPError as error:
+            with error:
+                raise SheetsError(expired) from error
+        try:
             self.token = answer["access_token"]
-        except (urllib.error.HTTPError, KeyError, TypeError) as error:
-            raise SheetsError(f"Google ya no acepta la sesión de gws. Ejecuta: {LOGIN}") from error
+        except (KeyError, TypeError) as error:
+            raise SheetsError(expired) from error
 
     def _call(self, cells: str, verb: str = "", rows: Sequence[Sequence[Cell]] | None = None, **query: str) -> Values:
         if not self.token:
@@ -127,9 +132,10 @@ class Sheets:
         try:
             answer: Values = send(self.opener, urllib.request.Request(url, data=data, headers=headers))
         except urllib.error.HTTPError as error:
-            raise SheetsError(
-                f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})"
-            ) from error
+            with error:
+                raise SheetsError(
+                    f"Google Sheets: {HINTS.get(error.code, 'no admite la petición')} ({reason(error)})"
+                ) from error
         return answer
 
     def get(self, cells: str) -> list[list[Cell]]:

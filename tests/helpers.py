@@ -6,6 +6,10 @@ writes there at a temporary directory for the duration of one test. Importing th
 network to the whole process, so a call left unmocked fails its test instead of reaching a real server; the suite
 runs with it because the first test module imports it.
 
+A warning is an error in the gate (`-W error`), but one raised while Python cleans up, such as the ResourceWarning
+of a response nobody closed, can only be printed and ignored. Importing this module collects those instead, and the
+process exits with 1 after the suite if any came, so they fail the gate too.
+
 No test reads the real clock either. Importing this module also pins the zone to ZONE (where the platform has
 tzset) and freezes `datetime` in every module that reads the clock (CLOCK_READERS) at NOW, a Wednesday, so a
 fixture or an expectation computed from "now" or "today" is the same on every day the suite runs and covers the same
@@ -13,6 +17,7 @@ branches. A test that needs another instant patches that module's `datetime` wit
 take their `now`/`today` as arguments, which a test passes as NOW and TODAY.
 """
 
+import atexit
 import http.client
 import io
 import json
@@ -59,6 +64,18 @@ def no_network(*_args, **_kwargs):
 
 socket.socket.connect = socket.socket.connect_ex = no_network
 socket.getaddrinfo = no_network
+
+_unraisable = []
+
+
+def fail_on_unraisable():
+    if _unraisable:
+        print("\n".join(["Raised where Python could only ignore it:", *_unraisable]), file=sys.stderr)
+        os._exit(1)
+
+
+sys.unraisablehook = lambda unraisable: _unraisable.append(f"{unraisable.exc_type.__name__}: {unraisable.exc_value}")
+atexit.register(fail_on_unraisable)
 
 
 def frozen(iso=NOW_ISO):
