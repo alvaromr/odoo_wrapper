@@ -51,10 +51,30 @@ class ConfigTest(unittest.TestCase):
         c.save_config("https://odoX/", "db", "u")
         self.assertEqual(c.load_config()["url"], "https://odoX")
 
-    def test_junk_or_incomplete_config_counts_as_none(self):
-        for text in ("{roto", "[]", '{"url": "x", "db": "y"}', '{"url": "", "db": "y", "user": "u"}'):
+    def test_junk_or_incomplete_config_counts_as_none_and_says_why(self):
+        cases = {
+            "{roto": f"{c.CONFIG_FILE} no es JSON: se toma como sin configurar hasta el próximo inicio de sesión (",
+            "[]": "(falta url, db, user)",
+            '{"url": "x", "db": "y"}': f"{c.CONFIG_FILE} está incompleto: se toma como sin configurar hasta el próximo"
+            " inicio de sesión (falta user)",
+            '{"url": "", "db": "y", "user": "u"}': "(falta url)",
+        }
+        for text, said in cases.items():
             self.write(c.CONFIG_FILE, text)
-            self.assertEqual(c.read_config(), {}, text)
+            with patch.object(c, "_degraded", set()), logged() as out:
+                self.assertEqual(c.read_config(), {}, text)
+            self.assertIn(said, out.getvalue())
+            self.assertTrue(out.getvalue().startswith("WARNING "), text)
+
+    def test_a_missing_config_is_the_first_run_and_says_nothing(self):
+        with patch.object(c, "_degraded", set()), logged() as out:
+            self.assertEqual(c.read_config(), {})
+        self.assertEqual(out.getvalue(), "")
+
+    def test_a_private_file_that_is_there_but_cannot_be_read_raises(self):
+        os.mkdir(c.CONFIG_FILE)
+        with self.assertRaises(IsADirectoryError):
+            c.read_private(c.CONFIG_FILE)
 
     def test_private_files_replace_atomically(self):
         path = os.path.join(self.home, "secret")

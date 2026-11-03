@@ -39,7 +39,8 @@ from a scheduled task, without an agent in between.
   sheet alone cannot tell it from one never written. notices_written keeps, per spreadsheet, every row once
   appended to it, noted only after the sheet took it, and those are never appended again. The sheet is still
   read: it is all there is on a machine without that file, or with one that cannot be read, taken as empty like
-  a broken config. Closing a month is not remembered this way: deleting all its totals asks for them again.
+  a broken config, and said on stderr, since the rows deleted by hand then come back. Closing a month is not
+  remembered this way: deleting all its totals asks for them again.
 - Dates are compared as the serial number Sheets stores (days since SHEET_EPOCH), whatever format the cell
   shows.
 - sheet remembers which spreadsheet that is, in notices_sheet, and notices asks for it on the spot the first
@@ -366,11 +367,18 @@ def sheet(url: str | None = None) -> None:
 
 
 def ledger() -> dict[str, list[list[str]]]:
-    """Return the rows already written to each spreadsheet, by id."""
+    """Return the rows already written to each spreadsheet, by id, saying so when the file cannot be used."""
+    text = read_private(WRITTEN_FILE)
+    if not text:
+        return {}
     try:
-        book: dict[str, list[list[str]]] = json.loads(read_private(WRITTEN_FILE))
+        book: dict[str, list[list[str]]] = json.loads(text)
         return dict(book)
     except (ValueError, TypeError):
+        print(
+            f"No se puede leer {WRITTEN_FILE}: se sigue sin él, y vuelven a añadirse las filas borradas a mano",
+            file=sys.stderr,
+        )
         return {}
 
 

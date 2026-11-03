@@ -27,7 +27,9 @@
 - A network failure on the way to Odoo (refused, DNS, timeout, a gateway error) is raised as OdooDown with a
   message the user can read, so neither the CLI nor the dashboard shows a traceback or a generic 500 when
   Odoo is simply down. A response that is not JSON (a maintenance page, a proxy error page) is OdooDown too.
-- config.json keeps url, db and user only, written with mode 600 and replaced atomically.
+- config.json keeps url, db and user only, written with mode 600 and replaced atomically. A missing one is the
+  first run, and one that cannot be used counts as missing too, so the next login writes it again; degrade() logs
+  why. A private file that exists but cannot be read raises: it is not the first run.
 - What the tools can go without when Odoo will not serve it (the reasons, the rights to edit punches, contracts,
   change requests, the Discord field) still leaves a trace: degrade() logs what is missing and what the tools do
   instead, once per process and thing, so an employee without the rights gets one line, not one per reload. The
@@ -216,23 +218,32 @@ def write_private(path: str, text: str) -> None:
 
 
 def read_private(path: str) -> str:
-    """Return a file's text, stripped, or nothing if it cannot be read."""
+    """Return a file's text, stripped, or nothing if there is no such file."""
     try:
         with open(path) as f:
             return f.read().strip()
-    except OSError:
+    except FileNotFoundError:
         return ""
 
 
 def read_config() -> dict[str, str]:
     """Return the saved URL, database and user, or nothing unless all three are there."""
-    try:
-        config = json.loads(read_private(CONFIG_FILE))
-    except ValueError:
+    text = read_private(CONFIG_FILE)
+    if not text:
         return {}
-    if isinstance(config, dict) and all(config.get(key) for key in CONFIG_KEYS):
-        return {key: str(config[key]) for key in CONFIG_KEYS}
-    return {}
+    try:
+        config = json.loads(text)
+    except ValueError as error:
+        degrade(f"{CONFIG_FILE} no es JSON: se toma como sin configurar hasta el próximo inicio de sesión", error)
+        return {}
+    missing = [key for key in CONFIG_KEYS if not config.get(key)] if isinstance(config, dict) else list(CONFIG_KEYS)
+    if missing:
+        degrade(
+            f"{CONFIG_FILE} está incompleto: se toma como sin configurar hasta el próximo inicio de sesión",
+            ValueError(f"falta {', '.join(missing)}"),
+        )
+        return {}
+    return {key: str(config[key]) for key in CONFIG_KEYS}
 
 
 def load_config() -> dict[str, str]:

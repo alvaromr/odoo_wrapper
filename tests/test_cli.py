@@ -618,12 +618,24 @@ class NoticesTest(unittest.TestCase):
         self.assertEqual(len(other.tabs["Avisos 2026"]), 6)
         self.assertEqual(sorted(json.loads(c.read_private(cli.WRITTEN_FILE))), ["hoja", "otra"])
 
-    def test_a_memory_that_cannot_be_read_is_an_empty_one(self):
+    def test_a_memory_that_cannot_be_read_is_an_empty_one_and_says_so(self):
         for broken in ("no", "[1]", "7"):
             c.write_private(cli.WRITTEN_FILE, broken)
-            google = FakeGoogle()
-            self.run_notices(google)
+            google, err = FakeGoogle(), io.StringIO()
+            with redirect_stderr(err):
+                self.run_notices(google)
             self.assertEqual(len(google.tabs["Avisos 2026"]), 6)
+            self.assertEqual(
+                err.getvalue(),
+                f"No se puede leer {cli.WRITTEN_FILE}: se sigue sin él, y vuelven a añadirse las filas borradas a"
+                " mano\n",
+            )
+
+    def test_no_memory_yet_says_nothing(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.run_notices(FakeGoogle())
+        self.assertEqual(err.getvalue(), "")
 
     def test_january_closes_december_in_last_years_tab(self):
         google = FakeGoogle(**{"Avisos 2027": []})

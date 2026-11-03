@@ -58,8 +58,6 @@ class ScheduleTest(unittest.TestCase):
             + [
                 {"dayofweek": "9", "hour_from": 9.0, "hour_to": 10.0},
                 {"dayofweek": "2", "hour_from": 10.0, "hour_to": 9.0},
-                {"dayofweek": None, "hour_from": None, "hour_to": None},
-                {},
             ]
         )
         self.assertEqual(schedule["hours"], [8.5, 0, 0, 0, 6.0, 0, 0])
@@ -67,7 +65,6 @@ class ScheduleTest(unittest.TestCase):
     def test_a_bad_row_or_a_lunch_block_never_cuts_the_rows_after_it(self):
         schedule = dr.schedule_from(
             [
-                {},
                 {"dayofweek": "7", "hour_from": 9.0, "hour_to": 10.0},
                 {"dayofweek": "2", "hour_from": 10.0, "hour_to": 9.0},
                 {"dayofweek": "1", "hour_from": 13.0, "hour_to": 14.0, "day_period": "lunch"},
@@ -92,6 +89,10 @@ class ScheduleTest(unittest.TestCase):
             ]
         )
         self.assertEqual(empty_first["lunch_from"][0], 13.0)
+
+    def test_a_block_odoo_sends_without_its_hours_fails_rather_than_counting_for_nothing(self):
+        with self.assertRaises(KeyError):
+            dr.schedule_from([{"dayofweek": "0", "hour_from": 9.0}])
 
     def test_an_empty_calendar_has_no_schedule(self):
         self.assertIsNone(dr.schedule_from([]))

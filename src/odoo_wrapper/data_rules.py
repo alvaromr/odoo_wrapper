@@ -229,11 +229,8 @@ def schedule_from(blocks: Iterable[BlockRow]) -> Schedule | None:
     lunch_from: list[float | None] = [None] * 7
     spans: list[list[tuple[float, float]]] = [[] for _ in range(7)]
     for block in blocks:
-        try:
-            day = int(block["dayofweek"])
-            start, end = float(block["hour_from"]), float(block["hour_to"])
-        except (KeyError, TypeError, ValueError):
-            continue
+        day = int(block["dayofweek"])
+        start, end = float(block["hour_from"]), float(block["hour_to"])
         if day not in range(7) or end <= start:
             continue
         if block.get("day_period") == "lunch":
