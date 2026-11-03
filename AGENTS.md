@@ -71,6 +71,7 @@ Don't duplicate — each fact has one home:
 - **`README.md`** — human quickstart only, the install included.
 - **`docs/decisions/`** — each practice the repo departs from on purpose, why, and who approved it.
 - **`SECURITY.md`** — where to report a vulnerability: privately, through GitHub.
+- **`CHANGELOG.md`** — what each release changes for its users, in Spanish (Keep a Changelog).
 - **This file** — how to work on the repo, and the Odoo API notes below.
 
 Read the header of a module before touching it.
@@ -156,7 +157,8 @@ the editable install, before merging a change that could break them:
 Every push to `main` is a release, because users install `main` and the dashboards' update banner only
 looks at releases (`updates.py`'s header says why): a push without one reaches nobody. In the commit that
 goes to `main`, raise `__version__` in `src/odoo_wrapper/__init__.py`, the only place it is written
-(semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit).
+(semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit), and give
+that version its section in `CHANGELOG.md`.
 Once `main` is pushed, publish it from `main`:
 
 ```bash
