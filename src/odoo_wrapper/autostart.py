@@ -38,14 +38,14 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import AbstractContextManager, suppress
 from types import ModuleType
-from typing import Any
 
 from odoo_wrapper.process import launch_command
 
 LABEL = "com.github.alvaromr.odoo-dashboard"
 UNIT = "odoo-dashboard.service"
+SYSTEMCTL = ["systemctl", "--user"]
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "odoo-dashboard"
 SYSTEMD_ESCAPES = str.maketrans({"\\": "\\\\", '"': '\\"', "%": "%%", "$": "$$"})
@@ -84,9 +84,14 @@ def remove(path: str) -> None:
         os.remove(path)
 
 
-def systemctl(*args: str, check: bool = True) -> None:
-    """Run systemctl on the user's units."""
-    subprocess.run(["systemctl", "--user", *args], check=check)
+def systemctl(*args: str) -> None:
+    """Run systemctl on the user's units, failing if it does."""
+    subprocess.run([*SYSTEMCTL, *args], check=True)
+
+
+def try_systemctl(*args: str) -> None:
+    """Run systemctl on the user's units and go on whatever it answers."""
+    subprocess.run([*SYSTEMCTL, *args], check=False)
 
 
 def mac_write() -> None:
@@ -148,7 +153,7 @@ def linux_on() -> None:
 def linux_off() -> None:
     """Disable and remove the unit; the dashboard running goes on."""
     if os.path.exists(unit_file()):
-        systemctl("disable", UNIT, check=False)
+        try_systemctl("disable", UNIT)
         remove(unit_file())
 
 
@@ -157,9 +162,10 @@ def registry() -> ModuleType:
     return importlib.import_module("winreg")
 
 
-def run_key(winreg: ModuleType) -> Any:
+def run_key(winreg: ModuleType) -> AbstractContextManager[object]:
     """Open the user's Run key for writing."""
-    return winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE)
+    key: AbstractContextManager[object] = winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE)
+    return key
 
 
 def windows_on() -> None:
@@ -197,10 +203,14 @@ def system() -> Toggles:
     return SYSTEMS.get(sys.platform, (linux_on, linux_off, linux_follow))
 
 
-def set_autostart(enabled: bool) -> None:
-    """Register the dashboard to start at login, or stop it from doing so."""
-    on, off, _ = system()
-    (on if enabled else off)()
+def turn_on() -> None:
+    """Register the dashboard to start at login, and start it now."""
+    system()[0]()
+
+
+def turn_off() -> None:
+    """Stop registering the dashboard to start at login."""
+    system()[1]()
 
 
 def follow() -> None:

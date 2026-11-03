@@ -46,6 +46,10 @@ from a scheduled task, without an agent in between.
   time when there is a terminal to ask on: its address must not be needed on every run. Only its id is kept,
   and in the state directory like everything else that is one person's: the address of a staff record has no
   place in the repo.
+- Types. The attendances it reads are data_rules.py's rows. The latest attendance of someone with none open
+  (ClosedAttendance) has left, so its check-out is a stamp: Odoo allows a single open attendance per employee,
+  which the status command has just seen there is not. The notices already written are the lists of text cells
+  the file holds, each as many cells as sheet_rows reads.
 """
 
 from __future__ import annotations
@@ -61,14 +65,13 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from itertools import groupby
-from typing import Any
+from typing import TypedDict
 
-from odoo_wrapper import discord, team
+from odoo_wrapper import data_rules, discord, team, team_rules
 from odoo_wrapper.client import (
     STATE_DIR,
     OdooClient,
     OdooError,
-    Row,
     SessionExpired,
     TotpRequired,
     load_config,
@@ -78,7 +81,7 @@ from odoo_wrapper.client import (
     write_private,
 )
 from odoo_wrapper.discord import DiscordError
-from odoo_wrapper.sheets import Sheets, SheetsError
+from odoo_wrapper.sheets import Cell, Sheets, SheetsError
 
 CLI_SESSION_FILE = os.path.join(STATE_DIR, "cli_session")
 CLI_DEVICE_FILE = os.path.join(STATE_DIR, "cli_device")
@@ -100,7 +103,7 @@ MONTHS = (
     "Noviembre",
     "Diciembre",
 )
-NOTICE_KINDS: tuple[tuple[str, Callable[[Row], bool]], ...] = (
+NOTICE_KINDS: tuple[tuple[str, Callable[[team_rules.Day], bool]], ...] = (
     ("Solicitud", lambda d: any(r["status"] != "new" for r in d["requests"])),
     ("Solicitud (borrador)", lambda d: bool(d["requests"])),
     ("Incidencia", lambda d: bool(d["flags"])),
@@ -154,6 +157,12 @@ Ficheros, en {STATE_DIR}:
   discord_token    token del bot de Discord; bórralo para que el dashboard deje de enviar avisos"""
 
 
+class ClosedAttendance(TypedDict):
+    """The latest hr.attendance of someone with none open, which has left."""
+
+    check_out: str
+
+
 def local_time(ts: str) -> datetime:
     """Turn one of Odoo's UTC stamps into a time in the machine's zone."""
     return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone()
@@ -170,7 +179,7 @@ def status(client: OdooClient) -> None:
         print(f"Check-in: {checkin_local.strftime('%H:%M:%S')} ({hours:.1f}h)")
     else:
         print("Estado: NO FICHADO (salida)")
-        last = client.call_kw(
+        last: list[ClosedAttendance] = client.call_kw(
             "hr.attendance",
             "search_read",
             [[("employee_id", "=", client.employee_id)]],
@@ -185,7 +194,7 @@ def status(client: OdooClient) -> None:
 
     local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0)
     today_start = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    today_records = client.call_kw(
+    today_records: list[data_rules.AttendanceRow] = client.call_kw(
         "hr.attendance",
         "search_read",
         [
@@ -211,15 +220,14 @@ def toggle(client: OdooClient) -> None:
     normal, _ = client.sign_in_reasons()
     result = client.punch(None if open_att else (normal and normal["id"]))
     state = result.get("attendance_state")
-    att = result.get("attendance")
     hours_today = result.get("hours_today", 0)
 
     if state == "checked_in":
-        print(f"CHECK-IN registrado a las {local_time(att['check_in']).strftime('%H:%M:%S')}")
+        print(f"CHECK-IN registrado a las {local_time(result['attendance']['check_in']).strftime('%H:%M:%S')}")
     elif state == "checked_out":
         session_hours = result.get("last_attendance_worked_hours", 0)
         print(
-            f"CHECK-OUT registrado a las {local_time(att['check_out']).strftime('%H:%M:%S')} "
+            f"CHECK-OUT registrado a las {local_time(result['attendance']['check_out']).strftime('%H:%M:%S')} "
             f"({session_hours:.2f}h esta sesión)"
         )
 
@@ -299,7 +307,7 @@ def history(client: OdooClient, days: int = 7) -> None:
     """Print the user's attendances of the last days, grouped by day, with each day's total."""
     client.load_employee()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    records = client.call_kw(
+    records: list[data_rules.AttendanceRow] = client.call_kw(
         "hr.attendance",
         "search_read",
         [
@@ -357,15 +365,16 @@ def sheet(url: str | None = None) -> None:
     print(saved_sheet())
 
 
-def ledger() -> dict[str, list[list[Any]]]:
+def ledger() -> dict[str, list[list[str]]]:
     """Return the rows already written to each spreadsheet, by id."""
     try:
-        return dict(json.loads(read_private(WRITTEN_FILE)))
+        book: dict[str, list[list[str]]] = json.loads(read_private(WRITTEN_FILE))
+        return dict(book)
     except (ValueError, TypeError):
         return {}
 
 
-def sheet_rows(sheets: Sheets, month: date) -> list[list[Any]]:
+def sheet_rows(sheets: Sheets, month: date) -> list[list[Cell]]:
     """Return the rows of a year's tab, each as many cells as the notices have."""
     return [(row + [""] * SHEET_COLUMNS)[:SHEET_COLUMNS] for row in sheets.get(f"Avisos {month.year}!B4:E")]
 
@@ -375,7 +384,7 @@ def add_notices(client: OdooClient, sheets: Sheets, month: date) -> None:
     known = {(employee, day, kind) for employee, _, day, kind in sheet_rows(sheets, month)}
     book = ledger()
     written = book.setdefault(sheets.id, [])
-    payload = team.build_team(client, *team.month_span(month))
+    payload = team.build_team(client, *team_rules.month_span(month))
     stop = min(payload["stop"], payload["generated_at"][:10])
     found = sorted(
         (date.fromisoformat(d["date"]), e["name"], kinds[0])

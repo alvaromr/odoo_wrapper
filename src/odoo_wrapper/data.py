@@ -1,130 +1,79 @@
 """The dashboard payload: attendance sessions, expected schedule and absences, read from Odoo and cached.
 
+The rules (hours, schedule, absences, what a punch does) are data_rules.py's, pure over plain rows; this module is
+the edge that reads those rows from Odoo, hands them over and sends the punches.
+
 - build_data loads the employee's full attendance history (from the first hr.attendance, at least MIN_WEEKS) in six
-  calls; the page trims what it shows. Its weeks are counted between calendar dates, not local datetimes: across a
-  daylight-saving change the span is an hour short and the oldest week was dropped. The payload is cached per Odoo
-  session for DATA_TTL seconds (a load costs ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into
-  the same dashboard never see each other's data; every entry is dropped on any punch, and a logout drops its
-  session's; fresh=True skips the cache («Actualizar»). cached() is that cache for any payload, keyed by a tuple
-  that starts with the session; team.py keys its own per session and period. What the viewer reads about other
-  people (the management view, someone else's week) keeps VIEW_TTL, five minutes: moving between those pages used
-  to reload from Odoo every time, and «Actualizar» still forces a fresh load. The payload's team flag says whether
-  the session reads other people's attendances, so the page links the management view.
+  calls; the page trims what it shows. The payload is cached per Odoo session for DATA_TTL seconds (a load costs
+  ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into the same dashboard never see each other's
+  data; every entry is dropped on any punch, and a logout drops its session's; reload_data skips the cache
+  («Actualizar») and replaces the entry, leaving the old one if the load fails. cached() is that cache for any
+  payload, keyed by a tuple that starts with the session, and rebuilt() is its reload; team.py keys its own per
+  session and period. What the viewer reads about other people (the management view, someone else's week) keeps
+  VIEW_TTL, five minutes: moving between those pages used to reload from Odoo every time, and «Actualizar» still
+  forces a fresh load. The payload's team flag says whether the session reads other people's attendances, so the
+  page links the management view.
 - build_data(client, employee) reads someone else's week instead, for the management view's links: the
   same payload, loaded by employee id, and it never touches the shared state, which is the viewer's own.
-- Expected hours follow the contract in force each day, as in team.py (fetch_contracts, calendar_on): the
-  payload's schedule is the employee's current calendar, and contract_hours lists only the days whose
-  contract asks for something else ({date: hours}: 0 before the hire date or between contracts, 5 on a
-  25 h contract), so the page changes nothing for someone whose calendar never changed.
-- Nothing is expected either before «since», the Monday of the week of the first punch lasting at least
-  MIN_SESSION (a minute), or this week's for someone with none: a person starts clocking in this Odoo
-  some day, and a test punch of a few seconds months earlier used to turn every day in between into a
-  missed one (months of them for one person). Punches under a minute are taps and tests; the ones from
-  one to five minutes are real short breaks, so the threshold stays at a minute. The history starts
-  there too, at least MIN_WEEKS back; team.py applies the same rule (first_punches).
-- A closed punch shorter than MIN_SESSION is dropped as it is read (real_punch), here and in team.py: it
-  adds no hours and marks no day as punched. An open one is kept: it is still running.
-- LONG_HOURS is the one threshold for «too long», here and in team.py: a day whose total passes it is a punch error
-  in both views, however many sessions it took. The hour of a punch is never judged: a rule for sessions outside
-  6:30 to midnight, or ending on another day, flagged too many real ones, and a forgotten check-out is long anyway.
-  Punch errors to fix are looked for over the whole history, with no time limit (the management view's «Fichajes
-  por corregir», the page's banner).
-- The absence and session helpers take plain rows so team.py builds the same absences and sessions for
-  many employees at once from one query per model.
+- The absence and contract readers take no session state and return plain rows, so team.py reads the same
+  absences, contracts and schedules for many employees at once from one query per model.
   The shared state is not part of the payload: it changes between loads, so the server adds it fresh to every
-  response.
-- Expected hours come from Odoo: resource.calendar.attendance gives the blocks per weekday, their sum is the
-  day's target, a gap between blocks (or an explicit day_period "lunch") marks a lunch day. The page's
-  constants are only a fallback for a calendar that answers nothing.
+  response. Reading it here only clears the lunch stamp once a later punch exists.
+- Expected hours come from Odoo: resource.calendar.attendance gives the blocks per weekday (fetch_schedule).
 - Absences are hr.leave records in state "validate" plus public holidays (resource.calendar.leaves, global
-  or of the employee's calendar or of any calendar its contracts had, as in team.py: a regional holiday lives on the
-  calendar in force that day, and asking only for the current one left each of them before a change of
-  contract as a missed day). A leave shorter than a day (number_of_days < 1) keeps its hours and span so
-  the page can subtract just those hours; they used to be skipped, which left a 2 h 30 m medical leave
-  counted as hours missing.
+  or of the employee's calendar or of any calendar its contracts had, as in team.py), read by holiday_rows and
+  leave_rows.
 - Attendance reasons are optional (see client.py). Without them the payload says breaks: false and
   attendance_reason_ids is not even requested — the field only exists with the module installed.
-- Punch actions validate the real state (open attendance, its reason) and answer 409 on invalid ones; a
-  break is a check-out plus a check-in with the Descanso reason, lunch is a plain check-out that also stamps
-  the shared state. Without the Descanso reason, break and resume answer 409 and the page hides them.
+- A punch is sent as data_rules.py plans it: one check-out or check-in at a time, in order, then the shared state
+  is stamped and every cached payload dropped.
+- The cache holds payloads of several kinds (the personal one, the team's, a year's, the fixes), so it stores them as
+  object and returns each as the type its builder made: a key says which kind it holds (the session, then the
+  employee, the period, "year" or "fixes"), and cached() and rebuilt() are only called with a key and builder of one
+  kind. Each read of Odoo declares the rows it asked for (data_rules.py has them), and a reply that is only
+  acknowledged is a Mapping[str, object].
 """
 
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional, cast
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import date, datetime
+from typing import TypeVar, cast
 
+from odoo_wrapper import data_rules as rules
 from odoo_wrapper import state
-from odoo_wrapper.client import OdooClient, OdooError, Row, SessionExpired, degrade
+from odoo_wrapper.client import OdooClient, OdooError, SessionExpired, degrade
 
-MIN_WEEKS = 12
-MIN_SESSION = 1 / 60
-LONG_HOURS = 12
+Payload = TypeVar("Payload")
+Key = tuple[object, ...]
+Load = tuple[Key, Callable[[], Payload]]
+
 DATA_TTL = 45
 VIEW_TTL = 300
-SATURDAY = 5
 _data_lock = threading.Lock()
-_data_cache: dict[Any, tuple[float, Row]] = {}
-Punch = Callable[[OdooClient, Optional[Row], Optional[int], Optional[Row], bool], str]
+_data_cache: dict[Key, tuple[float, object]] = {}
 
 
-def local(ts: str) -> datetime:
-    """Turn one of Odoo's UTC stamps into a time in the machine's zone."""
-    return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).astimezone()
-
-
-def week_monday(dt: datetime) -> datetime:
-    """Return the midnight that starts a time's week."""
-    return (dt - timedelta(days=dt.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-
-
-def schedule_from(blocks: Iterable[Row]) -> Row | None:
-    """Return a calendar's hours and lunch start for each weekday, from its attendance blocks."""
-    hours = [0.0] * 7
-    lunch_from: list[float | None] = [None] * 7
-    spans: list[list[tuple[float, float]]] = [[] for _ in range(7)]
-    for block in blocks:
-        try:
-            day = int(block["dayofweek"])
-            start, end = float(block["hour_from"]), float(block["hour_to"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if day not in range(7) or end <= start:
-            continue
-        if block.get("day_period") == "lunch":
-            lunch_from[day] = start
-            continue
-        hours[day] += end - start
-        spans[day].append((start, end))
-    for day, day_spans in enumerate(spans):
-        day_spans.sort()
-        gaps = [earlier[1] for earlier, later in zip(day_spans, day_spans[1:]) if later[0] > earlier[1]]
-        if lunch_from[day] is None and gaps:
-            lunch_from[day] = gaps[0]
-    if not any(hours):
-        return None
-    return {"hours": [round(h, 2) for h in hours], "lunch_from": lunch_from}
-
-
-def fetch_schedule(client: OdooClient, calendar_id: int | None) -> Row | None:
+def fetch_schedule(client: OdooClient, calendar_id: int | None) -> rules.Schedule | None:
     """Return a calendar's schedule, or None without a calendar."""
     if not calendar_id:
         return None
-    blocks = client.call_kw(
+    blocks: list[rules.BlockRow] = client.call_kw(
         "resource.calendar.attendance",
         "search_read",
         [[("calendar_id", "=", calendar_id)]],
         {"fields": ["dayofweek", "hour_from", "hour_to", "day_period"]},
     )
-    return schedule_from(blocks)
+    return rules.schedule_from(blocks)
 
 
-def holiday_rows(client: OdooClient, since: str, until: str | None, calendar_ids: Iterable[int | None]) -> list[Row]:
+def holiday_rows(
+    client: OdooClient, since: str, until: str | None, calendar_ids: Iterable[int | None]
+) -> list[rules.HolidayRow]:
     """Return the public holidays from since to until, of these calendars or of none in particular."""
-    rows: list[Row] = client.call_kw(
+    rows: list[rules.HolidayRow] = client.call_kw(
         "resource.calendar.leaves",
         "search_read",
         [
@@ -142,9 +91,11 @@ def holiday_rows(client: OdooClient, since: str, until: str | None, calendar_ids
     return rows
 
 
-def leave_rows(client: OdooClient, employee_ids: Sequence[int | None], since: str, until: str | None) -> list[Row]:
+def leave_rows(
+    client: OdooClient, employee_ids: Sequence[int | None], since: str, until: str | None
+) -> list[rules.LeaveRow]:
     """Return the approved leaves of these employees from since to until."""
-    rows: list[Row] = client.call_kw(
+    rows: list[rules.LeaveRow] = client.call_kw(
         "hr.leave",
         "search_read",
         [
@@ -171,81 +122,43 @@ def leave_rows(client: OdooClient, employee_ids: Sequence[int | None], since: st
     return rows
 
 
-def absences_from(holidays: Iterable[Row], leaves: Iterable[Row]) -> list[Row]:
-    """Return the weekdays off, whole or by hours, from holidays and leaves; a holiday wins over a leave."""
-    absences: Row = {}
-    for h in holidays:
-        d0, d1 = local(h["date_from"]).date(), local(h["date_to"]).date()
-        for i in range((d1 - d0).days + 1):
-            d = d0 + timedelta(days=i)
-            if d.weekday() < SATURDAY:
-                absences[d.isoformat()] = h["name"]
-    partial: list[Row] = []
-    for leave in leaves:
-        d0 = date.fromisoformat(leave["request_date_from"])
-        d1 = date.fromisoformat(leave["request_date_to"])
-        days = [d0 + timedelta(days=i) for i in range((d1 - d0).days + 1)]
-        days = [d for d in days if d.weekday() < SATURDAY and d.isoformat() not in absences]
-        if not days:
-            continue
-        name = leave["holiday_status_id"][1] if leave["holiday_status_id"] else "Ausencia"
-        if leave["number_of_days"] < 1:
-            partial.append(
-                {
-                    "date": days[0].isoformat(),
-                    "type": name,
-                    "hours": leave["number_of_hours"],
-                    "from": local(leave["date_from"]).isoformat(),
-                    "to": local(leave["date_to"]).isoformat(),
-                }
-            )
-            continue
-        for d in days:
-            absences[d.isoformat()] = name
-    return [{"date": k, "type": v} for k, v in sorted(absences.items())] + partial
-
-
-def fetch_absences(client: OdooClient, since: str, calendar_ids: Iterable[int | None]) -> list[Row]:
+def fetch_absences(client: OdooClient, since: str, calendar_ids: Iterable[int | None]) -> list[rules.Absence]:
     """Return the employee's absences since a day."""
     holidays = holiday_rows(client, since, None, calendar_ids)
-    return absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
+    return rules.absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
 
 
-def real_punch(record: Row) -> bool:
-    """Tell whether an attendance counts: open, or at least MIN_SESSION long."""
-    return not record["check_out"] or record["worked_hours"] >= MIN_SESSION
-
-
-def session_of(record: Row, reason_by_id: dict[int, Row]) -> Row:
-    """Return an attendance as the page's session: local times, hours and whether it is a break."""
-    reason = next((reason_by_id[i] for i in record.get("attendance_reason_ids", []) if i in reason_by_id), None)
-    return {
-        "id": record.get("id"),
-        "in": local(record["check_in"]).isoformat(),
-        "out": local(record["check_out"]).isoformat() if record["check_out"] else None,
-        "hours": record["worked_hours"] if record["check_out"] else None,
-        "rest": bool(reason and reason["is_rest"]),
-        "reason": reason["name"] if reason else None,
-        "reason_id": reason["id"] if reason else None,
-    }
-
-
-def cached(key: tuple[Any, ...], fresh: bool, build: Callable[[], Row], ttl: float = DATA_TTL) -> Row:
+def cached(key: Key, build: Callable[[], Payload], ttl: float = DATA_TTL) -> Payload:
     """Return what build made for a key within ttl seconds, or build it again."""
     with _data_lock:
         hit = _data_cache.get(key)
-        if not fresh and hit and time.monotonic() - hit[0] < ttl:
-            return hit[1]
+        if hit and time.monotonic() - hit[0] < ttl:
+            return cast("Payload", hit[1])
+    return rebuilt(key, build)
+
+
+def rebuilt(key: Key, build: Callable[[], Payload]) -> Payload:
+    """Build a key's payload again whatever the cache holds, keep it and return it."""
     payload = build()
     with _data_lock:
         _data_cache[key] = (time.monotonic(), payload)
     return payload
 
 
-def fetch_data(client: OdooClient, fresh: bool, employee: int | None = None) -> Row:
+def data_load(client: OdooClient, employee: int | None) -> Load[rules.PersonalPayload]:
+    """Return the cache key of the personal page's payload and the function that builds it."""
+    return (client.session_id, employee), lambda: build_data(client, employee)
+
+
+def fetch_data(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
     """Return the personal page's payload, the session's own or an employee's, cached."""
-    ttl = VIEW_TTL if employee else DATA_TTL
-    return cached((client.session_id, employee), fresh, lambda: build_data(client, employee), ttl)
+    key, build = data_load(client, employee)
+    return cached(key, build, VIEW_TTL if employee else DATA_TTL)
+
+
+def reload_data(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
+    """Return the personal page's payload read again from Odoo, replacing what was cached."""
+    return rebuilt(*data_load(client, employee))
 
 
 def drop_data_cache(session_id: str | None = None) -> None:
@@ -255,10 +168,12 @@ def drop_data_cache(session_id: str | None = None) -> None:
             del _data_cache[key]
 
 
-def fetch_contracts(client: OdooClient, ids: Sequence[int | None], monday: date, end: date) -> dict[Any, list[Row]]:
+def fetch_contracts(
+    client: OdooClient, ids: Sequence[int | None], monday: date, end: date
+) -> rules.ContractsByEmployee:
     """Return the contracts in force between monday and end, by employee, or none if they cannot be read."""
     try:
-        rows = client.call_kw(
+        rows: list[rules.ContractRow] = client.call_kw(
             "hr.contract",
             "search_read",
             [
@@ -281,60 +196,21 @@ def fetch_contracts(client: OdooClient, ids: Sequence[int | None], monday: date,
     except OdooError as error:
         degrade("Odoo no da los contratos: las horas previstas siguen el horario actual de cada empleado", error)
         return {}
-    contracts: dict[Any, list[Row]] = {}
+    contracts: rules.ContractsByEmployee = {}
     for c in rows:
         contracts.setdefault(c["employee_id"][0], []).append(c)
     return contracts
 
 
-def calendar_on(contracts: Sequence[Row], fallback: int | None) -> Callable[[str], Any]:
-    """Return a function that gives the calendar in force on a day: its contract's, else the fallback."""
-    if not contracts:
-        return lambda _iso: fallback
-
-    def pick(iso: str) -> Any:
-        c = next((c for c in contracts if c["date_start"] <= iso and (not c["date_end"] or iso <= c["date_end"])), None)
-        return c and c["resource_calendar_id"] and c["resource_calendar_id"][0]
-
-    return pick
-
-
-def contract_calendars(contracts: Iterable[Row]) -> set[int]:
-    """Return the calendars the contracts name."""
-    return {c["resource_calendar_id"][0] for c in contracts if c["resource_calendar_id"]}
-
-
-def contract_hours(
-    client: OdooClient, schedule: Row | None, contracts: Sequence[Row], monday0: date, end: date
-) -> dict[str, float]:
-    """Return the days whose expected hours a contract's calendar sets apart from the employee's own."""
-    pick = calendar_on(contracts, client.calendar_id)
-    others = contract_calendars(contracts) - {client.calendar_id}
-    schedules: dict[int | None, Row | None] = {cid: fetch_schedule(client, cid) for cid in sorted(others)}
-    schedules[client.calendar_id] = schedule
-
-    def hours_on(day: date, chosen: Row | None) -> float:
-        return chosen["hours"][day.weekday()] if chosen else 0
-
-    overrides: dict[str, float] = {}
-    for i in range((end - monday0).days):
-        day = monday0 + timedelta(days=i)
-        hours = hours_on(day, schedules.get(pick(day.isoformat())))
-        if hours != hours_on(day, schedule):
-            overrides[day.isoformat()] = hours
-    return overrides
-
-
-def build_data(client: OdooClient, employee: int | None = None) -> Row:
+def build_data(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
     """Read from Odoo everything the personal page shows: sessions, schedule, absences and contracts."""
     if employee:
         client.load_other(employee)
     else:
         client.load_employee()
-    now_local = datetime.now().astimezone()
-    cur_monday = week_monday(now_local)
-    reason_by_id = {r["id"]: r for r in client.attendance_reasons()}
-    records = client.call_kw(
+    now = datetime.now().astimezone()
+    reason_by_id: dict[int, rules.Reason] = {r["id"]: r for r in client.attendance_reasons()}
+    records: list[rules.AttendanceRow] = client.call_kw(
         "hr.attendance",
         "search_read",
         [[("employee_id", "=", client.employee_id)]],
@@ -343,101 +219,43 @@ def build_data(client: OdooClient, employee: int | None = None) -> Row:
             "order": "check_in asc",
         },
     )
-    real = [r for r in records if r["worked_hours"] >= MIN_SESSION]
-    since = week_monday(local(real[0]["check_in"])) if real else cur_monday
-    monday0 = min(since, cur_monday - timedelta(weeks=MIN_WEEKS - 1))
-    end = (cur_monday + timedelta(weeks=1)).date()
-    contracts = fetch_contracts(client, [client.employee_id], monday0.date(), end).get(client.employee_id, [])
-    calendars = sorted(cast("set[int]", (contract_calendars(contracts) | {client.calendar_id}) - {None}))
+    span = rules.history_span(records, now)
+    monday0, end = span[2].date(), span[3]
+    contracts = fetch_contracts(client, [client.employee_id], monday0, end).get(client.employee_id, [])
+    calendars = sorted(rules.contract_calendars(contracts) | ({client.calendar_id} if client.calendar_id else set()))
 
     schedule = fetch_schedule(client, client.calendar_id)
-    lunch = not employee and state.read_state(client.uid)["lunch"]
-    if lunch and any(local(r["check_in"]) > datetime.fromisoformat(lunch) for r in records):
+    lunch = None if employee else state.read_state(client.uid)["lunch"]
+    if lunch and rules.punched_after(records, lunch):
         state.write_state(client.uid, lunch=None)
 
-    return {
+    head: rules.PersonalHead = {
         "employee": client.employee_name,
         "employee_id": client.employee_id,
         "breaks": client.sign_in_reasons()[1] is not None,
         "team": client.sees_others(),
-        "generated_at": now_local.isoformat(),
-        "weeks": (cur_monday.date() - monday0.date()).days // 7 + 1,
-        "since": since.date().isoformat(),
-        "sessions": [session_of(r, reason_by_id) for r in records if real_punch(r)],
-        "absences": fetch_absences(client, monday0.date().isoformat(), calendars),
-        "schedule": schedule,
-        "long_hours": LONG_HOURS,
-        "contract_hours": contract_hours(client, schedule, contracts, monday0.date(), end),
     }
+    absences = fetch_absences(client, monday0.isoformat(), calendars)
+    schedules: dict[int | None, rules.Schedule | None] = {
+        cid: fetch_schedule(client, cid) for cid in sorted(rules.contract_calendars(contracts) - {client.calendar_id})
+    }
+    schedules[client.calendar_id] = schedule
+    overrides = rules.contract_hours(schedules, client.calendar_id, contracts, monday0, end)
+    return rules.personal_payload(head, now, span, (records, reason_by_id, absences, schedule, overrides))
 
 
-def punch_in(client: OdooClient, open_att: Row | None, normal_id: int | None, _rest: Row | None, _on_rest: bool) -> str:
-    """Check in as normal work, or say why not."""
-    if open_att:
-        return "Ya hay un fichaje abierto"
-    client.punch(normal_id)
-    return ""
-
-
-def punch_break(
-    client: OdooClient, open_att: Row | None, _normal_id: int | None, rest: Row | None, on_rest: bool
-) -> str:
-    """Check out and back in as a break, or say why not."""
-    if not rest:
-        return "Este Odoo no tiene el motivo Descanso"
-    if not open_att:
-        return "No hay fichaje abierto"
-    if on_rest:
-        return "Ya estás en descanso"
-    client.punch()
-    client.punch(rest["id"])
-    return ""
-
-
-def punch_resume(
-    client: OdooClient, open_att: Row | None, normal_id: int | None, _rest: Row | None, on_rest: bool
-) -> str:
-    """End a break: check out and back in as normal work, or say why not."""
-    if not open_att or not on_rest:
-        return "No hay un descanso abierto"
-    client.punch()
-    client.punch(normal_id)
-    return ""
-
-
-def punch_out(
-    client: OdooClient, open_att: Row | None, _normal_id: int | None, _rest: Row | None, _on_rest: bool
-) -> str:
-    """Check out, or say why not."""
-    if not open_att:
-        return "No hay fichaje abierto"
-    client.punch()
-    return ""
-
-
-PUNCHES: dict[str, Punch] = {
-    "checkin": punch_in,
-    "checkout": punch_out,
-    "break": punch_break,
-    "resume": punch_resume,
-    "lunch": punch_out,
-}
-
-
-def punch(client: OdooClient, action: Any) -> tuple[int, Row]:
+def punch(client: OdooClient, action: object) -> tuple[int, Mapping[str, object]]:
     """Clock as the page's button asks, stamp the shared state and answer (status, payload)."""
-    step = PUNCHES.get(action) if isinstance(action, str) else None
+    step = rules.punch_step(action)
     if step is None:
         return 400, {"error": f"Acción desconocida: {action}"}
     open_att = client.open_attendance()
     normal, rest = client.sign_in_reasons()
-    refused = step(client, open_att, normal["id"] if normal else None, rest, client.open_is_rest(open_att, rest))
+    refused, reasons = step(open_att, normal["id"] if normal else None, rest, client.open_is_rest(open_att, rest))
     if refused:
         return 409, {"error": refused}
-    stamp = datetime.now().astimezone().isoformat()
-    if action == "lunch":
-        state.write_state(client.uid, lunch=stamp, lunch_done=True, punched_at=stamp)
-    else:
-        state.write_state(client.uid, lunch=None, punched_at=stamp)
+    for reason in reasons:
+        client.punch(reason)
+    state.write_state(client.uid, **rules.punch_state(action, datetime.now().astimezone().isoformat()))
     drop_data_cache()
     return 200, {"ok": True}

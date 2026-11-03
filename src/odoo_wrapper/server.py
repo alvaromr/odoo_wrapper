@@ -94,6 +94,13 @@ API
   /api/team/discord/token {token} keeps the bot's token once Discord accepts it, the same as `odoo discord`, and
   answers the bot's name, never the token: no request reads it back. POST /api/team/discord/test sends the
   session's own user a test message.
+
+Types
+- A POST body is declared a JSON object (Body) as it is parsed, and its values stay objects: each route checks
+  the ones it reads, or hands them on to a function that does (corrections_rules.py says which). A body that is
+  JSON but not an object is not refused; it fails on its first key and ends as the 500 of any other crash. The
+  payloads the routes send are data.py's and team.py's TypedDicts, added to with dict(payload, key=...); an answer
+  that only acknowledges is a Mapping[str, object] (Reply).
 """
 
 from __future__ import annotations
@@ -112,10 +119,10 @@ from datetime import date, datetime
 from email.message import Message
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
-from typing import Any, Callable
+from typing import Callable, TypedDict, TypeVar
 from urllib.parse import parse_qsl
 
-from odoo_wrapper import corrections, data, discord, lan, process, state, team, updates
+from odoo_wrapper import corrections, data, discord, lan, process, state, team, team_rules, updates
 from odoo_wrapper.client import (
     CONFIG_KEYS,
     AccessDenied,
@@ -169,6 +176,17 @@ _rights: dict[str, dict[str, tuple[float, bool]]] = {}
 _pairings: dict[str, tuple[str, float]] = {}
 _login_fails: dict[str, tuple[int, float]] = {}
 _login_lock = threading.Lock()
+Argument = TypeVar("Argument")
+Body = dict[str, object]
+Reply = tuple[int, Mapping[str, object]]
+
+
+class Pairing(TypedDict):
+    """A pairing link: where to open it, its QR and the seconds it lasts."""
+
+    url: str
+    qr: str
+    expires_in: int
 
 
 def new_client(session_id: str) -> OdooClient:
@@ -245,7 +263,7 @@ def login_succeeded(ip: str) -> None:
         _login_fails.pop(ip, None)
 
 
-def new_pairing(session_id: str, base_url: str) -> dict[str, Any]:
+def new_pairing(session_id: str, base_url: str) -> Pairing:
     """Return a one-use link that gives a phone this session for PAIR_TTL seconds, with its QR."""
     now = time.monotonic()
     for token in [token for token, (_, until) in list(_pairings.items()) if until < now]:
@@ -256,19 +274,19 @@ def new_pairing(session_id: str, base_url: str) -> dict[str, Any]:
     return {"url": link, "qr": lan.qr_or_empty(link), "expires_in": PAIR_TTL}
 
 
-def spend_pairing(token: Any) -> str:
+def spend_pairing(token: str | None) -> str:
     """Use up a pairing link and return its session, or nothing when it is unknown or late."""
-    pairing = _pairings.pop(token, None)
+    pairing = _pairings.pop(token, None) if token else None
     return pairing[0] if pairing and pairing[1] >= time.monotonic() else ""
 
 
-def team_period(params: dict[str, str]) -> tuple[int | None, tuple[Any, ...]]:
+def team_period(params: dict[str, str]) -> tuple[int | None, team_rules.Span]:
     """Return the year asked for, if any, and the span of the month or week; raise ValueError on a bad one."""
     year = int(params["year"]) if params.get("year") else None
     if params.get("month"):
-        return year, team.month_span(date.fromisoformat(f"{params['month']}-01"))
+        return year, team_rules.month_span(date.fromisoformat(f"{params['month']}-01"))
     week = date.fromisoformat(params["week"]) if params.get("week") else datetime.now().astimezone().date()
-    return year, (team.monday_of(week),)
+    return year, (team_rules.monday_of(week),)
 
 
 def revoke_pairings(session_id: str) -> None:
@@ -280,20 +298,20 @@ def revoke_pairings(session_id: str) -> None:
 class Handler(BaseHTTPRequestHandler):
     """One request: the same-site guard, then a page, a file or a route of the API."""
 
-    def log_message(self, *args: Any) -> None:
+    def log_message(self, *args: object) -> None:
         """Keep the server's request log out of the dashboard's."""
 
     def _send(
         self,
         status: int,
-        body: dict[str, Any] | bytes,
+        body: Mapping[str, object] | bytes,
         ctype: str = "application/json; charset=utf-8",
         cookies: Sequence[tuple[str, str]] = (),
         location: str | None = None,
     ) -> None:
-        payload: Any = body
-        if not isinstance(body, bytes):
-            payload = json.dumps(body, ensure_ascii=False).encode()  # pragma: no mutate - None is as false as False
+        # pragma: no mutate start - None is as false as False
+        payload = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
+        # pragma: no mutate end
         self.send_response(status)
         if location:
             self.send_header("Location", location)
@@ -372,7 +390,9 @@ class Handler(BaseHTTPRequestHandler):
             return os.path.join(SCRIPTS, name[3:]), "text/javascript; charset=utf-8"
         return FILES.get(self.path)
 
-    def _route(self, routes: Mapping[str, tuple[Callable[[Handler, Any], None], bool]], argument: Any) -> None:
+    def _route(
+        self, routes: Mapping[str, tuple[Callable[[Handler, Argument], None], bool]], argument: Argument
+    ) -> None:
         route = routes.get(self.path)
         if route is None:
             self._send(404, {"error": "not found"})
@@ -401,7 +421,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(*discord.own_request(new_client(self.session), dict(parse_qsl(query)).get("date")))
 
     def _update_check(self, query: str) -> None:
-        answer = updates.check("fresh" in dict(parse_qsl(query, keep_blank_values=True)))
+        forced = "fresh" in dict(parse_qsl(query, keep_blank_values=True))
+        answer = updates.recheck() if forced else updates.check()
         self._send(200, dict(answer, local=self._local(), how=updates.how()))
 
     def _data(self, query: str) -> None:
@@ -410,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
             self._someone_data(params)
             return
         client = new_client(self.session)
-        payload = data.fetch_data(client, fresh="fresh" in params)
+        payload = (data.reload_data if "fresh" in params else data.fetch_data)(client)
         own = {
             "phone": lan.phone_access(),
             "state": state.read_state(client.uid),
@@ -427,7 +448,7 @@ class Handler(BaseHTTPRequestHandler):
         if not sees_others(client):
             self._send(403, {"error": NOT_TEAM})
             return
-        payload = data.fetch_data(client, fresh="fresh" in params, employee=int(employee))
+        payload = (data.reload_data if "fresh" in params else data.fetch_data)(client, int(employee))
         someone = {
             "phone": None,
             "state": state.OTHER_STATE,
@@ -449,14 +470,15 @@ class Handler(BaseHTTPRequestHandler):
         if not sees_others(client):
             self._send(403, {"error": NOT_TEAM})
         elif year:
-            self._send(200, dict(team.fetch_year(client, year, fresh), can_message=discord.configured()))
+            summary = (team.reload_year if fresh else team.fetch_year)(client, year)
+            self._send(200, dict(summary, can_message=discord.configured()))
         elif "fixes" in params:
-            self._send(200, team.fetch_fixes(client, fresh))
+            self._send(200, (team.reload_fixes if fresh else team.fetch_fixes)(client))
         else:
-            payload = team.fetch_team(client, span, fresh)
+            payload = (team.reload_team if fresh else team.fetch_team)(client, span)
             self._send(200, dict(payload, can_edit=edits_punches(client), can_message=discord.configured()))
 
-    def _login(self, body: dict[str, Any]) -> None:
+    def _login(self, body: Body) -> None:
         if not self._local():
             self._send(403, {"error": "En el móvil no se inicia sesión: empareja desde el ordenador"})
             return
@@ -493,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
             cookies.append((DEVICE_COOKIE, client.device))
         self._send(200, {"ok": True}, cookies=cookies)
 
-    def _logout(self, _body: dict[str, Any]) -> None:
+    def _logout(self, _body: Body) -> None:
         session_id = session_cookie(self.headers)
         if session_id and read_config():
             with contextlib.suppress(SessionExpired):
@@ -508,29 +530,33 @@ class Handler(BaseHTTPRequestHandler):
         declared = self.headers.get("Content-Length")  # pragma: no mutate - header names ignore case
         length = int(declared or 0)
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body: Body = json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
             self._send(400, {"error": "Cuerpo de la petición ilegible"})
             return
         self._route(POST_ROUTES, body)
 
-    def _save_state(self, body: dict[str, Any]) -> None:
+    def _save_state(self, body: Body) -> None:
         uid = _sessions[self.session]
-        changes: dict[str, Any] = {}
+        minutes: dict[str, int] = {}
         for key, top in state.MINUTE_LIMITS.items():
             if key in body:
-                if state.valid_minutes(body[key], None, top) is None:
+                value = state.valid_minutes(body[key], None, top)
+                if value is None:
                     self._send(400, {"error": f"{key} fuera de rango: {body[key]}"})
                     return
-                changes[key] = body[key]
-        if not state.window_ok({**state.read_state(uid), **changes}):
+                minutes[key] = value
+        current = state.read_state(uid)
+        window = {key: minutes.get(key, current[key]) for key in state.SETTINGS}
+        if not state.window_ok(window["lunch_button_from"], window["lunch_button_to"]):
             self._send(400, {"error": "El botón de comida tiene que aparecer antes de la hora en que desaparece"})
             return
+        changes: dict[str, object] = dict(minutes)
         if "muted" in body:
             changes["muted"] = bool(body["muted"])
         self._send(200, state.write_state(uid, **changes))
 
-    def _pairing(self, body: dict[str, Any]) -> None:
+    def _pairing(self, body: Body) -> None:
         phone = lan.phone_access()
         if not self._local():
             self._send(403, {"error": "Solo se empareja desde el propio ordenador"})
@@ -542,16 +568,16 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
 
-    def _punch(self, body: dict[str, Any]) -> None:
+    def _punch(self, body: Body) -> None:
         self._send(*data.punch(new_client(self.session), body.get("action")))
 
-    def _update(self, _body: dict[str, Any]) -> None:
+    def _update(self, _body: Body) -> None:
         if not self._local():
             self._send(403, {"error": "Solo se actualiza desde el propio ordenador"})
         else:
             self._send(*updates.install(process.relaunch_args(), PORT))
 
-    def _for_team(self, body: dict[str, Any]) -> None:
+    def _for_team(self, body: Body) -> None:
         act, editor = TEAM_ACTIONS[self.path]
         client = new_client(self.session)
         if not sees_others(client):
@@ -562,7 +588,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*act(client, body))
 
 
-TEAM_ACTIONS: dict[str, tuple[Callable[[OdooClient, dict[str, Any]], tuple[int, dict[str, Any]]], bool]] = {
+TEAM_ACTIONS: dict[str, tuple[Callable[[OdooClient, Body], Reply], bool]] = {
     "/api/team/discord": (lambda client, body: discord.message_employee(client, body), False),
     "/api/team/discord/token": (lambda _client, body: discord.set_token(body.get("token")), False),
     "/api/team/discord/test": (lambda client, _body: discord.send_test(client), False),

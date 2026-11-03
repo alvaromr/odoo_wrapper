@@ -2,6 +2,9 @@
 
 - The dependency rule: client.py imports nothing from the package, so the CLI and the dashboard depend on it and
   never the other way round (AGENTS.md § Code style).
+- The rules stay pure: the modules in PURE import nothing outside PURE_IMPORTS and each other, so no Odoo client,
+  urllib, socket, subprocess, file or thread can reach them, and they never read the clock (CLOCK_READS), print or
+  open anything: the edge modules (data.py, team.py, corrections.py) read the rows and send the writes.
 - No secret in any file under the repo, ignored ones included (AGENTS.md, rule 3): private keys and the token
   formats this project handles or could leak. The working copies of the mutation tools are left out.
 - No source file past MAX_LINES: past that size a module holds more than one idea and wants splitting.
@@ -25,6 +28,29 @@ SECRETS = {
     "Google refresh token": re.compile(r"\b1//0[\w-]{20,}"),
 }
 MAX_LINES = 1000
+PURE = ("data_rules", "team_rules", "corrections_rules")
+PURE_IMPORTS = {"__future__", "collections.abc", "datetime", "html", "re", "typing"}
+CLOCK_READS = {"now", "today", "utcnow"}
+IO_CALLS = {"open", "print", "input"}
+
+
+def impurities(source):
+    tree = ast.parse(source)
+    allowed = PURE_IMPORTS | {f"odoo_wrapper.{name}" for name in PURE}
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found += [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module == "odoo_wrapper":
+            found += [f"odoo_wrapper.{alias.name}" for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            found.append(node.module)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr in CLOCK_READS:
+                found.append(f"clock read: {node.func.attr}()")
+            elif isinstance(node.func, ast.Name) and node.func.id in IO_CALLS:
+                found.append(f"I/O call: {node.func.id}()")
+    return sorted({name for name in found if name not in allowed})
 
 
 def sources():
@@ -53,6 +79,28 @@ class ProjectTest(unittest.TestCase):
         imported += [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
         self.assertTrue(imported)
         self.assertEqual([name for name in imported if name.startswith((".", "odoo_wrapper"))], [])
+
+    def test_the_rules_modules_import_nothing_that_does_io_and_never_read_the_clock(self):
+        for name in PURE:
+            with open(os.path.join(PACKAGE, f"{name}.py"), encoding="utf-8") as f:
+                self.assertEqual(impurities(f.read()), [], name)
+
+    def test_the_purity_guard_catches_what_it_names(self):
+        samples = [
+            ("odoo_wrapper.client", "from odoo_wrapper.client import OdooClient"),
+            ("odoo_wrapper.client", "from odoo_wrapper import client"),
+            ("odoo_wrapper.data", "from odoo_wrapper import data"),
+            ("urllib.request", "import urllib.request"),
+            ("socket", "import socket"),
+            ("subprocess", "import subprocess"),
+            ("clock read: now()", "datetime.now()"),
+            ("clock read: today()", "date.today()"),
+            ("I/O call: open()", "open('x')"),
+            ("I/O call: print()", "print('x')"),
+        ]
+        for expected, source in samples:
+            self.assertEqual(impurities(source), [expected], source)
+        self.assertEqual(impurities("from odoo_wrapper import data_rules\nimport re\nnow = 1"), [])
 
     def test_no_file_holds_a_secret(self):
         found = []

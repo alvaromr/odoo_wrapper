@@ -14,8 +14,9 @@ runs the `gws` CLI).
 bin/odoo             clock in / status / history
 bin/odoo-dashboard   web dashboard at http://localhost:8931/
 src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.py (entry point) and the
-                     server modules it wires: server.py, data.py, team.py, state.py, lan.py, process.py,
-                     autostart.py, updates.py; qr.py;
+                     server modules it wires: server.py, data.py, team.py, corrections.py, state.py, lan.py,
+                     process.py, autostart.py, updates.py; the rules of the first three, pure, in data_rules.py,
+                     team_rules.py and corrections_rules.py; qr.py;
                      sheets.py (Google Sheets for `odoo notices`); discord.py (the Discord bot's notices);
                      templates/ (pages, style.css and the page's scripts in js/)
 .ai/skills/          the agent skills odoo-attendance and odoo-notices, as the Claude Code plugin `odoo`

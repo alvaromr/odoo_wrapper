@@ -14,7 +14,7 @@ from helpers import NORMAL, REST, ScriptedClient, logged, temp_state
 from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
 from odoo_wrapper import discord as dc
-from odoo_wrapper import team as tm
+from odoo_wrapper import team_rules as tr
 
 RECIPIENT, SENDER = 7, 9
 CALENDAR = [{"calendar_id": [4, "Std"], "dayofweek": "0", "hour_from": 8.0, "hour_to": 9.0, "day_period": "morning"}]
@@ -463,7 +463,7 @@ class ProposalTest(unittest.TestCase):
         self.assertEqual((quiet["date"], quiet["flags"]), ("2026-10-21", []))
         punches = [q for q in odoo.queries if q[0] == "hr.attendance" and q[1] == "search_read"]
         self.assertEqual(len(punches), 1)
-        self.assertEqual(punches[0][2][0][1], ("check_in", ">=", tm.odoo_time(date(2026, 10, 19))))
+        self.assertEqual(punches[0][2][0][1], ("check_in", ">=", tr.odoo_time(date(2026, 10, 19))))
         self.assertIsNone(dc.notice_day(odoo, 8, "2026-10-19"))
         for bogus in (None, "ayer", 5):
             self.assertIsNone(dc.notice_day(odoo, RECIPIENT, bogus))

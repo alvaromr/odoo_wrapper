@@ -1,80 +1,67 @@
 """The only writes to Odoo besides punching: the day dialog's corrections, for a session that may make them.
 
+The rules (what a body asks for, when a correction warns) are corrections_rules.py's, pure over plain values; this
+module is the edge that sends what they decide.
+
 - save_attendance changes a punch's check-in and check-out, or creates one, delete_attendance removes one for
   good (unlink: Odoo keeps nothing of it, so it cannot be undone), and approve_request approves a change request
-  as the session's user (action_approve, which Odoo allows only to a pending approver, hence team.py's
+  as the session's user (action_approve, which Odoo allows only to a pending approver, hence team_rules.py's
   can_approve). Odoo validates them all (overlaps, rights) and its refusal comes back as a 409 with its words.
   Every write drops the cached payloads.
-- A punch's reason (Normal, Descanso…) is changed only when the body names one: it then replaces whatever
-  reasons the punch had (REPLACE, the many2many command), as the page shows one reason per punch and every
-  punch in this Odoo carries one or none. Without it the field is not sent at all: it only exists with the
-  module installed (client.py), and which reasons there are to choose is the payload's business (team.py).
-- Shortening a punch that ended on a later day may lose that day's check-in: someone who forgot to check
-  out and did not punch again right away left their next morning's check-in only as this punch's
-  check-out. When no attendance of theirs starts within LOST_ENTRY_MINUTES of the old check-out, the
-  answer carries it as lost_entry and the page says so; nothing is created on its own (about one long
-  punch in five was like that).
+- Shortening a punch that ended on a later day may lose that day's check-in: lost_entry asks Odoo whether any
+  attendance of theirs starts in the span corrections_rules.lost_window gives, and answers the old check-out,
+  local, when none does.
+- A request's body and a record id are Any here for the reason corrections_rules.py gives: int() and
+  fromisoformat() are what validate them. Replies that only acknowledge are a Mapping[str, object].
 - server.py lets a session here only if it reads other people's attendances and, for a punch, Odoo gives it
   write, create and unlink on hr.attendance (client.edits_punches); Odoo checks again on every call.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Literal, TypedDict
 
-from odoo_wrapper import data
+from odoo_wrapper import corrections_rules as rules
+from odoo_wrapper import data, data_rules
 from odoo_wrapper.client import OdooClient, OdooError, SessionExpired
 
-LOST_ENTRY_MINUTES = 10
-REPLACE = 6
-STAMP = "%Y-%m-%d %H:%M:%S"
 
+class AttendanceEnd(TypedDict):
+    """An hr.attendance as save_attendance reads it before changing it: whose it is and when it ended."""
 
-def odoo_stamp(iso: str) -> str:
-    """Turn an ISO time with its zone, as the page sends it, into Odoo's UTC stamp."""
-    aware = iso.replace("Z", "+00:00")  # pragma: no mutate - mutmut runs on 3.12, which reads Z itself; 3.9 needs this
-    return datetime.fromisoformat(aware).astimezone(timezone.utc).strftime(STAMP)
+    employee_id: data_rules.Many2one
+    check_out: str | Literal[False]
 
 
 def lost_entry(client: OdooClient, employee_id: int, old_out: str | None, new_out: str) -> str | None:
     """Return the old check-out, local, when shortening a punch past its day may lose that day's check-in, else None."""
-    if not old_out or data.local(old_out).date() <= data.local(new_out).date():
+    window = rules.lost_window(old_out, new_out)
+    if not window:
         return None
-    out = datetime.strptime(old_out, STAMP).replace(tzinfo=timezone.utc)  # pragma: no mutate - strftime drops the zone
-    until = (out + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime(STAMP)
     later = client.call_kw(
         "hr.attendance",
         "search_count",
-        [[("employee_id", "=", employee_id), ("check_in", ">=", old_out), ("check_in", "<=", until)]],
+        [[("employee_id", "=", employee_id), ("check_in", ">=", window[0]), ("check_in", "<=", window[1])]],
     )
-    return None if later else data.local(old_out).isoformat()
+    return None if later else data_rules.local(window[0]).isoformat()
 
 
-def save_attendance(client: OdooClient, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+def save_attendance(client: OdooClient, body: Mapping[str, Any]) -> tuple[int, Mapping[str, object]]:
     """Correct an attendance, or create one when the body has no id, and answer (status, payload)."""
+    edit = rules.attendance_edit(body)
+    if isinstance(edit, str):
+        return 400, {"error": edit}
     try:
-        check_in, check_out = odoo_stamp(body["check_in"]), odoo_stamp(body["check_out"])
-        record, employee = int(body.get("id") or 0), int(body.get("employee") or 0)
-        reason = int(body.get("reason") or 0)
-    except (KeyError, TypeError, ValueError):
-        return 400, {"error": "Entrada, salida o motivo no válidos"}
-    if check_out <= check_in:
-        return 400, {"error": "La salida tiene que ser posterior a la entrada"}
-    if not record and not employee:
-        return 400, {"error": "Falta el fichaje o la persona"}
-    punch = {
-        "check_in": check_in,
-        "check_out": check_out,
-        **({"attendance_reason_ids": [[REPLACE, 0, [reason]]]} if reason else {}),
-    }
-    try:
-        if record:
-            before = client.call_kw("hr.attendance", "read", [[record], ["employee_id", "check_out"]])[0]
-            client.call_kw("hr.attendance", "write", [[record], punch])
-            lost = lost_entry(client, before["employee_id"][0], before["check_out"], check_out)
+        if edit.record:
+            ends: list[AttendanceEnd] = client.call_kw(
+                "hr.attendance", "read", [[edit.record], ["employee_id", "check_out"]]
+            )
+            before = ends[0]
+            client.call_kw("hr.attendance", "write", [[edit.record], edit.values])
+            lost = lost_entry(client, before["employee_id"][0], before["check_out"] or None, edit.values["check_out"])
         else:
-            client.call_kw("hr.attendance", "create", [{"employee_id": employee, **punch}])
+            client.call_kw("hr.attendance", "create", [{"employee_id": edit.employee, **edit.values}])
             lost = None
     except SessionExpired:
         raise
@@ -84,7 +71,9 @@ def save_attendance(client: OdooClient, body: dict[str, Any]) -> tuple[int, dict
     return 200, {"ok": True, "lost_entry": lost}
 
 
-def run_on(client: OdooClient, model: str, method: str, record_id: Any, invalid: str) -> tuple[int, dict[str, Any]]:
+def run_on(
+    client: OdooClient, model: str, method: str, record_id: Any, invalid: str
+) -> tuple[int, Mapping[str, object]]:
     """Call a method of Odoo on one record by its id and answer (status, payload)."""
     try:
         record = int(record_id)
@@ -100,11 +89,11 @@ def run_on(client: OdooClient, model: str, method: str, record_id: Any, invalid:
     return 200, {"ok": True}
 
 
-def approve_request(client: OdooClient, request_id: Any) -> tuple[int, dict[str, Any]]:
+def approve_request(client: OdooClient, request_id: Any) -> tuple[int, Mapping[str, object]]:
     """Approve a change request as the session's user."""
     return run_on(client, "approval.request", "action_approve", request_id, "Solicitud no válida")
 
 
-def delete_attendance(client: OdooClient, record_id: Any) -> tuple[int, dict[str, Any]]:
+def delete_attendance(client: OdooClient, record_id: Any) -> tuple[int, Mapping[str, object]]:
     """Delete an attendance for good."""
     return run_on(client, "hr.attendance", "unlink", record_id, "Fichaje no válido")

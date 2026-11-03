@@ -23,13 +23,15 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import CONFIG, NORMAL, ScriptedClient, logged, temp_state, utc
+from helpers import CONFIG, NORMAL, TODAY, ScriptedClient, logged, temp_state, utc
 
 from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
+from odoo_wrapper import data_rules as dr
 from odoo_wrapper import lan
 from odoo_wrapper import server as sv
 from odoo_wrapper import state as st
+from odoo_wrapper import team_rules as tr
 from odoo_wrapper.client import AccessDenied, OdooDown, OdooError, SessionExpired, TotpRequired
 
 
@@ -443,7 +445,7 @@ class HandlerTest(unittest.TestCase):
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
             asked = {
-                "from": dt.local(pending["date_start"]).isoformat(),
+                "from": dr.local(pending["date_start"]).isoformat(),
                 "id": 552,
                 "reason": "Olvidé fichar",
                 "status": "pending",
@@ -473,7 +475,7 @@ class HandlerTest(unittest.TestCase):
         )
         self.assertEqual((odoo.sessions, odoo.loaded_others), (["sid"], []))
         roster = next(q for q in odoo.queries if q[1] == "read_group")
-        self.assertIn(("check_in", "<", sv.team.odoo_time(sv.date(2026, 10, 26))), roster[2][0])
+        self.assertIn(("check_in", "<", tr.odoo_time(sv.date(2026, 10, 26))), roster[2][0])
 
     def test_the_update_check_needs_a_session_and_forces_a_check_only_when_fresh(self):
         self.assertEqual(self.get("/api/update", cookie=None)[0], 401)
@@ -499,6 +501,7 @@ class HandlerTest(unittest.TestCase):
             clock[0] += sv.updates.FRESH_MIN
             status, _, payload = self.get("/api/update?fresh", ip="10.0.0.9")
             self.assertEqual((status, payload["latest"], payload["local"]), (200, "1.2.0", False))
+            clock[0] += sv.updates.FRESH_MIN
             self.assertEqual(self.get("/api/update")[2]["latest"], "1.2.0")
         self.assertEqual(asked, [sv.updates.LATEST] * 2)
 
@@ -648,7 +651,7 @@ class HandlerTest(unittest.TestCase):
             self.assertEqual(reads(), asked)
             self.get("/api/team?week=2026-09-24&fresh")
             self.assertGreater(reads(), asked)
-            monday = sv.team.monday_of(sv.date.today())
+            monday = tr.monday_of(TODAY)
             self.assertEqual(
                 span(self.get("/api/team")[2]),
                 tuple(day.isoformat() for day in (monday, monday, monday + timedelta(weeks=1))),

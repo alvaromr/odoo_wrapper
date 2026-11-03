@@ -5,7 +5,7 @@ Run `bin/odoo-dashboard --help` for usage. main() only wires the pieces together
 itself at its top:
 
   server.py    pages, JSON API, Odoo sessions as the login, same-site guard
-  data.py      the payload read from Odoo (sessions, schedule, absences) and its cache
+  data.py      the payload read from Odoo (sessions, schedule, absences) and its cache; its rules are data_rules.py's
   state.py     the shared state file (lunch stamp, durations, mute), per Odoo user
   lan.py       phone access: LAN address and name, self-signed certificate, QR
   process.py   log, self-restart on source or network changes, port check
@@ -111,7 +111,7 @@ def switch_autostart(choice: str | None) -> NoReturn:
         print("ERROR: --autostart necesita on u off")
         sys.exit(1)
     try:
-        autostart.set_autostart(choice == "on")
+        (autostart.turn_on if choice == "on" else autostart.turn_off)()
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"ERROR: no se pudo cambiar el arranque al iniciar sesión: {error}")
         sys.exit(1)

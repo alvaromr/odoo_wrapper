@@ -3,10 +3,10 @@
 import json
 import os
 import unittest
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
-from helpers import logged, temp_state
+from helpers import NOW, logged, temp_state
 
 from odoo_wrapper import client as c
 from odoo_wrapper import state as st
@@ -74,7 +74,7 @@ class StateTest(unittest.TestCase):
         self.assertEqual(state["break_minutes"], st.BREAK_DEFAULT)
 
     def test_lunch_stamp_and_flags_expire_with_the_day(self):
-        yesterday = datetime.now().astimezone() - timedelta(days=1)
+        yesterday = NOW - timedelta(days=1)
         with open(st.STATE_FILE, "w") as f:
             json.dump(
                 {
@@ -98,7 +98,7 @@ class StateTest(unittest.TestCase):
             self.assertIsNone(st.read_state(3)["lunch"], stamp)
 
     def test_lunch_done_outlives_the_stamp(self):
-        stamp = datetime.now().astimezone().isoformat()
+        stamp = NOW.isoformat()
         st.write_state(3, lunch=stamp, lunch_done=True)
         self.assertEqual(st.write_state(3, muted=True)["lunch"], stamp)
         st.write_state(3, lunch=None)

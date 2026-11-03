@@ -18,6 +18,10 @@
   as a session starts after it, which covers clocking back in from the CLI.
 - OTHER_STATE is what the page gets while looking at someone else's week: nothing of the viewer's own state
   applies there, and muted keeps the alarms from ringing for another person's day.
+- Types. The file is read as untrusted: every value of a record is an object until read_settings and read_state
+  have checked it, and what they return is the State TypedDict, the shape the pages get. A change handed to
+  write_state, and the value a settings field takes before valid_minutes has seen it, are objects too, since
+  the file stores whatever it is given and the next read checks it.
 """
 
 from __future__ import annotations
@@ -25,31 +29,61 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, TypeVar
+from typing import Literal, TypedDict, TypeVar
 
-from odoo_wrapper.client import STATE_DIR, Row, degrade, write_private
+from odoo_wrapper.client import STATE_DIR, degrade, write_private
 
 Default = TypeVar("Default")
+SettingKey = Literal["lunch_minutes", "break_minutes", "lunch_button_from", "lunch_button_to"]
+
+
+class Settings(TypedDict):
+    """The durations and the lunch button's window, in minutes."""
+
+    lunch_minutes: int
+    break_minutes: int
+    lunch_button_from: int
+    lunch_button_to: int
+
+
+class State(Settings):
+    """A user's state for today, as the pages get it."""
+
+    lunch: str | None
+    muted: bool
+    lunch_done: bool
+    punched_at: str | None
+
 
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 LUNCH_DEFAULT = 30
 BREAK_DEFAULT = 15
 MINUTES_MAX = 240
 LAST_MINUTE = 24 * 60 - 1
-SETTINGS = {
+SETTINGS: dict[SettingKey, int] = {
     "lunch_minutes": LUNCH_DEFAULT,
     "break_minutes": BREAK_DEFAULT,
     "lunch_button_from": 13 * 60 + 30,
     "lunch_button_to": 16 * 60,
 }
-MINUTE_LIMITS = {
+MINUTE_LIMITS: dict[SettingKey, int] = {
     "lunch_minutes": MINUTES_MAX,
     "break_minutes": MINUTES_MAX,
     "lunch_button_from": LAST_MINUTE,
     "lunch_button_to": LAST_MINUTE,
 }
-OTHER_STATE: Row = {"lunch": None, **SETTINGS, "muted": True, "lunch_done": False, "punched_at": None}
+OTHER_STATE: State = {
+    "lunch": None,
+    "lunch_minutes": SETTINGS["lunch_minutes"],
+    "break_minutes": SETTINGS["break_minutes"],
+    "lunch_button_from": SETTINGS["lunch_button_from"],
+    "lunch_button_to": SETTINGS["lunch_button_to"],
+    "muted": True,
+    "lunch_done": False,
+    "punched_at": None,
+}
 _state_lock = threading.Lock()
 
 
@@ -58,22 +92,32 @@ def today_iso() -> str:
     return datetime.now().astimezone().date().isoformat()
 
 
-def valid_minutes(value: Any, default: Default, top: int = MINUTES_MAX) -> int | Default:
+def valid_minutes(value: object, default: Default, top: int = MINUTES_MAX) -> int | Default:
     """Return value if it is a whole number of minutes from 0 to top, else default."""
-    ok = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= top
-    return value if ok else default
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= top else default
 
 
-def window_ok(settings: dict[str, int]) -> bool:
+def window_ok(appears: int, disappears: int) -> bool:
     """Tell whether the lunch button appears before it disappears."""
-    return settings["lunch_button_from"] < settings["lunch_button_to"]
+    return appears < disappears
 
 
-def read_users() -> dict[str, Row]:
+def lunch_today(stamp: object) -> str | None:
+    """Return a stored lunch stamp when it is an ISO time of today, else None."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        same_day = datetime.fromisoformat(stamp).date().isoformat() == today_iso()
+    except ValueError:
+        return None
+    return stamp if same_day else None
+
+
+def read_users() -> dict[str, Mapping[str, object]]:
     """Return every Odoo user's record in the state file, or none if it cannot be read."""
     try:
         with open(STATE_FILE) as f:
-            raw = json.load(f)
+            raw: dict[str, object] = json.load(f)
         return {uid: record for uid, record in raw.items() if isinstance(record, dict)}
     except FileNotFoundError:
         return {}
@@ -82,25 +126,31 @@ def read_users() -> dict[str, Row]:
         return {}
 
 
-def read_settings(raw: Row) -> dict[str, int]:
+def read_minutes(raw: Mapping[str, object], key: SettingKey) -> int:
+    """Return a record's setting in minutes, valid or its default."""
+    return valid_minutes(raw.get(key), SETTINGS[key], MINUTE_LIMITS[key])
+
+
+def read_settings(raw: Mapping[str, object]) -> Settings:
     """Return the durations and lunch window of a record, each valid or its default."""
-    settings = {key: valid_minutes(raw.get(key), default, MINUTE_LIMITS[key]) for key, default in SETTINGS.items()}
-    if not window_ok(settings):
-        settings.update(lunch_button_from=SETTINGS["lunch_button_from"], lunch_button_to=SETTINGS["lunch_button_to"])
+    settings: Settings = {
+        "lunch_minutes": read_minutes(raw, "lunch_minutes"),
+        "break_minutes": read_minutes(raw, "break_minutes"),
+        "lunch_button_from": read_minutes(raw, "lunch_button_from"),
+        "lunch_button_to": read_minutes(raw, "lunch_button_to"),
+    }
+    if not window_ok(settings["lunch_button_from"], settings["lunch_button_to"]):
+        settings["lunch_button_from"] = SETTINGS["lunch_button_from"]
+        settings["lunch_button_to"] = SETTINGS["lunch_button_to"]
     return settings
 
 
-def read_state(uid: int | None) -> Row:
+def read_state(uid: int | None) -> State:
     """Return a user's state for today: lunch, mute, settings and the last punch's stamp."""
     raw = read_users().get(str(uid), {})
-    started, muted, lunch_day, punched_at = (raw.get(k) for k in ("lunch", "muted", "lunch_day", "punched_at"))
-    try:
-        if started and datetime.fromisoformat(started).date().isoformat() != today_iso():
-            started = None
-    except (TypeError, ValueError):
-        started = None
+    muted, lunch_day, punched_at = (raw.get(k) for k in ("muted", "lunch_day", "punched_at"))
     return {
-        "lunch": started,
+        "lunch": lunch_today(raw.get("lunch")),
         **read_settings(raw),
         "muted": muted == today_iso(),
         "lunch_done": lunch_day == today_iso(),
@@ -108,7 +158,7 @@ def read_state(uid: int | None) -> Row:
     }
 
 
-def write_state(uid: int | None, **changes: Any) -> Row:
+def write_state(uid: int | None, **changes: object) -> State:
     """Apply changes to a user's state, write the file privately and return the new state."""
     with _state_lock:
         current, users = read_state(uid), read_users()

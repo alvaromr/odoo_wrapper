@@ -9,8 +9,8 @@
   last release asks for nothing. uv installs main, not the release, which is why every push to main is a
   release (AGENTS.md § Releasing): a push without one reaches nobody's banner.
 - GitHub allows 60 calls an hour per IP without a token, shared by every machine behind the same address,
-  so an answer is kept CHECK_TTL and a forced check («Buscar ahora» in «Ajustes») reuses one younger than
-  FRESH_MIN. Checks never overlap: a second request waits for the first one's answer.
+  so an answer is kept CHECK_TTL and a forced check (recheck(), «Buscar ahora» in «Ajustes») reuses one younger
+  than FRESH_MIN. Checks never overlap: a second request waits for the first one's answer.
 - A failed check (no network, the rate limit, no release yet, a tag that is no version) is logged and comes
   back as the payload's error, never as "up to date": the banner shows only on a real answer, and «Ajustes»
   says why the check failed.
@@ -47,6 +47,9 @@
   new dashboard, or the old one if uv failed. It logs to dashboard.log. Untested on a real Windows machine.
 - An install made by an agent inside the Claude desktop app on Windows lives in that app's private space
   (AGENTS.md, known limitations); updating from a dashboard started there installs there again.
+- Types. What GitHub, claude and the Windows helper's argument bring in as JSON is declared as the fields read
+  (Release, the plugin list, HandOver). The last answer is kept in a dict of two keys, `at` and `answer`, that are
+  both None or both set (answer_within is the only writer), so a set `at` is what makes its answer a real one.
 """
 
 from __future__ import annotations
@@ -62,10 +65,9 @@ import threading
 import time
 import urllib.request
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import TypedDict, cast
 
 from odoo_wrapper import __version__, process
-from odoo_wrapper.client import Row
 
 REPO = "alvaromr/odoo_wrapper"
 LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -87,9 +89,45 @@ WINDOWS_DETACHED = 0x00000008 | 0x00000200
 CHECK_TTL = 6 * 3600
 FRESH_MIN = 60
 log = logging.getLogger(__name__)
+
+
+class Release(TypedDict):
+    """The fields of GitHub's latest release that are read: its tag and its page."""
+
+    tag_name: str
+    html_url: str
+
+
+class Answer(TypedDict):
+    """What the update check says: whether a newer release is out, which, and why the check failed if it did."""
+
+    available: bool
+    current: str
+    latest: str | None
+    url: str | None
+    error: str
+
+
+class Last(TypedDict):
+    """The last answer of GitHub and when it was asked, both None before the first."""
+
+    at: float | None
+    answer: Answer | None
+
+
+class HandOver(TypedDict):
+    """What the Windows helper needs to run uv and start the dashboard again."""
+
+    command: Sequence[str]
+    env: Mapping[str, str]
+    port: int
+    new: Sequence[str]
+    old: Sequence[str]
+
+
 _lock = threading.Lock()
 _installing = threading.Lock()
-_last: dict[str, Any] = {"at": None, "answer": None}
+_last: Last = {"at": None, "answer": None}
 
 
 def numbers(version: str) -> tuple[int, ...]:
@@ -109,11 +147,11 @@ def latest() -> tuple[str, str]:
     )
     # pragma: no mutate end
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        release = json.load(response)
+        release: Release = json.load(response)
     return release["tag_name"].removeprefix("v"), release["html_url"]
 
 
-def ask() -> Row:
+def ask() -> Answer:
     """Ask GitHub whether a newer release is out, and answer with what the banner needs or why it failed."""
     try:
         version, url = latest()
@@ -130,13 +168,23 @@ def ask() -> Row:
     return {"available": newer, "current": __version__, "latest": version, "url": url, "error": ""}
 
 
-def check(fresh: bool = False) -> Row:
-    """Return GitHub's last answer, asking again when it is older than CHECK_TTL, or FRESH_MIN when forced."""
+def answer_within(max_age: float) -> Answer:
+    """Return GitHub's last answer, asking again when it is max_age seconds old or older."""
     with _lock:
         age = time.monotonic() - _last["at"] if _last["at"] is not None else None
-        if age is None or age >= (FRESH_MIN if fresh else CHECK_TTL):
-            _last.update(at=time.monotonic(), answer=ask())
-        return cast("Row", _last["answer"])
+        if age is None or age >= max_age:
+            _last.update({"at": time.monotonic(), "answer": ask()})
+        return cast("Answer", _last["answer"])
+
+
+def check() -> Answer:
+    """Return GitHub's last answer, asking again when it is older than CHECK_TTL."""
+    return answer_within(CHECK_TTL)
+
+
+def recheck() -> Answer:
+    """Return GitHub's last answer, asking again unless it is younger than FRESH_MIN: a check the user forced."""
+    return answer_within(FRESH_MIN)
 
 
 def find(program: str) -> str | None:
@@ -147,22 +195,24 @@ def find(program: str) -> str | None:
     return shutil.which(program) or next((place for place in places if os.path.isfile(place)), None)
 
 
+def run_claude(command: Sequence[str], check: bool) -> subprocess.CompletedProcess[str]:
+    """Run claude capturing its text, with no terminal to wait on and not for longer than CLAUDE_TIMEOUT."""
+    return subprocess.run(
+        command, check=check, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=CLAUDE_TIMEOUT
+    )
+
+
 def update_skills() -> str:
     """Update the Claude Code plugin when claude has it, and return why it failed, or nothing."""
     claude = find("claude")
     if not claude:
         return ""
-    quiet: dict[str, Any] = {
-        "capture_output": True,
-        "text": True,
-        "stdin": subprocess.DEVNULL,
-        "timeout": CLAUDE_TIMEOUT,
-    }
     try:
-        listed = subprocess.run([claude, "plugin", "list", "--json"], check=True, **quiet)
-        if PLUGIN not in {plugin.get("id") for plugin in json.loads(listed.stdout)}:
+        listed = run_claude([claude, "plugin", "list", "--json"], check=True)
+        plugins: list[Mapping[str, object]] = json.loads(listed.stdout)
+        if PLUGIN not in {plugin.get("id") for plugin in plugins}:
             return ""
-        done = subprocess.run([claude, "plugin", "update", PLUGIN], check=False, **quiet)
+        done = run_claude([claude, "plugin", "update", PLUGIN], check=False)
     except (OSError, ValueError, AttributeError, subprocess.SubprocessError) as error:
         failure = str(error)
     else:
@@ -199,10 +249,15 @@ def placement(found: str) -> dict[str, str]:
     return folders
 
 
-def interpreter(tools: str, windowed: bool = False) -> str:
-    """Return where uv puts the tool's interpreter in a tools folder, on this system."""
+def interpreter(tools: str, program: str = "python") -> str:
+    """Return where uv puts the tool's interpreter in a tools folder, on this system.
+
+    Args:
+        tools: The folder uv keeps its tools in.
+        program: The interpreter's name; Windows also has "pythonw", which opens no console window.
+    """
     if sys.platform == "win32":
-        return os.path.join(tools, TOOL, "Scripts", "pythonw.exe" if windowed else "python.exe")
+        return os.path.join(tools, TOOL, "Scripts", f"{program}.exe")
     return os.path.join(tools, TOOL, "bin", "python")
 
 
@@ -217,7 +272,7 @@ def run_uv(command: Sequence[str], env: Mapping[str, str], installed: str) -> st
     return "" if os.path.exists(installed) else f"no aparece {installed}"
 
 
-def install(args: Sequence[str], port: int) -> tuple[int, Row]:
+def install(args: Sequence[str], port: int) -> tuple[int, Mapping[str, object]]:
     """Install the latest release with uv, update the skills and restart into it; answer (status, payload)."""
     if how() != "auto":
         return 409, {"error": "Esta instalación no se actualiza desde aquí: pídeselo a tu agente"}
@@ -257,11 +312,11 @@ def install(args: Sequence[str], port: int) -> tuple[int, Row]:
 
 def hand_over(command: Sequence[str], folders: dict[str, str], tools: str, args: Sequence[str], port: int) -> None:
     """On Windows, leave the install to a detached helper and exit so it can replace the interpreter."""
-    plan = {
+    plan: HandOver = {
         "command": command,
         "env": folders,
         "port": port,
-        "new": [interpreter(tools, windowed=True), "-c", process.INSTALLED_BOOTSTRAP, *args],
+        "new": [interpreter(tools, "pythonw"), "-c", process.INSTALLED_BOOTSTRAP, *args],
         "old": process.launch_command(args),
     }
     helper = (
@@ -287,7 +342,7 @@ def detach(command: Sequence[str], env: Mapping[str, str]) -> None:
     )
 
 
-def finish(plan: Row) -> None:
+def finish(plan: HandOver) -> None:
     """The Windows helper: wait for the port, run uv, and start the new dashboard, or the old one if uv failed."""
     process.own_the_output()
     process.port_taken(plan["port"], HANDOVER_GRACE)

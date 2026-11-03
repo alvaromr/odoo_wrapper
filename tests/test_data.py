@@ -5,25 +5,26 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import NORMAL, REST, ScriptedClient, logged, temp_state, utc
+from helpers import NORMAL, NOW, REST, TODAY, ScriptedClient, logged, temp_state, utc
 
 from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
+from odoo_wrapper import data_rules as dr
 from odoo_wrapper import state as st
 from odoo_wrapper.client import OdooError
 
 
 class TimeTest(unittest.TestCase):
     def test_local_converts_from_utc(self):
-        stamp = dt.local("2026-06-05 07:00:00")
+        stamp = dr.local("2026-06-05 07:00:00")
         self.assertEqual(stamp.astimezone(timezone.utc).hour, 7)
         self.assertIsNotNone(stamp.tzinfo)
 
     def test_a_week_starts_at_midnight_of_its_monday(self):
-        monday = dt.week_monday(datetime(2026, 9, 9, 15, 30))
+        monday = dr.week_monday(datetime(2026, 9, 9, 15, 30))
         self.assertEqual(monday, datetime(2026, 9, 7))
-        self.assertEqual(dt.week_monday(monday), monday)
-        self.assertEqual(dt.week_monday(datetime(2026, 9, 9, 15, 30, 45, 123)), datetime(2026, 9, 7))
+        self.assertEqual(dr.week_monday(monday), monday)
+        self.assertEqual(dr.week_monday(datetime(2026, 9, 9, 15, 30, 45, 123)), datetime(2026, 9, 7))
 
 
 class ScheduleTest(unittest.TestCase):
@@ -34,15 +35,15 @@ class ScheduleTest(unittest.TestCase):
     ]
 
     def test_sums_hours_per_day(self):
-        schedule = dt.schedule_from(self.WORKDAY)
+        schedule = dr.schedule_from(self.WORKDAY)
         self.assertEqual(schedule["hours"], [8.5, 0, 0, 0, 6.0, 0, 0])
 
     def test_a_gap_between_blocks_means_lunch_from_its_start(self):
-        schedule = dt.schedule_from(self.WORKDAY)
+        schedule = dr.schedule_from(self.WORKDAY)
         self.assertEqual(schedule["lunch_from"], [14.0, None, None, None, None, None, None])
 
     def test_an_explicit_lunch_block_is_not_worked_time(self):
-        schedule = dt.schedule_from(
+        schedule = dr.schedule_from(
             [
                 {"dayofweek": "1", "hour_from": 8.0, "hour_to": 17.0, "day_period": "morning"},
                 {"dayofweek": "1", "hour_from": 13.0, "hour_to": 14.0, "day_period": "lunch"},
@@ -52,7 +53,7 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(schedule["lunch_from"][1], 13.0)
 
     def test_ignores_unusable_rows(self):
-        schedule = dt.schedule_from(
+        schedule = dr.schedule_from(
             self.WORKDAY
             + [
                 {"dayofweek": "9", "hour_from": 9.0, "hour_to": 10.0},
@@ -64,7 +65,7 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(schedule["hours"], [8.5, 0, 0, 0, 6.0, 0, 0])
 
     def test_a_bad_row_or_a_lunch_block_never_cuts_the_rows_after_it(self):
-        schedule = dt.schedule_from(
+        schedule = dr.schedule_from(
             [
                 {},
                 {"dayofweek": "7", "hour_from": 9.0, "hour_to": 10.0},
@@ -76,14 +77,14 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(schedule["hours"], [0, 0, 0, 0, 0, 0, 8.33])
 
     def test_lunch_is_a_real_gap_between_blocks_and_a_block_of_no_length_counts_for_nothing(self):
-        joined = dt.schedule_from(
+        joined = dr.schedule_from(
             [
                 {"dayofweek": "0", "hour_from": 9.0, "hour_to": 13.0},
                 {"dayofweek": "0", "hour_from": 13.0, "hour_to": 17.0},
             ]
         )
         self.assertEqual(joined["lunch_from"][0], None)
-        empty_first = dt.schedule_from(
+        empty_first = dr.schedule_from(
             [
                 {"dayofweek": "0", "hour_from": 8.0, "hour_to": 8.0},
                 {"dayofweek": "0", "hour_from": 9.0, "hour_to": 13.0},
@@ -93,8 +94,8 @@ class ScheduleTest(unittest.TestCase):
         self.assertEqual(empty_first["lunch_from"][0], 13.0)
 
     def test_an_empty_calendar_has_no_schedule(self):
-        self.assertIsNone(dt.schedule_from([]))
-        self.assertIsNone(dt.schedule_from([{"dayofweek": "0", "hour_from": 9.0, "hour_to": 9.0}]))
+        self.assertIsNone(dr.schedule_from([]))
+        self.assertIsNone(dr.schedule_from([{"dayofweek": "0", "hour_from": 9.0, "hour_to": 9.0}]))
 
     def test_schedule_needs_a_calendar(self):
         client = ScriptedClient(
@@ -187,8 +188,8 @@ class AbsencesTest(unittest.TestCase):
         )
         self.assertEqual(len(out), 1)
         self.assertEqual((out[0]["date"], out[0]["type"], out[0]["hours"]), ("2026-06-05", "Médico", 2.5))
-        self.assertEqual(out[0]["from"], dt.local("2026-06-05 07:00:00").isoformat())
-        self.assertEqual(out[0]["to"], dt.local("2026-06-05 09:30:00").isoformat())
+        self.assertEqual(out[0]["from"], dr.local("2026-06-05 07:00:00").isoformat())
+        self.assertEqual(out[0]["to"], dr.local("2026-06-05 09:30:00").isoformat())
 
     def test_a_dropped_or_an_hour_leave_never_hides_the_leaves_after_it(self):
         weekend = {
@@ -242,7 +243,7 @@ class AbsencesTest(unittest.TestCase):
 
 class DataCacheTest(unittest.TestCase):
     def setUp(self):
-        self.calls = 0
+        self.calls, self.failing = 0, False
         original = dt.build_data
         dt.build_data = self.count
         self.addCleanup(setattr, dt, "build_data", original)
@@ -250,11 +251,16 @@ class DataCacheTest(unittest.TestCase):
         dt.drop_data_cache()
 
     def count(self, client, employee=None):
+        if self.failing:
+            raise ZeroDivisionError
         self.calls += 1
         return dict({"call": self.calls, "client": client.session_id}, **({"employee": employee} if employee else {}))
 
-    def fetch(self, session_id, fresh=False, employee=None):
-        return dt.fetch_data(SimpleNamespace(session_id=session_id), fresh, employee)
+    def fetch(self, session_id, employee=None):
+        return dt.fetch_data(SimpleNamespace(session_id=session_id), employee)
+
+    def reload(self, session_id, employee=None):
+        return dt.reload_data(SimpleNamespace(session_id=session_id), employee)
 
     def test_serves_the_same_payload_within_the_ttl_per_session(self):
         self.assertEqual(self.fetch("one"), {"call": 1, "client": "one"})
@@ -263,9 +269,20 @@ class DataCacheTest(unittest.TestCase):
         self.assertEqual(self.fetch("one"), {"call": 1, "client": "one"})
         self.assertEqual(self.calls, 2)
 
-    def test_fresh_bypasses_it(self):
+    def test_a_reload_bypasses_it_and_replaces_the_entry(self):
         self.fetch("one")
-        self.assertEqual(self.fetch("one", fresh=True)["call"], 2)
+        self.assertEqual(self.reload("one")["call"], 2)
+        self.assertEqual(self.fetch("one")["call"], 2)
+        self.assertEqual(self.reload("one", employee=9)["call"], 3)
+        self.assertEqual(self.fetch("one", employee=9)["call"], 3)
+
+    def test_a_reload_that_fails_leaves_the_entry_it_found(self):
+        self.fetch("one")
+        self.failing = True
+        with self.assertRaises(ZeroDivisionError):
+            self.reload("one")
+        self.failing = False
+        self.assertEqual(self.fetch("one")["call"], 1)
 
     def test_someone_elses_week_keeps_longer(self):
         self.fetch("one", employee=9)
@@ -308,11 +325,9 @@ class DataCacheTest(unittest.TestCase):
 class ContractHoursTest(unittest.TestCase):
     EIGHT = {"hours": [8, 8, 8, 8, 8, 0, 0], "lunch_from": [None] * 7}
 
-    def client(self):
-        def blocks(args, kwargs):
-            return [{"dayofweek": str(d), "hour_from": 9.0, "hour_to": 14.0, "day_period": "morning"} for d in range(5)]
-
-        return ScriptedClient({"resource.calendar.attendance": blocks})
+    SHORT = dr.schedule_from(
+        [{"dayofweek": str(d), "hour_from": 9.0, "hour_to": 14.0, "day_period": "morning"} for d in range(5)]
+    )
 
     def test_only_days_whose_contract_asks_for_other_hours_are_listed(self):
         contracts = [
@@ -329,11 +344,15 @@ class ContractHoursTest(unittest.TestCase):
                 "resource_calendar_id": [4, "Std"],
             },
         ]
-        out = dt.contract_hours(self.client(), self.EIGHT, contracts, date(2025, 3, 3), date(2025, 3, 10))
+        schedules = {4: self.EIGHT, 9: self.SHORT}
+        out = dr.contract_hours(schedules, 4, contracts, date(2025, 3, 3), date(2025, 3, 10))
         self.assertEqual(out, {"2025-03-03": 0, "2025-03-04": 0, "2025-03-05": 5.0, "2025-03-06": 5.0})
 
     def test_without_contracts_or_a_current_calendar(self):
-        self.assertEqual(dt.contract_hours(self.client(), self.EIGHT, [], date(2025, 3, 3), date(2025, 3, 10)), {})
+        self.assertEqual(
+            dr.contract_hours({4: self.EIGHT}, 4, [], date(2025, 3, 3), date(2025, 3, 10)),
+            {},
+        )
         contracts = [
             {
                 "employee_id": [7, "Ana"],
@@ -342,7 +361,7 @@ class ContractHoursTest(unittest.TestCase):
                 "resource_calendar_id": [9, "25 h"],
             }
         ]
-        out = dt.contract_hours(self.client(), None, contracts, date(2025, 3, 3), date(2025, 3, 10))
+        out = dr.contract_hours({4: None, 9: self.SHORT}, 4, contracts, date(2025, 3, 3), date(2025, 3, 10))
         self.assertEqual(out, {f"2025-03-0{d}": 5.0 for d in range(3, 8)})
 
 
@@ -390,7 +409,7 @@ class BuildDataTest(unittest.TestCase):
             (open_one["out"], open_one["hours"], open_one["rest"], open_one["reason"]), (None, None, False, None)
         )
         self.assertEqual([s["reason_id"] for s in payload["sessions"]], [5, 3, None])
-        self.assertEqual(work["in"], dt.local("2026-09-07 07:00:00").isoformat())
+        self.assertEqual(work["in"], dr.local("2026-09-07 07:00:00").isoformat())
         self.assertEqual(payload["employee"], "Ana")
         self.assertTrue(payload["breaks"])
         self.assertNotIn("phone", payload)
@@ -449,7 +468,7 @@ class BuildDataTest(unittest.TestCase):
         self.assertEqual(payload["since"], "2025-01-06")
         self.assertEqual(payload["employee_id"], 7)
         self.assertEqual([x["in"][:10] for x in payload["sessions"]], ["2025-01-08"])
-        today = date.today()
+        today = TODAY
         expected = (today - timedelta(days=today.weekday()) - date(2025, 1, 6)).days // 7 + 1
         self.assertEqual(payload["weeks"], expected)
         self.assertEqual(
@@ -457,7 +476,7 @@ class BuildDataTest(unittest.TestCase):
         )
         self.assertEqual([model for model, _, _ in client.calls].count("hr.employee"), 0)
         payload, _ = self.build([])
-        self.assertEqual(payload["weeks"], dt.MIN_WEEKS)
+        self.assertEqual(payload["weeks"], dr.MIN_WEEKS)
         self.assertEqual(payload["since"], (today - timedelta(days=today.weekday())).isoformat())
 
     def test_holidays_are_asked_for_every_calendar_the_contracts_had(self):
@@ -516,7 +535,7 @@ class BuildDataTest(unittest.TestCase):
                 ]
             },
         )
-        today = date.today()
+        today = TODAY
         end = (today - timedelta(days=today.weekday()) + timedelta(weeks=1)).isoformat()
         since = "2025-01-06"
         schedule_fields = {"fields": ["dayofweek", "hour_from", "hour_to", "day_period"]}
@@ -587,7 +606,7 @@ class BuildDataTest(unittest.TestCase):
         )
 
     def test_someone_elses_week_is_loaded_by_id_and_leaves_the_state_alone(self):
-        stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()
+        stamp = (NOW - timedelta(hours=1)).isoformat()
         st.write_state(3, lunch=stamp)
         client = ScriptedClient(
             {
@@ -611,24 +630,24 @@ class BuildDataTest(unittest.TestCase):
             "id": 81,
             "check_in": "2024-06-03 08:00:00",
             "check_out": "2024-06-03 08:01:00",
-            "worked_hours": dt.MIN_SESSION,
+            "worked_hours": dr.MIN_SESSION,
             "attendance_reason_ids": [],
         }
         payload, _ = self.build([least])
         self.assertEqual(payload["since"], "2024-06-03")
         self.assertEqual([s["id"] for s in payload["sessions"]], [81])
         self.assertIsInstance(payload["weeks"], int)
-        self.assertEqual(datetime.fromisoformat(payload["generated_at"]).date(), date.today())
+        self.assertEqual(datetime.fromisoformat(payload["generated_at"]).date(), TODAY)
 
     def test_a_punch_at_the_very_moment_of_the_lunch_stamp_leaves_it(self):
         punched = utc(0)
-        stamp = dt.local(punched).isoformat()
+        stamp = dr.local(punched).isoformat()
         st.write_state(3, lunch=stamp)
         self.build([{"check_in": punched, "check_out": False, "worked_hours": 0, "attendance_reason_ids": []}])
         self.assertEqual(st.read_state(3)["lunch"], stamp)
 
     def test_a_punch_after_the_lunch_stamp_clears_it(self):
-        stamp = (datetime.now().astimezone() - timedelta(hours=1)).isoformat()
+        stamp = (NOW - timedelta(hours=1)).isoformat()
         st.write_state(3, lunch=stamp)
         self.build([{"check_in": utc(120), "check_out": utc(90), "worked_hours": 0.5, "attendance_reason_ids": []}])
         self.assertEqual(st.read_state(3)["lunch"], stamp)

@@ -102,14 +102,14 @@ class UpdatesTest(unittest.TestCase):
         ):
             self.assertFalse(up.check()["available"])
             clock[0] += up.FRESH_MIN - 1
-            self.assertFalse(up.check(fresh=True)["available"])
+            self.assertFalse(up.recheck()["available"])
             clock[0] = 1000.0 + up.CHECK_TTL - 1
             self.assertFalse(up.check()["available"])
             clock[0] += 1
             self.assertTrue(up.check()["available"])
-            self.assertTrue(up.check(fresh=True)["available"])
+            self.assertTrue(up.recheck()["available"])
             clock[0] += up.FRESH_MIN
-            self.assertFalse(up.check(fresh=True)["available"])
+            self.assertFalse(up.recheck()["available"])
         self.assertEqual(len(self.asked), 3)
 
 
@@ -285,7 +285,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(up.interpreter("/t"), os.path.join("/t", up.TOOL, "bin", "python"))
         with patch.object(up.sys, "platform", "win32"):
             self.assertEqual(up.interpreter("T"), os.path.join("T", up.TOOL, "Scripts", "python.exe"))
-            self.assertEqual(up.interpreter("T", windowed=True), os.path.join("T", up.TOOL, "Scripts", "pythonw.exe"))
+            self.assertEqual(up.interpreter("T", "pythonw"), os.path.join("T", up.TOOL, "Scripts", "pythonw.exe"))
 
     def test_an_install_runs_uv_from_github_holds_the_watcher_and_restarts_into_the_new_interpreter(self):
         self.with_receipt('[tool]\nrequirements = [{ name = "odoo-wrapper", directory = "/x" }]\n')

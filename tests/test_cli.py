@@ -26,6 +26,7 @@ from helpers import (
     ScriptedClient,
     ScriptedOpener,
     client,
+    frozen,
     kw,
     temp_state,
     utc,
@@ -423,17 +424,6 @@ def google_fake(google):
         patch.object(sh.urllib.request, "build_opener", return_value=google),
     ):
         yield google
-
-
-def frozen(iso):
-    moment = datetime.fromisoformat(iso)
-
-    class Frozen(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return moment.astimezone(tz)
-
-    return Frozen
 
 
 def stamp(day, hour=0):

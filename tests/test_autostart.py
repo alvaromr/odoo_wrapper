@@ -30,11 +30,11 @@ class AutostartCase(unittest.TestCase):
 
     def on(self, platform):
         with patch.object(sys, "platform", platform):
-            au.set_autostart(True)
+            au.turn_on()
 
     def off(self, platform):
         with patch.object(sys, "platform", platform):
-            au.set_autostart(False)
+            au.turn_off()
 
 
 class CommandTest(AutostartCase):

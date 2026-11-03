@@ -32,6 +32,13 @@
   change requests, the Discord field) still leaves a trace: degrade() logs what is missing and what the tools do
   instead, once per process and thing, so an employee without the rights gets one line, not one per reload. The
   CLI keeps its output as it was: the package's logger only writes where the dashboard points it.
+- Types. A JSON-RPC result is whatever the method called answers, so post(), jsonrpc() and call_kw() return it as
+  Any, and so does the envelope's `result`: this is the one place a value enters untyped, and every caller declares
+  the rows it asked for beside the `fields` it requested. The rows this module reads itself are the TypedDicts
+  below, each holding exactly those fields. Odoo's empty value is False whatever the field's type: a many2one is
+  [id, name] or False (Many2one, a pair here, though JSON gives a list that is only ever indexed) and a date or text
+  is the string or False. This module imports nothing from the package, so the pure rules (data_rules.py) restate
+  the few shapes they read, as the fields they need and no others; a row of this module fits them.
 """
 
 from __future__ import annotations
@@ -45,10 +52,13 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping, Sequence
 from email.message import Message
-from typing import IO, Any, cast
+from http.client import HTTPResponse
+from typing import IO, Any, Literal, TypedDict, Union
 
-Row = dict[str, Any]
+Many2one = tuple[int, str]
+MaybeMany2one = Union[Many2one, Literal[False]]
 
 STATE_DIR = os.path.expanduser("~/.odoo_dashboard")
 CONFIG_FILE = os.path.join(STATE_DIR, "config.json")
@@ -63,6 +73,86 @@ SESSION_EXPIRED_CODE = 100
 ACCESS_DENIED = "odoo.exceptions.AccessDenied"
 log = logging.getLogger(__name__)
 _degraded: set[str] = set()
+
+
+class RpcErrorData(TypedDict, total=False):
+    """The details of a JSON-RPC error: the exception's name and its message."""
+
+    name: str
+    message: str
+
+
+class RpcError(TypedDict, total=False):
+    """A JSON-RPC error: its code and details."""
+
+    code: int
+    data: RpcErrorData
+
+
+class RpcAnswer(TypedDict, total=False):
+    """A JSON-RPC response: an error, or the result of the method called."""
+
+    error: RpcError
+    result: Any
+
+
+class SessionInfo(TypedDict):
+    """What authenticate and get_session_info say of the session: the user, or None when there is none yet."""
+
+    uid: int | None
+
+
+class EmployeeCalendar(TypedDict):
+    """An hr.employee as the client reads its own: id, name and calendar."""
+
+    id: int
+    name: str
+    resource_calendar_id: MaybeMany2one
+
+
+class OpenAttendance(TypedDict):
+    """An hr.attendance with no check-out, as open_attendance reads it."""
+
+    id: int
+    check_in: str
+
+
+class ReasonIds(TypedDict):
+    """An hr.attendance as open_is_rest reads it: the reasons it was checked in with."""
+
+    attendance_reason_ids: list[int]
+
+
+class ReasonRow(TypedDict):
+    """An hr.attendance.reason, with the fields attendance_reasons requests."""
+
+    id: int
+    name: str
+    is_rest: bool
+    action_type: str
+    show_on_attendance_screen: bool
+
+
+class FieldInfo(TypedDict):
+    """A model's field as fields_get answers when asked for its label only."""
+
+    string: str
+
+
+class PunchedAttendance(TypedDict, total=False):
+    """The attendance a punch made: its check-in always, its check-out when the punch was a check-out."""
+
+    check_in: str
+    check_out: str
+
+
+class PunchResult(TypedDict, total=False):
+    """What the systray endpoint answers to a punch, with the keys the CLI prints."""
+
+    attendance_state: str
+    attendance: PunchedAttendance
+    hours_today: float
+    last_attendance_worked_hours: float
 
 
 class OdooError(Exception):
@@ -172,16 +262,19 @@ class OdooClient:
         self.employee_id: int | None = None
         self.employee_name: str | None = None
         self.calendar_id: int | None = None
-        self._reasons: list[Row] | None = None
+        self._reasons: list[ReasonRow] | None = None
         self._csrf = ""  # pragma: no mutate - login() sets it before login_totp() sends it
 
-    def _open(self, endpoint: str, data: bytes | None, headers: dict[str, str]) -> Any:
+    def _open(self, endpoint: str, data: bytes | None, headers: dict[str, str]) -> HTTPResponse:
         try:
-            return self.opener.open(urllib.request.Request(f"{self.url}{endpoint}", data=data, headers=headers))
+            response: HTTPResponse = self.opener.open(
+                urllib.request.Request(f"{self.url}{endpoint}", data=data, headers=headers)
+            )
         except urllib.error.URLError as error:
             raise OdooDown(f"Odoo no responde ({error.reason})") from error
+        return response
 
-    def post(self, endpoint: str, params: Row) -> tuple[Any, Message]:
+    def post(self, endpoint: str, params: Mapping[str, object]) -> tuple[Any, Message]:
         """Make a JSON-RPC call and return its result and the response's headers, or raise what Odoo answered."""
         data = json.dumps({"jsonrpc": "2.0", "method": "call", "params": params, "id": 1}).encode()
         headers = {"Content-Type": "application/json"}  # pragma: no mutate - header names are case-insensitive
@@ -189,7 +282,7 @@ class OdooClient:
             headers["Cookie"] = f"{SESSION_COOKIE}={self.session_id}"  # pragma: no mutate - as above
         resp = self._open(endpoint, data, headers)
         try:
-            result = json.loads(resp.read())
+            result: RpcAnswer = json.loads(resp.read())
         except ValueError as unreadable:
             raise OdooDown("Odoo no responde (respuesta no válida)") from unreadable
         if "error" in result:
@@ -202,11 +295,11 @@ class OdooClient:
             raise OdooError(details.get("message", str(error)))
         return result.get("result"), resp.headers
 
-    def jsonrpc(self, endpoint: str, params: Row) -> Any:
+    def jsonrpc(self, endpoint: str, params: Mapping[str, object]) -> Any:
         """Make a JSON-RPC call and return its result."""
         return self.post(endpoint, params)[0]
 
-    def form(self, fields: dict[str, str] | None = None) -> Any:
+    def form(self, fields: dict[str, str] | None = None) -> HTTPResponse:
         """Open the two-factor page, posting its fields when there are any, with the session's cookies."""
         cookies = {SESSION_COOKIE: self.session_id, DEVICE_COOKIE: self.device}
         cookie = "; ".join(f"{name}={value}" for name, value in cookies.items() if value)
@@ -214,7 +307,7 @@ class OdooClient:
         data = urllib.parse.urlencode(fields).encode() if fields else None
         return self._open(TOTP_PATH, data, headers)
 
-    def _finish(self, response: Any) -> bool:
+    def _finish(self, response: HTTPResponse) -> bool:
         cookies = set_cookies(response.headers)
         if response.status not in REDIRECTS or SESSION_COOKIE not in cookies:
             return False
@@ -225,12 +318,13 @@ class OdooClient:
 
     def login(self, user: str, password: str, code: str = "") -> str:
         """Log in and return the session, finishing two-factor with the code or a remembered device."""
+        session: SessionInfo
         session, headers = self.post(
             "/web/session/authenticate",
             {"db": self.db, "login": user, "password": password},
         )
         self.uid = session.get("uid")
-        self.session_id = cast("str", set_cookies(headers).get(SESSION_COOKIE))
+        self.session_id = set_cookies(headers).get(SESSION_COOKIE, "")
         if not self.session_id:
             raise OdooError("Autenticación fallida: Odoo no devolvió una sesión")
         if self.uid:
@@ -253,9 +347,9 @@ class OdooClient:
             raise AccessDenied("Código de verificación incorrecto")
         return self.session_id
 
-    def session_info(self) -> Row:
+    def session_info(self) -> SessionInfo:
         """Return Odoo's information on the session and take its user from it."""
-        info: Row = self.jsonrpc("/web/session/get_session_info", {})
+        info: SessionInfo = self.jsonrpc("/web/session/get_session_info", {})
         self.uid = info.get("uid")
         return info
 
@@ -284,7 +378,9 @@ class OdooClient:
         """End the session in Odoo."""
         self.jsonrpc("/web/session/destroy", {})
 
-    def call_kw(self, model: str, method: str, args: list[Any], kwargs: Row | None = None) -> Any:
+    def call_kw(
+        self, model: str, method: str, args: Sequence[object], kwargs: Mapping[str, object] | None = None
+    ) -> Any:
         """Call a method of a model, as the web client does."""
         return self.jsonrpc(
             "/web/dataset/call_kw",
@@ -297,7 +393,7 @@ class OdooClient:
             return
         if not self.uid:
             self.session_info()
-        emp = self.call_kw(
+        emp: list[EmployeeCalendar] = self.call_kw(
             "hr.employee",
             "search_read",
             [[("user_id", "=", self.uid)]],
@@ -309,18 +405,21 @@ class OdooClient:
 
     def load_other(self, employee_id: int) -> None:
         """Read someone else's employee, by id, instead of the user's own."""
-        self._take(self.call_kw("hr.employee", "read", [[employee_id], ["name", "resource_calendar_id"]])[0])
+        emp: list[EmployeeCalendar] = self.call_kw(
+            "hr.employee", "read", [[employee_id], ["name", "resource_calendar_id"]]
+        )
+        self._take(emp[0])
 
-    def _take(self, emp: Row) -> None:
+    def _take(self, emp: EmployeeCalendar) -> None:
         self.employee_id = emp["id"]
         self.employee_name = emp["name"]
         calendar = emp["resource_calendar_id"]
         self.calendar_id = calendar[0] if calendar else None
 
-    def open_attendance(self) -> Row | None:
+    def open_attendance(self) -> OpenAttendance | None:
         """Return the user's attendance with no check-out, or None."""
         self.load_employee()
-        rows = self.call_kw(
+        rows: list[OpenAttendance] = self.call_kw(
             "hr.attendance",
             "search_read",
             [[("employee_id", "=", self.employee_id), ("check_out", "=", False)]],
@@ -328,24 +427,25 @@ class OdooClient:
         )
         return rows[0] if rows else None
 
-    def open_is_rest(self, open_att: Row | None, rest: Row | None) -> bool:
+    def open_is_rest(self, open_att: OpenAttendance | None, rest: ReasonRow | None) -> bool:
         """Tell whether the open attendance was checked in with the break reason."""
         if not open_att or not rest:
             return False
-        ids = self.call_kw(
+        reasoned: list[ReasonIds] = self.call_kw(
             "hr.attendance",
             "search_read",
             [[("id", "=", open_att["id"])]],
             {"fields": ["attendance_reason_ids"]},
-        )[0]["attendance_reason_ids"]
-        return rest["id"] in ids
+        )
+        return rest["id"] in reasoned[0]["attendance_reason_ids"]
 
-    def punch(self, reason_id: Any = None) -> Any:
+    def punch(self, reason_id: int | None = None) -> PunchResult:
         """Check in or out through the systray endpoint, with a sign-in reason when given."""
         params = {"attendance_reason_id": reason_id} if reason_id else {}
-        return self.jsonrpc("/hr_attendance/systray_check_in_out", params)
+        result: PunchResult = self.jsonrpc("/hr_attendance/systray_check_in_out", params)
+        return result
 
-    def attendance_reasons(self) -> list[Row]:
+    def attendance_reasons(self) -> list[ReasonRow]:
         """Return the attendance reasons once, or none where the module or its access is missing."""
         if self._reasons is None:
             try:
@@ -364,17 +464,17 @@ class OdooClient:
 
     def field_named(self, model: str, label: str) -> str | None:
         """Return the technical name of a model's field by its label, or None."""
-        fields = self.call_kw(model, "fields_get", [], {"attributes": ["string"]})
+        fields: dict[str, FieldInfo] = self.call_kw(model, "fields_get", [], {"attributes": ["string"]})
         return next((name for name, f in fields.items() if f["string"].strip().lower() == label), None)
 
-    def offered_reasons(self) -> list[Row]:
+    def offered_reasons(self) -> list[ReasonRow]:
         """Return the sign-in reasons the attendance screen offers, work before break."""
         rows = [
             r for r in self.attendance_reasons() if r["action_type"] == "sign_in" and r["show_on_attendance_screen"]
         ]
         return sorted(rows, key=lambda r: r["is_rest"])
 
-    def sign_in_reasons(self) -> tuple[Row | None, Row | None]:
+    def sign_in_reasons(self) -> tuple[ReasonRow | None, ReasonRow | None]:
         """Return the normal and the break sign-in reasons, each None when Odoo has none."""
         rows = self.offered_reasons()
         normal = next((r for r in rows if not r["is_rest"]), None)

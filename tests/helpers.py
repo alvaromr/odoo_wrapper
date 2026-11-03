@@ -5,6 +5,12 @@ Nothing here touches the network or the real ~/.odoo_dashboard: temp_state point
 writes there at a temporary directory for the duration of one test. Importing this module also refuses the
 network to the whole process, so a call left unmocked fails its test instead of reaching a real server; the suite
 runs with it because the first test module imports it.
+
+No test reads the real clock either. Importing this module also pins the zone to ZONE (where the platform has
+tzset) and freezes `datetime` in every module that reads the clock (CLOCK_READERS) at NOW, a Wednesday, so a
+fixture or an expectation computed from "now" or "today" is the same on every day the suite runs and covers the same
+branches. A test that needs another instant patches that module's `datetime` with `frozen(iso)`; the rules modules
+take their `now`/`today` as arguments, which a test passes as NOW and TODAY.
 """
 
 import http.client
@@ -15,6 +21,7 @@ import os
 import socket
 import sys
 import tempfile
+import time
 import urllib.parse
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -24,10 +31,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from odoo_wrapper import cli, lan  # noqa: E402
 from odoo_wrapper import client as c
+from odoo_wrapper import data as dt
 from odoo_wrapper import discord as dc
 from odoo_wrapper import process as pr
+from odoo_wrapper import server as sv
 from odoo_wrapper import state as st
+from odoo_wrapper import team as tm
 
+ZONE = "Europe/Madrid"
+NOW_ISO = "2026-11-04T10:00:00+01:00"
+NOW = datetime.fromisoformat(NOW_ISO)
+TODAY = NOW.date()
+CLOCK_READERS = (cli, dt, sv, st, tm)
 CONFIG = {"url": "https://odoo.example", "db": "db", "user": "u"}
 NORMAL = {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True}
 REST = {"id": 3, "name": "Descanso", "is_rest": True, "action_type": "sign_in", "show_on_attendance_screen": True}
@@ -46,8 +61,26 @@ socket.socket.connect = socket.socket.connect_ex = no_network
 socket.getaddrinfo = no_network
 
 
+def frozen(iso=NOW_ISO):
+    moment = datetime.fromisoformat(iso)
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment.astimezone(tz) if tz else moment.astimezone().replace(tzinfo=None)
+
+    return Frozen
+
+
+os.environ["TZ"] = ZONE
+if hasattr(time, "tzset"):
+    time.tzset()
+for reader in CLOCK_READERS:
+    reader.datetime = frozen()
+
+
 def utc(minutes_ago):
-    return (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%d %H:%M:%S")
+    return (NOW - timedelta(minutes=minutes_ago)).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class ScriptedOpener:

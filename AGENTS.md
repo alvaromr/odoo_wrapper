@@ -18,9 +18,12 @@ src/odoo_wrapper/
   sheets.py          Google Sheets for `odoo notices`, as the Google account gws is signed in with
   dashboard.py       entry point: wires the pieces below and serves
   server.py          pages, JSON API, Odoo sessions as the login, same-site guard
-  data.py            the payload read from Odoo (sessions, schedule, absences) and its cache
-  team.py            the management view's payload: one week of everyone the session can read, flagged
+  data.py            the payload read from Odoo (sessions, schedule, absences), its cache, and the punches sent
+  data_rules.py      the rules of that payload, pure over plain rows: hours, schedule, absences, what a punch does
+  team.py            the management view's payload read from Odoo: one week of everyone the session can read
+  team_rules.py      the rules of that payload, pure: days, weeks, flags, months, what is left to fix
   corrections.py     the day dialog's writes: correcting and adding punches, approving change requests
+  corrections_rules.py  what a correction body asks for and when it warns, pure
   discord.py         the day dialog's notice of a punch to fix, sent by private message from a Discord bot, and
                      the change request form its button opens, also from the personal page
   state.py           the shared state file (lunch stamp, durations, mute), per Odoo user
@@ -53,8 +56,9 @@ Don't duplicate — each fact has one home:
 - **`bin/odoo` with no arguments** and **`bin/odoo-dashboard --help`** — everything about using each tool:
   commands, flags, files, what clocks for real.
 - **The header of each module** — why it behaves as it does: `server.py` (sessions, same-site guard, API),
-  `data.py` (what is read from Odoo and how it is cached), `team.py` (who the management view shows and what each
-  flag means), `corrections.py` (what the day dialog writes and when it warns), `discord.py` (why a bot, and
+  `data.py` (what is read from Odoo and how it is cached), `data_rules.py` (the personal payload's rules),
+  `team.py` (who the management view shows), `team_rules.py` (what each flag means),
+  `corrections.py` (what the day dialog writes), `corrections_rules.py` (when it warns), `discord.py` (why a bot, and
   how the recipient is found), `state.py` (the shared state),
   `lan.py` (phone access and its certificate), `process.py` (log, self-restart, ports, how it is launched),
   `autostart.py` (the login entry on each system), `updates.py` (where the version lives, how it is compared, how
@@ -109,6 +113,13 @@ Read the header of a module before touching it.
   <reason>` and `biome-ignore <rule>: <reason>`. A rule switched off for a whole file or the whole project says
   why beside it, in `pyproject.toml` or `biome.jsonc`.
 - Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
+- Keep the rules pure. `data_rules.py`, `team_rules.py` and `corrections_rules.py` take plain rows and values and
+  return the payload or the write: no Odoo client, file, network, process, thread or clock (`now` and `today` come
+  in as arguments), which `tests/test_project.py` checks. `data.py`, `team.py` and `corrections.py` are the edge:
+  they read the rows from Odoo, hand them to the rules and send what the rules decide. New logic about hours,
+  flags or what a write holds goes in the rules; a query goes in the edge.
+- No boolean parameter switches between two behaviours (a `fresh=True` that skips a cache): give each behaviour
+  its own function (`fetch_data` and `reload_data`). A bool that is plain data about the input (`on_rest`) is fine.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
 
@@ -167,8 +178,9 @@ python3 tests/fix.py                     # formats and applies the tools' safe f
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
 secret anywhere under the repo, a size cap for source files and every module named in the map above. Neither
-suite reaches the network: `tests/helpers.py` and `tests/page.mjs` make every connection fail, so a call left
-unmocked fails its test.
+suite reaches the network or the real clock: `tests/helpers.py` and `tests/page.mjs` make every connection fail,
+so a call left unmocked fails its test, and run every test at one fixed instant and time zone, so a result never
+depends on the day the suite runs.
 
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
