@@ -52,9 +52,11 @@ class NetworkTest(unittest.TestCase):
             patch.object(lan, "bonjour_name", return_value="mac.local"),
             patch.object(lan, "lan_ip", return_value="10.0.0.2"),
         ):
-            self.assertTrue(lan.expose("0.0.0.0"))
+            self.assertEqual(lan.expose(None), "10.0.0.2")
             self.assertEqual(lan.net_identity(), "mac.local|10.0.0.2")
-            self.assertFalse(lan.expose("127.0.0.1"))
+            self.assertEqual(lan.expose("0.0.0.0"), "0.0.0.0")
+            self.assertEqual(lan.net_identity(), "mac.local|10.0.0.2")
+            self.assertEqual(lan.expose("127.0.0.1"), "")
             self.assertEqual(lan.net_identity(), "")
 
 

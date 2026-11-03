@@ -71,13 +71,14 @@ class MainTest(unittest.TestCase):
             [call.kwargs["target"] for call in self.mocks["thread"].call_args_list], [pr.watch_sources, cli.keep_alive]
         )
 
-    def test_serves_the_whole_lan_over_tls_by_default(self):
+    def test_serves_this_machines_lan_address_over_tls_by_default(self):
         plain = self.server.socket
         out = self.main()
         self.assertIn("INFO Móvil: escucha en https://mac.local:8443/ y https://10.0.0.2:8443/\n", out)
         self.mocks["cert"].assert_called_once()
         self.mocks["ssl"].SSLContext.return_value.load_cert_chain.assert_called_once_with("c.pem", "k.pem")
-        self.assertEqual(self.mocks["server"].call_args_list[1].args, (("0.0.0.0", lan.TLS_PORT), sv.Handler))
+        self.assertEqual(self.mocks["server"].call_args_list[1].args, (("10.0.0.2", lan.TLS_PORT), sv.Handler))
+        self.assertEqual(self.mocks["port_taken"].call_args.args, (lan.TLS_PORT, 0, "10.0.0.2"))
         self.assertEqual(lan._lan["off"], "")
         ssl = self.mocks["ssl"]
         ssl.SSLContext.assert_called_once_with(ssl.PROTOCOL_TLS_SERVER)
@@ -186,6 +187,10 @@ class MainTest(unittest.TestCase):
         )
         self.main("--host", "127.0.0.1")
         self.assertEqual(self.mocks["port_taken"].call_args.args, (sv.PORT, 0))
+
+    def test_host_0000_listens_on_every_interface(self):
+        self.main("--host", "0.0.0.0")
+        self.assertEqual(self.mocks["server"].call_args_list[1].args, (("0.0.0.0", lan.TLS_PORT), sv.Handler))
 
     def test_tls_port_is_probed_on_the_given_host_when_not_wildcard(self):
         self.main("--host", "10.0.0.5")

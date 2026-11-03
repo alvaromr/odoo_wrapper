@@ -40,15 +40,16 @@ Sirve el dashboard de horas en http://localhost:{server.PORT}/ y se queda en mar
 La primera vez pide iniciar sesión en Odoo (URL, base de datos, usuario y contraseña);
 solo se conserva la sesión, en el navegador, nunca la contraseña.
 
-Además escucha en https://<ip de este ordenador>:{lan.TLS_PORT}/ para el móvil, en toda la LAN. Crea el
+Además escucha en https://<ip de este ordenador en la red local>:{lan.TLS_PORT}/ para el móvil. Crea el
 certificado con el comando openssl; sin él avisa y se queda solo en este ordenador. La primera vez el
 móvil pedirá aceptar el certificado. El móvil entra emparejándolo desde este ordenador: «Emparejar
 móvil» en el panel muestra un QR de un solo uso que caduca a los {server.PAIR_TTL // 60} min y comparte la sesión del
 navegador. En la red no hay login con contraseña.
 
 Opciones:
-  --host <ip>   Dirección en la que escucha para el móvil, en vez de toda la LAN (0.0.0.0).
-                Con 127.0.0.1 no escucha en la red: solo este ordenador, sin móvil.
+  --host <ip>   Dirección en la que escucha para el móvil, en vez de la de este ordenador en la red local.
+                Con 0.0.0.0 escucha en todas sus redes, también en una VPN. Con 127.0.0.1 no escucha
+                en la red: solo este ordenador, sin móvil.
   --open        Abre el navegador al arrancar.
   --autostart on|off
                 Con on, el dashboard arranca solo cada vez que inicias sesión, con las opciones por
@@ -94,7 +95,7 @@ AUTOSTART_DONE = {
     "off": "El dashboard ya no arrancará al iniciar sesión; el que esté en marcha sigue hasta que lo pares o "
     "cierres sesión.",
 }
-ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - the phone reaches it on the LAN, by default (lan.py)
+ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - what --host 0.0.0.0 asks for, its port probed on loopback
 log = logging.getLogger(__name__)
 
 
@@ -140,14 +141,13 @@ def main() -> None:
     process.own_the_output()
     if os.environ.pop(process.UPDATED_ENV, None):
         follow_update()
+    host = None
     if "--host" in sys.argv:
         host = option("--host")
         if host is None:
             log.error("--host necesita una dirección (127.0.0.1 para no salir de este ordenador)")
             sys.exit(1)
-    else:
-        host = ALL_INTERFACES
-    exposed = lan.expose(host)
+    address = lan.expose(host)
     grace = process.RESTART_GRACE if os.environ.pop(process.RESTART_ENV, None) else 0
     if process.port_taken(server.PORT, grace):
         log.error(
@@ -155,8 +155,8 @@ def main() -> None:
             "para aplicar cambios de código basta con guardarlos (se reinicia solo)."
         )
         sys.exit(1)
-    probe_host = "127.0.0.1" if host == ALL_INTERFACES else host
-    if exposed and process.port_taken(lan.TLS_PORT, grace, probe_host):
+    probe_host = "127.0.0.1" if address == ALL_INTERFACES else address
+    if address and process.port_taken(lan.TLS_PORT, grace, probe_host):
         log.error(f"El puerto {lan.TLS_PORT} ya está ocupado por otro proceso")
         sys.exit(1)
     http = ThreadingHTTPServer(("127.0.0.1", server.PORT), server.Handler)
@@ -164,18 +164,18 @@ def main() -> None:
     log.info(f"Dashboard en {url} (Ctrl+C para parar)")
     if not read_config():
         log.info(f"Sin configurar: abre {url} e inicia sesión en Odoo")
-    chain = exposed and lan.ensure_cert()
+    chain = lan.ensure_cert() if address else None
     if chain:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(*chain)
-        tls = ThreadingHTTPServer((host, lan.TLS_PORT), server.Handler)
+        tls = ThreadingHTTPServer((address, lan.TLS_PORT), server.Handler)
         tls.socket = context.wrap_socket(tls.socket, server_side=True)
         threading.Thread(target=tls.serve_forever, daemon=True).start()
         log.info(
             f"Móvil: escucha en https://{lan.bonjour_name()}:{lan.TLS_PORT}/ y https://{lan.lan_ip()}:{lan.TLS_PORT}/"
         )
         log.info(f"Para entrar desde él, pulsa «Emparejar móvil» en {url}")
-    elif exposed:
+    elif address:
         log.warning("Sin certificado no se escucha en la red: el dashboard queda solo en este ordenador")
     threading.Thread(target=process.watch_sources, args=(lan.net_identity,), daemon=True).start()
     threading.Thread(target=cli.keep_alive, daemon=True).start()

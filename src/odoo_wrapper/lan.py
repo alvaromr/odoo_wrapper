@@ -1,8 +1,11 @@
 """Phone access over the LAN: the machine's address and name, the self-signed certificate, the QR.
 
-- Next to the loopback socket there is a TLS one on <host>:TLS_PORT, the whole LAN unless --host names another
-  address; --host 127.0.0.1 leaves the loopback one alone. It used to be there only on request, with --host.
-  expose() records which it is so phone_access and net_identity know whether there is anything to advertise.
+- Next to the loopback socket there is a TLS one on <host>:TLS_PORT, this machine's LAN address unless --host
+  names another; --host 127.0.0.1 leaves the loopback one alone. It used to be there only on request, with
+  --host. The LAN address alone, not every interface (0.0.0.0, which --host still takes), keeps the port off a
+  VPN and any other network the phone is not on; when the address changes, so does net_identity, and the
+  restart listens on the new one. expose() records which it is so phone_access and net_identity know whether
+  there is anything to advertise.
   The server's session guard applies to both sockets alike; the LAN one gets its session by pairing, never by
   password (server.py), which is what lets it be the default.
 - _lan["off"] is why nothing listens on the LAN, empty when something does: the option, or a certificate that
@@ -67,10 +70,10 @@ log = logging.getLogger(__name__)
 _lan = {"off": HOST_OPTION}
 
 
-def expose(host: str) -> bool:
-    """Record whether --host leaves the LAN out, and return whether the dashboard should listen on it."""
+def expose(host: str | None) -> str:
+    """Return the address the phone's socket listens on, --host's or this machine's, or "" when --host leaves it out."""
     _lan["off"] = HOST_OPTION if host in LOOPBACK else ""
-    return not _lan["off"]
+    return "" if _lan["off"] else lan_ip() if host is None else host
 
 
 def local_only(why: str) -> None:
