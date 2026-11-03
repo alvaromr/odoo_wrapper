@@ -70,6 +70,7 @@ Don't duplicate — each fact has one home:
   carries `SETUP.md`, what a machine needs for `odoo notices` on each operating system.
 - **`README.md`** — human quickstart only, the install included.
 - **`docs/decisions/`** — each practice the repo departs from on purpose, why, and who approved it.
+- **`SECURITY.md`** — where to report a vulnerability: privately, through GitHub.
 - **This file** — how to work on the repo, and the Odoo API notes below.
 
 Read the header of a module before touching it.
