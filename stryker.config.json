@@ -5,5 +5,5 @@
   "coverageAnalysis": "off",
   "concurrency": 4,
   "reporters": ["clear-text", "progress"],
-  "ignorePatterns": ["mutants", "reports", ".stryker-tmp"]
+  "ignorePatterns": ["mutants", "reports", ".stryker-tmp", ".claude"]
 }
