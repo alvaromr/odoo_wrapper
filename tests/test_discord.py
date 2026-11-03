@@ -135,7 +135,7 @@ class DiscordTest(unittest.TestCase):
         self.assertEqual((method, url, body), ("GET", f"{dc.API}/users/@me", None))
         self.assertEqual(
             (headers["Authorization"], headers["User-agent"], headers["Content-type"]),
-            ("Bot tok", dc.USER_AGENT, "application/json"),
+            ("Bot tok", f"DiscordBot (https://github.com/alvaromr/odoo_wrapper, {dc.__version__})", "application/json"),
         )
         self.assertTrue(dc.configured())
         self.assertEqual(os.stat(dc.TOKEN_FILE).st_mode & 0o777, 0o600)

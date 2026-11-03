@@ -59,7 +59,7 @@ import urllib.request
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
-from odoo_wrapper import team
+from odoo_wrapper import __version__, team
 from odoo_wrapper.client import (
     STATE_DIR,
     OdooClient,
@@ -72,7 +72,7 @@ from odoo_wrapper.client import (
 
 API = "https://discord.com/api/v10"
 TOKEN_FILE = os.path.join(STATE_DIR, "discord_token")
-USER_AGENT = "DiscordBot (https://github.com/alvaromr/odoo_wrapper, 1.0)"
+USER_AGENT = f"DiscordBot (https://github.com/alvaromr/odoo_wrapper, {__version__})"
 TIMEOUT = 15
 MESSAGE_MAX = 2000
 FOOTER = "-# Este mensaje es automático: si tienes dudas, escribe a {}."
