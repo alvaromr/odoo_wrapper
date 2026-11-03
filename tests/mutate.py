@@ -13,13 +13,13 @@ import os
 import subprocess
 import sys
 
-from check import ROOT, TOOLS, install, run
+from check import ROOT, TOOLS, install, pythons, run
 
 MUTMUT_PYTHON = "3.12"
 
 
 def python_round():
-    if not install("mutation", MUTMUT_PYTHON):
+    if not (pythons(MUTMUT_PYTHON) and install("mutation", MUTMUT_PYTHON)):
         return 1
     tools = os.path.join(TOOLS, "mutation", "bin")
     env = {**os.environ, "no_proxy": "*", "PATH": os.pathsep.join([tools, os.environ.get("PATH", "")])}

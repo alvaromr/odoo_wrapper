@@ -8,9 +8,10 @@ must match; Ruff takes its target from requires-python itself) up to the one bef
 on COVERAGE_PYTHON measuring every line and branch (branches need 3.14), Biome over the page's JS and CSS and the JS
 tests (format, lint and import order, as biome.jsonc sets), TypeScript checking the page's JS against its JSDoc types
 in strict mode (tsconfig.json), the page's suite with its coverage, and a smoke test of the package as users get it:
-built by uv on the oldest and the newest Python, installed alone, and its two commands run. Each Python step names
-the patch it ran on, which uv picks from what the machine has, so a difference between machines shows. A warning
-fails the Python suites and Biome as an error does. First it checks that node, pnpm and uv are the versions
+built by uv on the oldest and the newest Python, installed alone, and its two commands run. Every Python is uv's
+own, brought up to the latest patch the pinned uv knows before anything runs, since that is the patch users get;
+each Python step names it, so a difference between machines shows. A warning fails the Python suites and Biome as an
+error does, and a deprecation fails the page's suite. First it checks that node, pnpm and uv are the versions
 TOOLCHAIN pins, so every machine runs the gate the same way. Every step runs even after one fails, so a single run
 lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it before each commit, and the gate installs
 that hook itself (git's core.hooksPath) the first time it runs in a clone, so no clone goes without it.
@@ -59,7 +60,7 @@ PYTHON_STEPS = [
 PAGE_STEPS = [
     ("Biome", ["pnpm", "exec", "biome", "ci", "--error-on-warnings"]),
     ("TypeScript", ["node", "node_modules/typescript-7/bin/tsc", "-p", "tsconfig.json"]),
-    ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
+    ("page suite and coverage", ["node", "--throw-deprecation", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
 ]
 
 
@@ -99,18 +100,30 @@ def run(name, command):
 
 def install(name, minor):
     venv = os.path.join(TOOLS, name)
-    made = os.path.isdir(venv) or run(f"{name} tools' environment", ["uv", "venv", "-q", "--python", minor, venv])
+    made = os.path.isdir(venv) or run(f"{name} tools' environment", ["uv", "venv", "-q", *interpreter(minor), venv])
     lock = os.path.join(LOCKS, f"{name}.txt")
     python_bin = os.path.join(venv, "bin", "python")
     return made and run(f"{name} tools", ["uv", "pip", "sync", "-q", "--require-hashes", "--python", python_bin, lock])
 
 
 def tools():
-    return [install("lint", COVERAGE_PYTHON), run("page tools", ["pnpm", "install", "--frozen-lockfile"])]
+    return [
+        pythons(*minors(), COVERAGE_PYTHON),
+        install("lint", COVERAGE_PYTHON),
+        run("page tools", ["pnpm", "install", "--frozen-lockfile"]),
+    ]
 
 
 def python(minor):
-    return ["uv", "run", "--no-project", "--python", minor, "python"]
+    return ["uv", "run", "--no-project", *interpreter(minor), "python"]
+
+
+def interpreter(minor):
+    return ["--managed-python", "--python", minor]
+
+
+def pythons(*minors):
+    return run(f"Python {', '.join(minors)} at their latest patch", ["uv", "python", "install", "--upgrade", *minors])
 
 
 def patch(minor):
@@ -143,10 +156,10 @@ def suites():
 def smoke(minor):
     on = f"on Python {patch(minor)}"
     with tempfile.TemporaryDirectory() as out:
-        if not run(f"package built {on}", ["uv", "build", "--python", minor, "--wheel", "--out-dir", out]):
+        if not run(f"package built {on}", ["uv", "build", *interpreter(minor), "--wheel", "--out-dir", out]):
             return False
         wheel = glob.glob(os.path.join(out, "*.whl"))[0]
-        uvx = ["uvx", "--isolated", "--python", minor, "--from", wheel]
+        uvx = ["uvx", "--isolated", *interpreter(minor), "--from", wheel]
         ran = [run(f"{' '.join(command)}, installed {on}", [*uvx, *command]) for command in COMMANDS]
         return all(ran)
 

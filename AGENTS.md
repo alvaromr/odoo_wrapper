@@ -177,8 +177,9 @@ fixed by the next one.
 ## How to verify changes
 
 Start with the gate, one command that needs uv, pnpm and Node at the versions it pins (`TOOLCHAIN` in
-`tests/check.py`). In the repo it installs only its tools, in folders git ignores (`.tools/`, `node_modules/`),
-and its own pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
+`tests/check.py`). It installs uv's own Python of every version it runs, at the latest patch, where uv keeps them;
+in the repo, only its tools, in folders git ignores (`.tools/`, `node_modules/`), and its own pre-commit hook
+(`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
 python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages, the built package; its header lists each step
