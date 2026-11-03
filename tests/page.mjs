@@ -11,12 +11,19 @@
 // Thursdays, weekends, before nine, the days a fixture crossed a daylight-saving change, the last ones of a year.
 // Under StrykerJS the context also gets __stryker__ with the mutant to switch on: its instrumented code looks for
 // it on the global object, which in a vm context is the sandbox, not node's.
+// The suites never reach the network: loading this file makes every socket connect throw, so a call left unmocked
+// fails its test instead of reaching a real server.
 // Below the harness are the fixtures more than one suite builds on: the personal payload and the management
 // view's week and fixes.
 
 import fs from "node:fs";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+
+net.Socket.prototype.connect = () => {
+  throw new Error("The page suites never reach the network: stub the call that tried to");
+};
 
 const TEMPLATES = new URL("../src/odoo_wrapper/templates/", import.meta.url);
 const JS_DIR = new URL("js/", TEMPLATES);

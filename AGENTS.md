@@ -166,7 +166,9 @@ python3 tests/fix.py                     # formats and applies the tools' safe f
 ```
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
-secret anywhere under the repo, a size cap for source files and every module named in the map above.
+secret anywhere under the repo, a size cap for source files and every module named in the map above. Neither
+suite reaches the network: `tests/helpers.py` and `tests/page.mjs` make every connection fail, so a call left
+unmocked fails its test.
 
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and

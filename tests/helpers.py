@@ -2,7 +2,9 @@
 captured as `LEVEL message` lines.
 
 Nothing here touches the network or the real ~/.odoo_dashboard: temp_state points every module that
-writes there at a temporary directory for the duration of one test.
+writes there at a temporary directory for the duration of one test. Importing this module also refuses the
+network to the whole process, so a call left unmocked fails its test instead of reaching a real server; the suite
+runs with it because the first test module imports it.
 """
 
 import http.client
@@ -10,6 +12,7 @@ import io
 import json
 import logging
 import os
+import socket
 import sys
 import tempfile
 import urllib.parse
@@ -33,6 +36,14 @@ SESSION_HEADER = "session_id=abc123; Expires=Mon, 21 Sep 2026 10:00:00 GMT; Max-
 ROTATED_HEADER = "session_id=rotated; Expires=Mon, 21 Sep 2026 10:00:00 GMT; Max-Age=604800; HttpOnly; Path=/"
 DEVICE_HEADER = "td_id=dev2; Max-Age=7776000; HttpOnly; Path=/; SameSite=Lax"
 TOTP_PAGE = '<form><input type="hidden" name="csrf_token" value="tok1"/><input name="totp_token"/></form>'
+
+
+def no_network(*_args, **_kwargs):
+    raise OSError("The tests never reach the network: mock the call that tried to")
+
+
+socket.socket.connect = socket.socket.connect_ex = no_network
+socket.getaddrinfo = no_network
 
 
 def utc(minutes_ago):
