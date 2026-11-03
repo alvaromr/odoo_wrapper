@@ -6,6 +6,8 @@ dist/
 mutants/
 .stryker-tmp/
 reports/
+node_modules/
+.tools/
 .DS_Store
 *.pem
 .claude/settings.local.json

@@ -15,10 +15,14 @@ TOOLCHAIN pins, so every machine runs the gate the same way. Every step runs eve
 lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it before each commit, and the gate installs
 that hook itself (git's core.hooksPath) the first time it runs in a clone, so no clone goes without it.
 
-The tools come at the versions pinned here: uvx for Ruff and mypy, `uv run` for each Python, `pnpm dlx` for
-Biome and TypeScript. Nothing is
-installed in the repo and nothing reaches the package, whose only requirement is still Python's standard
-library (AGENTS.md, rule 1). Mutation testing is not part of it: it takes minutes (AGENTS.md says how to run it).
+The tools come locked with every dependency they pull in, so each run installs the same files. Ruff and mypy come
+from tests/tools/lint.txt, generated from lint.in with a hash for every file, and installed with the hashes required
+into .tools/lint, a virtual environment git ignores, on COVERAGE_PYTHON; Biome and TypeScript from package.json and
+pnpm-lock.yaml into node_modules, which pnpm-workspace.yaml hardens. TypeScript is there twice: the gate runs the 7
+line through its alias, typescript-7, and `typescript` stays on 6 for StrykerJS (mutate.py says why). The suites run
+on `uv run`, with nothing but the standard library. Nothing reaches the package, whose only requirement is still
+Python's standard library (AGENTS.md, rule 1). Mutation testing is not part of it: it takes minutes (AGENTS.md says
+how to run it).
 """
 
 import glob
@@ -30,14 +34,13 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = ".githooks"
-RUFF = "ruff@0.17.3"
-MYPY = "mypy@2.4.0"
+TOOLS = os.path.join(ROOT, ".tools")
+LOCKS = os.path.join(ROOT, "tests", "tools")
 TYPED_PYTHON = "3.10"
-BIOME = "@biomejs/biome@2.6.3"
-TYPESCRIPT = "typescript@7.0.2"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
     MIN_PYTHON = pinned.read().strip()
 COVERAGE_PYTHON = "3.14"
+LINT = os.path.join(TOOLS, "lint", "bin")
 TOOLCHAIN = {"node": "26.13.0", "pnpm": "12.16.1", "uv": "0.13.6"}
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 NODE_COVERAGE = [
@@ -49,13 +52,13 @@ NODE_COVERAGE = [
 ]
 COMMANDS = (["odoo-dashboard", "--help"], ["odoo"])
 PYTHON_STEPS = [
-    ("Ruff format", ["uvx", RUFF, "format", "--check"]),
-    ("Ruff", ["uvx", RUFF, "check"]),
-    ("mypy", ["uvx", MYPY, "--python-version", TYPED_PYTHON]),
+    ("Ruff format", [os.path.join(LINT, "ruff"), "format", "--check"]),
+    ("Ruff", [os.path.join(LINT, "ruff"), "check"]),
+    ("mypy", [os.path.join(LINT, "mypy"), "--python-version", TYPED_PYTHON]),
 ]
 PAGE_STEPS = [
-    ("Biome", ["pnpm", "dlx", BIOME, "ci", "--error-on-warnings"]),
-    ("TypeScript", ["pnpm", f"--package={TYPESCRIPT}", "dlx", "tsc", "-p", "tsconfig.json"]),
+    ("Biome", ["pnpm", "exec", "biome", "ci", "--error-on-warnings"]),
+    ("TypeScript", ["node", "node_modules/typescript-7/bin/tsc", "-p", "tsconfig.json"]),
     ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
 ]
 
@@ -92,6 +95,18 @@ def run(name, command):
         return True
     print(f"FAIL {name}\n{done.stdout}{done.stderr}")
     return False
+
+
+def install(name, minor):
+    venv = os.path.join(TOOLS, name)
+    made = os.path.isdir(venv) or run(f"{name} tools' environment", ["uv", "venv", "-q", "--python", minor, venv])
+    lock = os.path.join(LOCKS, f"{name}.txt")
+    python_bin = os.path.join(venv, "bin", "python")
+    return made and run(f"{name} tools", ["uv", "pip", "sync", "-q", "--require-hashes", "--python", python_bin, lock])
+
+
+def tools():
+    return [install("lint", COVERAGE_PYTHON), run("page tools", ["pnpm", "install", "--frozen-lockfile"])]
 
 
 def python(minor):
@@ -153,6 +168,7 @@ def main():
         print("FAIL hook: git is not installed")
     passed = [
         toolchain(),
+        *tools(),
         *(run(name, command) for name, command in PYTHON_STEPS),
         *suites(),
         *(run(name, command) for name, command in PAGE_STEPS),

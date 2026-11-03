@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@stryker-mutator/core": "10.1.1",
+    "typescript": "6.0.3",
+    "typescript-7": "npm:typescript@7.0.2"
+  }
+}

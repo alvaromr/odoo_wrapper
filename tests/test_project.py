@@ -6,7 +6,8 @@
   urllib, socket, subprocess, file or thread can reach them, and they never read the clock (CLOCK_READS), print or
   open anything: the edge modules (data.py, team.py, corrections.py) read the rows and send the writes.
 - No secret in any file under the repo, ignored ones included (AGENTS.md, rule 3): private keys and the token
-  formats this project handles or could leak. The working copies of the mutation tools are left out.
+  formats this project handles or could leak. The working copies of the mutation tools and the installed tools
+  (.tools, node_modules) are left out: they hold third-party files, never this project's.
 - No source file past MAX_LINES: past that size a module holds more than one idea and wants splitting.
 - Every module of the package and of the page is named in AGENTS.md's map, so the map cannot fall behind.
 """
@@ -19,7 +20,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGE = os.path.join(ROOT, "src", "odoo_wrapper")
 SCRIPTS = os.path.join(PACKAGE, "templates", "js")
-SKIPPED = {".git", "mutants", ".stryker-tmp", "reports", "__pycache__", "build", "dist", "node_modules"}
+SKIPPED = {".git", "mutants", ".stryker-tmp", "reports", "__pycache__", "build", "dist", "node_modules", ".tools"}
 SECRETS = {
     "private key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     "Discord bot token": re.compile(r"\b[MNO][A-Za-z\d_-]{23,25}\.[A-Za-z\d_-]{6}\.[A-Za-z\d_-]{27,38}\b"),

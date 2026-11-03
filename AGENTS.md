@@ -41,7 +41,10 @@ src/odoo_wrapper/
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
-tests/               unittest + node tests, check.py (the gate), fix.py, mutate.py and release.py; see below
+tests/               unittest + node tests, check.py (the gate), fix.py, mutate.py and release.py, and tools/,
+                     their Python tools locked; see below
+package.json         the gate's Node tools (Biome, TypeScript, StrykerJS), locked in pnpm-lock.yaml; never the
+                     package's: it ships none
 .githooks/           pre-commit: runs the gate before each commit
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
@@ -174,22 +177,24 @@ fixed by the next one.
 ## How to verify changes
 
 Start with the gate, one command that needs uv, pnpm and Node at the versions it pins (`TOOLCHAIN` in
-`tests/check.py`) and installs nothing in the repo but its own pre-commit hook (`.githooks/`, set in git's
-`core.hooksPath` the first time it runs):
+`tests/check.py`). In the repo it installs only its tools, in folders git ignores (`.tools/`, `node_modules/`),
+and its own pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
 python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages, the built package; its header lists each step
 python3 tests/fix.py                     # formats and applies the tools' safe fixes, then runs the gate
 ```
 
-Every tool the checks use is pinned to one exact version, in `tests/check.py` or `tests/mutate.py`; none of them
-reaches the users, whose install needs only uv and Python. setuptools, pinned in `pyproject.toml`, does: it builds
-the package on the user's machine, with the user's Python, so it moves only as far as its last release that runs
-on the oldest Python the package supports. The pins
-move forward rather than freeze: when one is behind its latest stable release (the latest LTS for Node), move it
-in its own commit, once the release is a week old: read the changelog from the pinned version to the new one,
-note what changes here, ask the owner before a major jump, install it, and run the gate and both mutation
-rounds.
+Every tool the checks use is pinned to one exact version, and locked with everything it pulls in: the Python ones
+in `tests/tools/*.in`, compiled with hashes into the `.txt` beside each, and the Node ones in `package.json`, locked
+in `pnpm-lock.yaml`. None of them reaches the users, whose install needs only uv and Python. setuptools, pinned in
+`pyproject.toml`, does: it builds the package on the user's machine, with the user's Python, so it moves only as
+far as its last release that runs on the oldest Python the package supports. The pins move forward rather than
+freeze: when one is behind its latest stable release (the latest LTS for Node), move it in its own commit, once
+the release is a week old: read the changelog from the pinned version to the new one, note what changes here, ask
+the owner before a major jump, change the pin, lock it again (the command at the top of each `.txt`, run in
+`tests/tools/`, or `pnpm install`), and run the gate and both mutation rounds. Locking again also moves what the
+tools pull in, so do it now and then even with no pin to move.
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
 secret anywhere under the repo, a size cap for source files and every module named in the map above. Neither
@@ -212,8 +217,8 @@ which read the repo its copy lacks. It runs each mutant in a forked child, and m
 calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
 unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. Before the tests it runs mypy
 over every mutant, at the gate's version, and counts those mypy rejects as caught: the gate would stop them too.
-That is what makes the type in a `cast` need no pragma. Both rounds run through one script, which pins their
-versions:
+That is what makes the type in a `cast` need no pragma. Both rounds run through one script, with their tools
+locked as the gate's are:
 
 ```bash
 python3 tests/mutate.py      # mutmut over the package (pyproject.toml), then the mutants no test killed
@@ -226,13 +231,13 @@ mutmut counts as a survivor. A mutant reported as timeout ran past mutmut's limi
 in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and in `odoo notices` time out
 only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
 
-The page's JS runs under StrykerJS, through pnpm, with no package.json: `stryker.config.json` points it at
+The page's JS runs under StrykerJS, from `package.json`: `stryker.config.json` points it at
 `node --test`, so every mutant runs the whole page suite and a full round takes about an hour. The suite's files
 run one after another there: Stryker already runs mutants in parallel, and files in parallel inside each one
 overloaded the machine until nearly every mutant timed out. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
-(the header of `tests/page.mjs` says why). It also gets TypeScript, which it needs to copy `tsconfig.json`
-into its sandbox.
+(the header of `tests/page.mjs` says why). It needs TypeScript to copy `tsconfig.json` into its sandbox, and the
+6 line, which `tests/mutate.py`'s header explains.
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
 original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences

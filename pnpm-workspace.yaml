@@ -1,0 +1,6 @@
+# Installs only what pnpm-lock.yaml holds, and only releases a week old or more, from publishers no less trusted
+# than before; no dependency runs a build script.
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+verifyDepsBeforeRun: error
+allowBuilds: {}
