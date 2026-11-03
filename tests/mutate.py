@@ -15,7 +15,7 @@ from check import MYPY, ROOT, TYPESCRIPT
 MUTMUT = "mutmut@3.8.1"
 MUTMUT_PYTEST = "pytest==9.2.0"
 MUTMUT_PYTHON = "3.12"
-STRYKER = "@stryker-mutator/core@10.0.0"
+STRYKER = "@stryker-mutator/core@10.1.1"
 
 
 def python_round():
