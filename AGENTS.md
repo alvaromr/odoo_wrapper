@@ -41,7 +41,7 @@ src/odoo_wrapper/
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
-tests/               unittest + node tests, check.py (the gate), fix.py and mutate.py; see below
+tests/               unittest + node tests, check.py (the gate), fix.py, mutate.py and release.py; see below
 .githooks/           pre-commit: runs the gate before each commit
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
@@ -157,15 +157,15 @@ Every push to `main` is a release, because users install `main` and the dashboar
 looks at releases (`updates.py`'s header says why): a push without one reaches nobody. In the commit that
 goes to `main`, raise `__version__` in `src/odoo_wrapper/__init__.py`, the only place it is written
 (semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit).
-Once `main` is pushed, tag that commit and publish it:
+Once `main` is pushed, publish it from `main`:
 
 ```bash
-git tag -a vX.Y.Z -m vX.Y.Z <commit on main>
-git push origin vX.Y.Z
-gh release create vX.Y.Z --verify-tag --generate-notes
+python3 tests/release.py --dry-run   # the checks, and the commands it would run
+python3 tests/release.py             # tags HEAD vX.Y.Z, pushes the tag and creates the GitHub release
 ```
 
-A tag is never moved or reused; a broken release is fixed by the next one.
+Its header lists what it checks before publishing anything. A tag is never moved or reused; a broken release is
+fixed by the next one.
 
 ## How to verify changes
 
