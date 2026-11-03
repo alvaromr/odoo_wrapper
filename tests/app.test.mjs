@@ -603,7 +603,7 @@ test("the banner lists this person's punch errors and opens their week", async (
     ["Horario habitual", "07:30 – 13:30", "entrada y salida medias · 2 días"],
   );
   for (const tile of [averageTile, balanceTile]) {
-    assert.equal(tile.children[1].style.color, "var(--status-warning)");
+    assert.equal(tile.children[1].className, "value num warn");
     assert.match(
       tile.children.at(-1).textContent,
       /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar o días sin fichar\)$/,
@@ -2990,8 +2990,8 @@ test("the dashboard's texts in their other cases", () => {
   assert.equal(page.document.getElementById("kpis").children.length, 0);
   const tile = (delta) =>
     text(`(() => { renderKpis([{ complete: true, target: 8, total: 8 + ${delta}, delta: ${delta}, error: false, days: [] }]);
-    return document.getElementById("kpis").children[1].children[1].style.color; })()`);
-  assert.deepEqual([tile(0), tile(-2), tile(2)], [undefined, "var(--destructive)", undefined]);
+    return document.getElementById("kpis").children[1].children[1].className; })()`);
+  assert.deepEqual([tile(0), tile(-2), tile(2)], ["value num", "value num down", "value num"]);
 
   page.run(`(() => { const ws = buildWeeks(3); Object.assign(ws[0], { missedDays: 2, openDays: 2, delta: -3 });
     Object.assign(ws[1], { suspect: true, delta: -1 }); Object.assign(ws[2], { delta: -2, complete: true });
@@ -3006,18 +3006,14 @@ test("the dashboard's texts in their other cases", () => {
   assert.equal(first.at(-1), "Bajo objetivo −3h");
   const tone = (col) => {
     col.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-    const color = page.document.getElementById("tip").querySelectorAll(".v").at(-1).style.color;
+    const color = page.document.getElementById("tip").querySelectorAll(".v").at(-1).className;
     col.listeners.pointerleave[0]();
     return color;
   };
-  assert.deepEqual(cols.slice(0, 3).map(tone), [
-    "var(--status-warning)",
-    "var(--status-warning)",
-    "var(--destructive)",
-  ]);
+  assert.deepEqual(cols.slice(0, 3).map(tone), ["v warn", "v warn", "v down"]);
   page.run("rangeShort = false; renderOverview(window.ws)");
   const madeUp = host.children[0].children.filter((g) => g.tagName === "G")[2];
-  assert.equal(tone(madeUp), undefined);
+  assert.equal(tone(madeUp), "v");
 
   const card = page.document.getElementById("weekCal");
   page.run("calOffset = 0; calView = 'objetivo'; renderCalendar()");

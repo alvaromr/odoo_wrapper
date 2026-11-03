@@ -309,8 +309,12 @@ header .sub {
 :is(#tip, .dialog) .t-row .k {
   color: var(--foreground);
 }
-:is(#tip, .dialog) .t-row.warn :is(.k, .v) {
+:is(#tip, .dialog) .t-row.warn :is(.k, .v),
+:is(#tip, .dialog) .t-row .v.warn {
   color: var(--status-warning);
+}
+:is(#tip, .dialog) .t-row .v.down {
+  color: var(--destructive);
 }
 :is(#tip, .dialog) .t-sep {
   border-top: 1px solid var(--border);

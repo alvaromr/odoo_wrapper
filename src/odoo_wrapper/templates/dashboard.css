@@ -330,6 +330,12 @@
   font-weight: 650;
   letter-spacing: -0.02em;
 }
+.kpis .value.warn {
+  color: var(--status-warning);
+}
+.kpis .value.down {
+  color: var(--destructive);
+}
 .kpis .foot {
   font-size: 12px;
   color: var(--muted-foreground);
@@ -796,6 +802,15 @@ td {
 }
 td {
   font-family: var(--font-mono);
+}
+caption {
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  padding-bottom: 8px;
+}
+td.total {
+  font-weight: 650;
 }
 th {
   color: var(--muted-foreground);

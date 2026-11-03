@@ -110,7 +110,7 @@ export function renderKpis(weeks) {
     const c = el("div", "card");
     c.appendChild(el("span", "label", label));
     const v = el("div", "value num", valueText);
-    if (valueCls) v.style.color = `var(--${valueCls})`;
+    if (valueCls) v.classList.add(valueCls);
     c.appendChild(v);
     // Stryker disable next-line ConditionalExpression: every tile is given a foot, so the guard is always true
     if (foot) c.appendChild(el("div", "foot", foot));
@@ -132,7 +132,7 @@ export function renderKpis(weeks) {
     "Media semanal",
     working.length ? fmtHM(working.reduce((a, w) => a + w.total, 0) / working.length) : "—",
     plural(working.length, "semana laborable completa", "semanas laborables completas"),
-    wrongWorking ? "status-warning" : null,
+    wrongWorking ? "warn" : null,
   );
   if (wrongWorking) averageTile.appendChild(unreliable(wrongWorking));
   kpis.appendChild(averageTile);
@@ -140,7 +140,7 @@ export function renderKpis(weeks) {
     "Balance frente al objetivo",
     fmtDelta(balance),
     balance >= 0 ? "acumulado a favor" : "acumulado en contra",
-    wrong ? "status-warning" : balance <= -1 / 60 ? "destructive" : null,
+    wrong ? "warn" : balance <= -1 / 60 ? "down" : null,
   );
   if (wrong) balanceTile.appendChild(unreliable(wrong));
   kpis.appendChild(balanceTile);
@@ -307,8 +307,8 @@ export function renderOverview(weeks) {
         t.appendChild(tipRow("Vacaciones", "toda la semana"));
       } else if (w.complete) {
         const r2 = tipRow(w.delta >= 0 ? "Sobre objetivo" : "Bajo objetivo", fmtDelta(w.delta));
-        const tone = w.error ? "status-warning" : shortWeek(w) ? "destructive" : null;
-        if (tone) /** @type {HTMLElement} */ (r2.querySelector(".v")).style.color = `var(--${tone})`;
+        const tone = w.error ? "warn" : shortWeek(w) ? "down" : null;
+        if (tone) /** @type {HTMLElement} */ (r2.querySelector(".v")).classList.add(tone);
         t.appendChild(r2);
       } else {
         t.appendChild(tipRow("Para el objetivo", fmtHM(Math.max(w.target - w.total, 0))));
@@ -662,9 +662,9 @@ export function renderTable(weeks) {
   const dayCount = hasWeekend ? 7 : 5;
 
   const table = el("table");
-  const cap = el("caption", null, "Horas fichadas por semana y día (horas:minutos). «vac.» = día de vacaciones.");
-  cap.style.cssText = "text-align:left;font-size:12px;color:var(--muted-foreground);padding-bottom:8px";
-  table.appendChild(cap);
+  table.appendChild(
+    el("caption", null, "Horas fichadas por semana y día (horas:minutos). «vac.» = día de vacaciones."),
+  );
   const thead = el("thead");
   const hr = el("tr");
   hr.appendChild(el("th", null, "Semana"));
@@ -686,9 +686,7 @@ export function renderTable(weeks) {
       );
     }
     tr.appendChild(el("td", "dim", fmtClock(w.target)));
-    const tot = el("td", null, fmtClock(w.total));
-    tot.style.fontWeight = "650";
-    tr.appendChild(tot);
+    tr.appendChild(el("td", "total", fmtClock(w.total)));
     tr.appendChild(
       w.complete && w.allVacation && w.total < 0.01
         ? el("td", "dim", "vacaciones")

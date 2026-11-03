@@ -106,7 +106,7 @@ test("the average and the balance count only the finished weeks, the average onl
   p.run("renderKpis(ws)");
   assert.deepEqual(kpis(p), [
     'div.card(span.label "Media semanal", div.value.num "35h", div.foot "2 semanas laborables completas")',
-    'div.card(span.label "Balance frente al objetivo", div.value.num[style.color=var(--destructive)] "−10h", div.foot "acumulado en contra")',
+    'div.card(span.label "Balance frente al objetivo", div.value.num.down "−10h", div.foot "acumulado en contra")',
   ]);
 });
 
@@ -123,7 +123,7 @@ test("the balance tile reads in favour at zero and turns red from a minute short
   );
   assert.equal(
     balance(-1 / 60),
-    'div.card(span.label "Balance frente al objetivo", div.value.num[style.color=var(--destructive)] "−1m", div.foot "acumulado en contra")',
+    'div.card(span.label "Balance frente al objetivo", div.value.num.down "−1m", div.foot "acumulado en contra")',
   );
   assert.equal(
     balance(-1 / 120),
@@ -143,8 +143,8 @@ test("a week with a punch error makes the tiles unreliable, and names how many",
   const note = (n) =>
     `div.foot.warn "⚠ No fiable: ${n} con fichajes incorrectos (jornadas muy largas, entradas sin cerrar o días sin fichar)"`;
   assert.deepEqual(kpis(p), [
-    `div.card(span.label "Media semanal", div.value.num[style.color=var(--status-warning)] "40h", div.foot "2 semanas laborables completas", ${note("1 semana")})`,
-    `div.card(span.label "Balance frente al objetivo", div.value.num[style.color=var(--status-warning)] "+0h", div.foot "acumulado a favor", ${note("2 semanas")})`,
+    `div.card(span.label "Media semanal", div.value.num.warn "40h", div.foot "2 semanas laborables completas", ${note("1 semana")})`,
+    `div.card(span.label "Balance frente al objetivo", div.value.num.warn "+0h", div.foot "acumulado a favor", ${note("2 semanas")})`,
   ]);
 });
 
@@ -338,7 +338,7 @@ test("a column's tooltip tells the week's total, its target, its errors and wher
   p.run("rangeShort = true; renderOverview(ws)");
   const cols = chart(p).children.filter((n) => n.tagName === "G");
   const row = (k, v, color = "") =>
-    `div.t-row(span.k ${JSON.stringify(k)}, span.v${color ? `[style.color=var(--${color})]` : ""} ${JSON.stringify(v)})`;
+    `div.t-row(span.k ${JSON.stringify(k)}, span.v${color ? `.${color}` : ""} ${JSON.stringify(v)})`;
   const note = (text) => `div.t-note.warn ${JSON.stringify(text)}`;
   const title = (text) => `div.t-title ${JSON.stringify(text)}`;
   assert.deepEqual(
@@ -357,9 +357,9 @@ test("a column's tooltip tells the week's total, its target, its errors and wher
         row("Total", "37h"),
         row("Trabajo", "36h"),
         row("Descanso", "1h"),
-        row("Bajo objetivo", "−3h", "status-warning"),
+        row("Bajo objetivo", "−3h", "warn"),
       ],
-      [title("Semana del 21–27 sep"), row("Total", "38h"), row("Bajo objetivo", "−2h", "destructive")],
+      [title("Semana del 21–27 sep"), row("Total", "38h"), row("Bajo objetivo", "−2h", "down")],
       [title("Semana del 28 sep – 4 oct"), row("Total", "42h"), row("Sobre objetivo", "+2h")],
       [
         title("Semana del 5–11 oct"),
@@ -371,7 +371,7 @@ test("a column's tooltip tells the week's total, its target, its errors and wher
         title("Semana del 12–18 oct"),
         row("Total", "1m"),
         row("Objetivo (con ausencias)", "0h"),
-        row("Bajo objetivo", "−40h", "destructive"),
+        row("Bajo objetivo", "−40h", "down"),
       ],
       [
         title("Semana del 19–25 oct"),
@@ -384,7 +384,7 @@ test("a column's tooltip tells the week's total, its target, its errors and wher
         title("Semana del 2–8 nov"),
         row("Total", "30h"),
         note("1 día sin fichar"),
-        row("Bajo objetivo", "−10h", "status-warning"),
+        row("Bajo objetivo", "−10h", "warn"),
       ],
     ],
   );
@@ -906,7 +906,7 @@ test("the table lists the weeks newest first with a column per day, and how each
   const [caption, head, body] = table.children;
   assert.equal(
     sketch(caption),
-    'caption[style.cssText=text-align:left;font-size:12px;color:var(--muted-foreground);padding-bottom:8px] "Horas fichadas por semana y día (horas:minutos). «vac.» = día de vacaciones."',
+    'caption "Horas fichadas por semana y día (horas:minutos). «vac.» = día de vacaciones."',
   );
   assert.equal(
     sketch(head),
@@ -915,14 +915,14 @@ test("the table lists the weeks newest first with a column per day, and how each
   const cells = (tr) => tr.children.map(sketch).join(" | ");
   const dashes = Array(5).fill('td.dim "—"').join(" | ");
   const expected = [
-    `td "26 oct – 1 nov" | ${dashes} | td.dim "0:00" | td[style.fontWeight=650] "0:01" | td "+1m"`,
-    `td "19–25 oct" | ${dashes} | td.dim "0:00" | td[style.fontWeight=650] "0:00" | td.dim "objetivo alcanzado"`,
-    `td "12–18 oct" | ${dashes} | td.dim "40:00" | td[style.fontWeight=650] "39:30" | td.dim "faltan 30m"`,
-    `td "5–11 oct (en curso)" | ${dashes} | td.dim "40:00" | td[style.fontWeight=650] "40:00" | td.dim "objetivo alcanzado"`,
-    `td "28 sep – 4 oct" | ${dashes} | td.dim "40:00" | td[style.fontWeight=650] "41:00" | td "+1h"`,
-    `td "21–27 sep" | td "0:01" | ${Array(4).fill('td.dim "—"').join(" | ")} | td.dim "40:00" | td[style.fontWeight=650] "38:00" | td "−2h"`,
-    `td "14–20 sep" | td "8:00" | td "32:00" | ${Array(3).fill('td.dim "—"').join(" | ")} | td.dim "40:00" | td[style.fontWeight=650] "40:00" | td.warn "fichaje por revisar"`,
-    `td "7–13 sep" | td.dim "vac." | ${Array(4).fill('td.dim "—"').join(" | ")} | td.dim "0:00" | td[style.fontWeight=650] "0:00" | td.dim "vacaciones"`,
+    `td "26 oct – 1 nov" | ${dashes} | td.dim "0:00" | td.total "0:01" | td "+1m"`,
+    `td "19–25 oct" | ${dashes} | td.dim "0:00" | td.total "0:00" | td.dim "objetivo alcanzado"`,
+    `td "12–18 oct" | ${dashes} | td.dim "40:00" | td.total "39:30" | td.dim "faltan 30m"`,
+    `td "5–11 oct (en curso)" | ${dashes} | td.dim "40:00" | td.total "40:00" | td.dim "objetivo alcanzado"`,
+    `td "28 sep – 4 oct" | ${dashes} | td.dim "40:00" | td.total "41:00" | td "+1h"`,
+    `td "21–27 sep" | td "0:01" | ${Array(4).fill('td.dim "—"').join(" | ")} | td.dim "40:00" | td.total "38:00" | td "−2h"`,
+    `td "14–20 sep" | td "8:00" | td "32:00" | ${Array(3).fill('td.dim "—"').join(" | ")} | td.dim "40:00" | td.total "40:00" | td.warn "fichaje por revisar"`,
+    `td "7–13 sep" | td.dim "vac." | ${Array(4).fill('td.dim "—"').join(" | ")} | td.dim "0:00" | td.total "0:00" | td.dim "vacaciones"`,
   ];
   assert.deepEqual(body.children.map(cells), expected);
   assert.deepEqual([body.tagName, ...body.children.map((tr) => tr.tagName)], ["TBODY", ...Array(8).fill("TR")]);
