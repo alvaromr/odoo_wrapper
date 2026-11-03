@@ -2124,6 +2124,10 @@ test("a changed setting is saved, and rolled back when the server refuses it", a
   reply.catch(() => {});
   await page.run("saveState({ lunch_minutes: 70 })");
   assert.equal(page.run("store.state.lunch_minutes"), 45);
+  assert.deepEqual(page.calls.warnings, [
+    "[odoo] saving the shared state failed: Error: HTTP 500",
+    "[odoo] saving the shared state failed: Error: sin red",
+  ]);
 });
 
 test("the state poll repaints only on a change, and reloads after a punch elsewhere", async () => {

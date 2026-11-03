@@ -9,7 +9,7 @@
  *   while Odoo is down comes up by itself once Odoo is back.
  * - Open pages keep up with each other: any punch stamps punched_at in the shared state, the other pages
  *   see it in their next /api/state poll and reload, so clocking in on the phone updates the laptop by
- *   itself. State writes render optimistically and roll back if the request fails.
+ *   itself. State writes render optimistically and roll back if the request fails, leaving why in the console.
  */
 
 import { LastRing } from "./alarms.js";
@@ -37,8 +37,10 @@ export async function saveState(changes) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(changes),
     });
-    store.state = res.ok ? await res.json() : previous;
-  } catch {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    store.state = await res.json();
+  } catch (e) {
+    warned("saving the shared state")(e);
     store.state = previous;
   }
   renderHero();

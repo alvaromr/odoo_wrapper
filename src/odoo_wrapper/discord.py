@@ -26,8 +26,8 @@
   (action_service.js), so that action, created by hand like the Discord field, copies what the category's own
   «Nueva solicitud» button sets (create_request: subject, category, the user as owner, status) and takes
   desde, hasta and motivo from the query. It is web client internals, not an API, so an upgrade of Odoo may
-  break it; without the action, or when it does not load, the button opens the category's empty form, and
-  without the category the message goes without it.
+  break it; without the action, or when it does not load, the button opens the category's empty form (the log
+  says why), and without the category the message goes without it.
 - What it fills (proposal) is the punch to fix as it stands, in the description, and a correction to check:
   an open punch or the longest one of a long day, from its check-in to the hours the day still lacked (never
   past that day's LAST_MINUTE, the check-in itself without a target). A day without punches leaves the period
@@ -51,6 +51,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.parse
@@ -79,6 +80,7 @@ REVIEW = "-# El botón te deja la solicitud preparada: **revisa** bien las horas
 REQUEST_ACTION = "modificacion-fichaje"
 LAST_MINUTE = time(23, 59)
 WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+log = logging.getLogger(__name__)
 
 
 class DiscordError(Exception):
@@ -242,7 +244,8 @@ def prefilled_link(client: OdooClient, day: dict[str, Any] | None) -> str | None
         client.jsonrpc("/web/action/load", {"action_id": REQUEST_ACTION})
     except SessionExpired:
         raise
-    except OdooError:
+    except OdooError as error:
+        log.warning(f"Odoo no carga la acción {REQUEST_ACTION} ({error}): el enlace abre la solicitud vacía")
         return None
     start, end, reason = filled
     period = {"desde": odoo_utc(start), "hasta": odoo_utc(cast("datetime", end))} if start else {}

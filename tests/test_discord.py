@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
-from helpers import ScriptedClient, temp_state
+from helpers import ScriptedClient, logged, temp_state
 
 from odoo_wrapper import discord as dc
 
@@ -385,7 +385,12 @@ class ProposalTest(unittest.TestCase):
         self.assertIsNone(dc.prefilled_link(odoo, None))
         self.assertIsNone(dc.prefilled_link(odoo, dict(open_day, flags=[])))
         odoo.jsonrpc.side_effect = dc.OdooError("no existe")
-        self.assertIsNone(dc.prefilled_link(odoo, open_day))
+        with logged() as out:
+            self.assertIsNone(dc.prefilled_link(odoo, open_day))
+        self.assertEqual(
+            out.getvalue(),
+            "WARNING Odoo no carga la acción modificacion-fichaje (no existe): el enlace abre la solicitud vacía\n",
+        )
         odoo.jsonrpc.side_effect = dc.SessionExpired("caducada")
         with self.assertRaises(dc.SessionExpired):
             dc.prefilled_link(odoo, open_day)
