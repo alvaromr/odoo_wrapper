@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=77"]
+# Exact, so every build of a commit is the same; 77 or later reads the license as an SPDX expression.
+requires = ["setuptools==84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
