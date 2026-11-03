@@ -38,7 +38,7 @@ src/odoo_wrapper/
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
-tests/               unittest + node tests, check.py (the gate) and fix.py; see below
+tests/               unittest + node tests, check.py (the gate), fix.py and mutate.py; see below
 .githooks/           pre-commit: runs the gate before each commit
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
@@ -183,14 +183,14 @@ Mutation testing runs now and then rather than on every commit: it takes a coupl
 copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess and the project's guards,
 which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
 calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
-unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. pytest stays at 9.1, because
-mutmut 3.8.0 reads a test's `_nodeid`, which pytest 9.2 removed. Before the tests it runs mypy over every mutant,
-at the gate's version, and counts those mypy rejects as caught: the gate would stop them too. That is what makes
-the type in a `cast` need no pragma.
+unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. Before the tests it runs mypy
+over every mutant, at the gate's version, and counts those mypy rejects as caught: the gate would stop them too.
+That is what makes the type in a `cast` need no pragma. Both rounds run through one script, which pins their
+versions:
 
 ```bash
-no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 --with mypy==1.18.2 mutmut@3.8.0 run  # pyproject.toml
-no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 --with mypy==1.18.2 mutmut@3.8.0 results  # the mutants no test killed
+python3 tests/mutate.py      # mutmut over the package (pyproject.toml), then the mutants no test killed
+python3 tests/mutate.py js   # StrykerJS over the page's JS (stryker.config.json), about an hour
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
@@ -206,10 +206,6 @@ overloaded the machine until nearly every mutant timed out. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
 (the header of `tests/page.mjs` says why). It also gets TypeScript, which it needs to copy `tsconfig.json`
 into its sandbox.
-
-```bash
-pnpm --package=@stryker-mutator/core@10.0.0 --package=typescript@5.9.3 dlx stryker run  # stryker.config.json
-```
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
 original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences
