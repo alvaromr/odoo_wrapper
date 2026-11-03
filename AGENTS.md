@@ -195,7 +195,9 @@ no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 --with mypy==1.18.2 mutmut@3
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
 that takes the wrong branch would otherwise start a real dashboard and end the test with exit code 0, which
-mutmut counts as a survivor. A mutant reported as timeout made a loop endless, and the suite caught it.
+mutmut counts as a survivor. A mutant reported as timeout ran past mutmut's limit and counts as caught: the ones
+in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and in `odoo notices` time out
+only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
 
 The page's JS runs under StrykerJS, through pnpm, with no package.json: `stryker.config.json` points it at
 `node --test`, so every mutant runs the whole page suite and a full round takes about an hour. The suite's files

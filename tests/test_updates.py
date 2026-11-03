@@ -3,13 +3,15 @@
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
+import time
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import call, patch
 
-from helpers import temp_state
+from helpers import logged, temp_state
 
 from odoo_wrapper import __version__
 from odoo_wrapper import updates as up
@@ -79,17 +81,16 @@ class UpdatesTest(unittest.TestCase):
             {"message": "Not Found"},
         )
         for failure in failures:
-            with self.github(failure), patch.object(up, "log") as log:
+            with self.github(failure), logged() as out:
                 answer = up.ask()
             self.assertEqual(
                 (answer["available"], answer["current"], answer["latest"], answer["url"]),
                 (False, __version__, None, None),
             )
             self.assertTrue(answer["error"].startswith("No se pudo consultar GitHub: "), failure)
-            self.assertTrue(
-                log.warning.call_args.args[0].startswith("No se pudo buscar actualizaciones en GitHub: "), failure
-            )
-            self.assertEqual(len(log.method_calls), 1)
+            lines = out.getvalue().splitlines()
+            self.assertEqual(len(lines), 1, failure)
+            self.assertTrue(lines[0].startswith("WARNING No se pudo buscar actualizaciones en GitHub: "), failure)
 
     def test_an_answer_is_kept_for_hours_and_a_forced_check_reuses_one_younger_than_a_minute(self):
         clock = [1000.0]
@@ -126,6 +127,24 @@ entrypoints = [
 EDITABLE_RECEIPT = '[tool]\nrequirements = [{ name = "odoo-wrapper", editable = "/repo" }]\n'
 
 
+class Replaced(BaseException):
+    """What execve never returns from: the process is gone."""
+
+
+class FakeTimer:
+    """Stands in for threading.Timer: records what is scheduled and runs it only when the test fires it."""
+
+    def __init__(self, scheduled, delay, function, args):
+        self.delay, self.function, self.args, self.started = delay, function, args, False
+        scheduled.append(self)
+
+    def start(self):
+        self.started = True
+
+    def fire(self):
+        self.function(*self.args)
+
+
 class InstallTest(unittest.TestCase):
     def setUp(self):
         self.home = temp_state(self)
@@ -134,24 +153,32 @@ class InstallTest(unittest.TestCase):
         os.makedirs(os.path.join(self.prefix, "bin"))
         self.installed = os.path.join(self.prefix, "bin", "python")
         self.uv = os.path.join(self.home, "uv")
-        self.runs = []
-        self.update_skills = up.update_skills
+        self.claude = os.path.join(self.home, "claude")
+        self.programs = {"uv": self.uv}
+        self.runs, self.held, self.timers = [], [], []
+        self.out = io.StringIO()
+        capture = logged(self.out)
+        capture.__enter__()
+        self.addCleanup(capture.__exit__, None, None, None)
         patches = [
             patch.object(up.sys, "prefix", self.prefix),
-            patch.object(up, "find", return_value=self.uv),
-            patch.object(up, "update_skills", return_value=""),
-            patch.object(up.threading, "Timer"),
-            patch.object(up.process, "hold"),
-            patch.object(up.process, "release"),
-            patch.object(up, "log"),
+            patch.dict(os.environ, {"HOME": self.home}),
+            patch.object(up, "SYSTEM_BINS", ()),
+            patch.object(up.shutil, "which", side_effect=lambda program: self.programs.get(program)),
+            patch.object(up.threading, "Timer", new=lambda *args: FakeTimer(self.timers, *args)),
         ]
-        self.skills, self.timer, self.hold, self.release, self.log = [p.start() for p in patches][2:]
         for p in patches:
+            p.start()
             self.addCleanup(p.stop)
+        self.which = up.shutil.which
+        self.addCleanup(up.process._held.clear)
         self.addCleanup(lambda: up._installing.locked() and up._installing.release())
 
-    def logged(self):
-        return [(level, *args) for level, args, _ in self.log.method_calls]
+    def said(self):
+        lines = self.out.getvalue().splitlines()
+        self.out.seek(0)
+        self.out.truncate()
+        return lines
 
     def with_receipt(self, text):
         with open(os.path.join(self.prefix, up.RECEIPT), "w", encoding="utf-8") as f:
@@ -165,88 +192,83 @@ class InstallTest(unittest.TestCase):
             result = results.pop(0)
             if isinstance(result, Exception):
                 raise result
-            if creates and command[1:3] == ["tool", "install"]:
-                open(self.installed, "w").close()
+            if command[1:3] == ["tool", "install"]:
+                self.held.append(up.process._held.is_set())
+                if creates:
+                    open(self.installed, "w").close()
             return result
 
         return patch.object(up.subprocess, "run", side_effect=run)
 
     def test_a_program_is_found_on_the_path_or_where_its_installers_put_it(self):
-        patch.stopall()
-        with patch.object(up.shutil, "which", return_value="/path/uv") as which:
-            self.assertEqual(up.find("uv"), "/path/uv")
-        which.assert_called_once_with("uv")
+        self.programs = {"uv": "/path/uv"}
+        self.assertEqual(up.find("uv"), "/path/uv")
+        self.which.assert_called_once_with("uv")
+        self.programs = {}
         system = os.path.join(self.home, "system")
         os.makedirs(system)
         open(os.path.join(system, "uv"), "w").close()
-        with (
-            patch.object(up.shutil, "which", return_value=None),
-            patch.dict(os.environ, {"HOME": self.home}),
-            patch.object(up, "SYSTEM_BINS", (system,)),
-        ):
+        with patch.object(up, "SYSTEM_BINS", (system,)):
             self.assertEqual(up.find("uv"), os.path.join(system, "uv"))
         local = os.path.join(self.home, ".local", "bin")
         os.makedirs(local)
-        with (
-            patch.object(up.shutil, "which", return_value=None),
-            patch.dict(os.environ, {"HOME": self.home}),
-            patch.object(up, "SYSTEM_BINS", ()),
-        ):
+        self.assertIsNone(up.find("uv"))
+        open(os.path.join(local, "uv"), "w").close()
+        self.assertEqual(up.find("uv"), os.path.join(local, "uv"))
+        with patch.object(up.sys, "platform", "win32"):
             self.assertIsNone(up.find("uv"))
-            open(os.path.join(local, "uv"), "w").close()
-            self.assertEqual(up.find("uv"), os.path.join(local, "uv"))
-            with patch.object(up.sys, "platform", "win32"):
-                self.assertIsNone(up.find("uv"))
 
     def test_the_skills_are_updated_when_claude_has_the_plugin_and_only_a_failure_is_reported(self):
         listed = Ran(stdout=json.dumps([{"id": "other@x"}, {"id": up.PLUGIN}]))
         cases = [
-            (None, [], "", 0),
-            (self.uv, [Ran(stdout='[{"id": "other@x"}]')], "", 1),
-            (self.uv, [listed, Ran()], "", 2),
-            (self.uv, [listed, Ran(stdout="Plugin updated", stderr="notice")], "", 2),
-            (self.uv, [listed, Ran(1, stdout="", stderr="marketplace not found")], "marketplace not found", 2),
+            (False, [], "", 0),
+            (True, [Ran(stdout='[{"id": "other@x"}]')], "", 1),
+            (True, [listed, Ran()], "", 2),
+            (True, [listed, Ran(stdout="Plugin updated", stderr="notice")], "", 2),
+            (True, [listed, Ran(1, stdout="", stderr="marketplace not found")], "marketplace not found", 2),
             (
-                self.uv,
+                True,
                 [subprocess.CalledProcessError(1, "claude")],
                 "Command 'claude' returned non-zero exit status 1.",
                 1,
             ),
-            (self.uv, [Ran(stdout="<html>")], "Expecting value: line 1 column 1 (char 0)", 1),
+            (True, [Ran(stdout="<html>")], "Expecting value: line 1 column 1 (char 0)", 1),
         ]
-        for claude, answers, failure, calls in cases:
+        for has_claude, answers, failure, calls in cases:
             self.runs = []
-            with patch.object(up, "find", return_value=claude), self.uv_answers(*answers):
-                self.assertEqual(self.update_skills(), failure)
+            self.programs = {"claude": self.claude} if has_claude else {}
+            with self.uv_answers(*answers):
+                self.assertEqual(up.update_skills(), failure)
             self.assertEqual(len(self.runs), calls)
-            logged = [("warning", f"No se pudieron actualizar las skills de Claude Code: {failure}")] if failure else []
-            self.assertEqual(self.logged(), logged)
-            self.log.reset_mock()
+            said = [f"WARNING No se pudieron actualizar las skills de Claude Code: {failure}"] if failure else []
+            self.assertEqual(self.said(), said)
         self.runs = []
-        with patch.object(up, "find", return_value=self.uv) as find, self.uv_answers(listed, Ran()):
-            self.update_skills()
-        find.assert_called_once_with("claude")
+        self.which.reset_mock()
+        self.programs = {"claude": self.claude}
+        with self.uv_answers(listed, Ran()):
+            up.update_skills()
+        self.which.assert_called_once_with("claude")
         quiet = {"capture_output": True, "text": True, "stdin": subprocess.DEVNULL, "timeout": up.CLAUDE_TIMEOUT}
         self.assertEqual(
             self.runs,
             [
-                ([self.uv, "plugin", "list", "--json"], dict(quiet, check=True)),
-                ([self.uv, "plugin", "update", up.PLUGIN], dict(quiet, check=False)),
+                ([self.claude, "plugin", "list", "--json"], dict(quiet, check=True)),
+                ([self.claude, "plugin", "update", up.PLUGIN], dict(quiet, check=False)),
             ],
         )
 
     def test_the_development_install_updates_with_git_and_one_without_uv_by_hand(self):
         self.assertEqual(up.how(), "auto")
-        up.find.assert_called_with("uv")
+        self.which.assert_called_with("uv")
         self.with_receipt(EDITABLE_RECEIPT)
         self.assertEqual(up.how(), "git")
         os.remove(os.path.join(self.prefix, up.RECEIPT))
-        with patch.object(up, "find", return_value=None):
-            self.assertEqual(up.how(), "manual")
-            self.assertEqual(
-                up.install([], 8931),
-                (409, {"error": "Esta instalación no se actualiza desde aquí: pídeselo a tu agente"}),
-            )
+        self.programs = {}
+        self.assertEqual(up.how(), "manual")
+        self.assertEqual(
+            up.install([], 8931),
+            (409, {"error": "Esta instalación no se actualiza desde aquí: pídeselo a tu agente"}),
+        )
 
     def test_a_uv_tool_is_replaced_in_its_own_folders(self):
         self.assertEqual(up.placement(""), {})
@@ -267,13 +289,37 @@ class InstallTest(unittest.TestCase):
 
     def test_an_install_runs_uv_from_github_holds_the_watcher_and_restarts_into_the_new_interpreter(self):
         self.with_receipt('[tool]\nrequirements = [{ name = "odoo-wrapper", directory = "/x" }]\n')
-        self.skills.return_value = "marketplace not found"
-        with self.uv_answers(Ran()):
+        self.programs["claude"] = self.claude
+        skills = (Ran(stdout=json.dumps([{"id": up.PLUGIN}])), Ran(1, stderr="marketplace not found"))
+        with (
+            self.uv_answers(*skills, Ran()),
+            patch.object(os, "execve", side_effect=Replaced) as execve,
+            patch.object(up.subprocess, "Popen") as popen,
+            patch.object(os, "_exit") as exit_,
+        ):
             self.assertEqual(
                 up.install(["--host", "0.0.0.0"], 8931), (200, {"ok": True, "skills": "marketplace not found"})
             )
-        self.skills.assert_called_once_with()
-        command, kwargs = self.runs[0]
+            self.assertEqual(self.held, [True])
+            self.assertTrue(up.process._held.is_set())
+            self.assertEqual(
+                [(timer.delay, timer.function, timer.args, timer.started) for timer in self.timers],
+                [(up.RESTART_DELAY, up.process.restart, [["--host", "0.0.0.0"], self.installed], True)],
+            )
+            with self.assertRaises(Replaced):
+                self.timers[0].fire()
+        execve.assert_called_once_with(
+            self.installed,
+            [self.installed, "-c", up.process.INSTALLED_BOOTSTRAP, "--host", "0.0.0.0"],
+            dict(os.environ, **{up.process.UPDATED_ENV: "1"}),
+        )
+        popen.assert_not_called()
+        exit_.assert_not_called()
+        self.assertEqual(
+            [run[0][:3] for run in self.runs[:2]],
+            [[self.claude, "plugin", "list"], [self.claude, "plugin", "update"]],
+        )
+        command, kwargs = self.runs[2]
         version = "{}.{}".format(*sys.version_info[:2])
         self.assertEqual(command, [self.uv, "tool", "install", "--force", "--python", version, up.SOURCE])
         self.assertEqual(
@@ -286,14 +332,14 @@ class InstallTest(unittest.TestCase):
                 "timeout": up.INSTALL_TIMEOUT,
             },
         )
-        up.find.assert_called_with("uv")
-        self.assertEqual(self.logged(), [("info", f"Actualización instalada en {self.installed}: reiniciando…")])
-        self.hold.assert_called_once_with()
-        self.release.assert_not_called()
-        self.timer.assert_called_once_with(
-            up.RESTART_DELAY, up.process.restart, [["--host", "0.0.0.0"], self.installed]
+        self.which.assert_any_call("uv")
+        self.assertEqual(
+            self.said(),
+            [
+                "WARNING No se pudieron actualizar las skills de Claude Code: marketplace not found",
+                f"INFO Actualización instalada en {self.installed}: reiniciando…",
+            ],
         )
-        self.timer.return_value.start.assert_called_once_with()
         self.assertEqual(up.install([], 8931), (409, {"error": "Ya se está instalando una actualización"}))
 
     def test_a_copy_with_no_uv_tool_gets_the_readme_s_install_in_uv_s_folders(self):
@@ -321,11 +367,10 @@ class InstallTest(unittest.TestCase):
             with self.uv_answers(*answers, creates=creates):
                 status, body = up.install([], 8931)
             self.assertEqual((status, body), (502, {"error": f"uv no pudo instalarla: {said}"}))
-            self.assertEqual(self.logged(), [("error", f"uv no pudo instalar la actualización: {said}")])
-            self.log.reset_mock()
-            self.release.assert_called_once_with()
-            self.release.reset_mock()
-            self.timer.assert_not_called()
+            self.assertEqual(self.said(), f"ERROR uv no pudo instalar la actualización: {said}".split("\n"))
+            self.assertEqual(self.held[-1], True)
+            self.assertFalse(up.process._held.is_set())
+            self.assertEqual(self.timers, [])
             self.assertTrue(up._installing.acquire(blocking=False))
             up._installing.release()
         with self.uv_answers(subprocess.CalledProcessError(2, "uv")):
@@ -333,6 +378,7 @@ class InstallTest(unittest.TestCase):
             self.assertEqual(
                 up.install([], 8931), (502, {"error": "uv no responde: Command 'uv' returned non-zero exit status 2."})
             )
+        self.assertFalse(up.process._held.is_set())
         self.assertTrue(up._installing.acquire(blocking=False))
         up._installing.release()
 
@@ -342,8 +388,17 @@ class InstallTest(unittest.TestCase):
             patch.object(up.sys, "platform", "win32"),
             patch.object(up.subprocess, "Popen") as popen,
             patch.object(up.sys, "_base_executable", "C:\\py\\python.exe", create=True),
+            patch.object(os, "_exit") as exit_,
         ):
             self.assertEqual(up.install(["--host", "0.0.0.0"], 8931), (202, {"ok": True, "skills": ""}))
+            self.assertEqual(
+                [(timer.delay, timer.function, timer.args, timer.started) for timer in self.timers],
+                [(up.RESTART_DELAY, exit_, [0], True)],
+            )
+            exit_.assert_not_called()
+            self.timers[0].fire()
+        exit_.assert_called_once_with(0)
+        self.assertFalse(up.process._held.is_set())
         helper = popen.call_args.args[0]
         self.assertEqual(helper[:2], ["C:\\py\\python.exe", "-c"])
         self.assertEqual(
@@ -374,9 +429,8 @@ class InstallTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            self.logged(), [("info", "Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo")]
+            self.said(), ["INFO Actualización en marcha: el panel se cierra para que uv pueda reemplazarlo"]
         )
-        self.timer.assert_called_once_with(up.RESTART_DELAY, os._exit, [0])
 
     def test_the_helper_starts_the_new_dashboard_or_the_old_one_if_uv_failed(self):
         plan = {
@@ -387,25 +441,28 @@ class InstallTest(unittest.TestCase):
             "old": ["old-python", "-c", "old"],
         }
         said = (
-            ("info", "Actualización instalada: arranca la versión nueva"),
-            ("error", "uv no pudo instalar la actualización: boom. Vuelve a arrancar la versión anterior"),
+            "INFO Actualización instalada: arranca la versión nueva",
+            "ERROR uv no pudo instalar la actualización: boom. Vuelve a arrancar la versión anterior",
         )
         for answer, started, updated, words in (
             (Ran(), plan["new"], "1", said[0]),
             (Ran(1, stderr="boom"), plan["old"], None, said[1]),
         ):
             self.runs = []
+            terminal = io.StringIO()
+            terminal.isatty = lambda: True
             with (
                 self.uv_answers(answer),
-                patch.object(up.process, "own_the_output"),
-                patch.object(up.process, "port_taken") as port,
+                patch.object(sys, "stdout", terminal),
+                patch.object(socket.socket, "connect_ex", side_effect=[0, 1]) as connect,
+                patch.object(time, "sleep") as sleep,
                 patch.object(up.subprocess, "Popen") as popen,
             ):
                 up.finish(plan)
-            port.assert_called_once_with(8931, up.HANDOVER_GRACE)
+            self.assertEqual(connect.call_args_list, [call(("127.0.0.1", 8931))] * 2)
+            sleep.assert_called_once_with(0.2)
             self.assertEqual(self.runs[0][1]["env"], dict(os.environ, UV_TOOL_DIR=self.tools))
-            self.assertEqual(self.logged(), [words])
-            self.log.reset_mock()
+            self.assertEqual([line.split(" ", 2)[2] for line in terminal.getvalue().splitlines()], [words])
             self.assertEqual(popen.call_args.args[0], started)
             self.assertEqual(popen.call_args.kwargs["env"].get(up.process.UPDATED_ENV), updated)
             self.assertEqual(popen.call_args.kwargs["env"]["UV_TOOL_DIR"], self.tools)

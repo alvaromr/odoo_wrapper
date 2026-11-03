@@ -189,17 +189,33 @@ class StopLoop(BaseException):
 
 
 class WatchTest(unittest.TestCase):
-    def watch(self, stamp_values, identities, interval):
+    def setUp(self):
+        self.home = temp_state(self)
+
+    def touch(self, tick, names):
+        for name in names:
+            path = os.path.join(self.home, name)
+            if name in tick:
+                with open(path, "w"):
+                    pass
+                os.utime(path, (tick[name], tick[name]))
+            elif os.path.exists(path):
+                os.remove(path)
+
+    def watch(self, ticks, identities, interval):
+        names = sorted({name for tick in ticks for name in tick})
         calls = {"sleep": 0}
+        self.touch(ticks[0], names)
 
         def sleep(seconds):
             self.assertEqual(seconds, pr.WATCH_INTERVAL)
             calls["sleep"] += 1
-            if calls["sleep"] >= len(stamp_values):
+            if calls["sleep"] >= len(ticks):
                 raise StopLoop
+            self.touch(ticks[calls["sleep"]], names)
 
         with (
-            patch.object(pr, "stamps", side_effect=stamp_values),
+            patch.object(pr, "WATCHED", [os.path.join(self.home, name) for name in names]),
             patch.object(time, "sleep", side_effect=sleep),
             patch.object(pr, "NET_INTERVAL", interval),
             patch.object(os, "execve", side_effect=StopLoop) as execv,

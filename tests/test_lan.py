@@ -14,6 +14,34 @@ from helpers import logged, temp_state
 from odoo_wrapper import lan
 
 
+class Machine:
+    """This machine as the system tells it: the name scutil gives, the address it goes out from, and the openssl
+    runs it was asked for, which write their files unless error says otherwise."""
+
+    def __init__(self, name="mac", ip="10.0.0.2"):
+        self.name, self.ip, self.error, self.openssl_runs = name, ip, None, []
+
+    def socket(self, *_args):
+        return Mock(**{"getsockname.return_value": (self.ip, 0)})
+
+    def run(self, command, **kwargs):
+        if command[0] == "scutil":
+            return SimpleNamespace(stdout=f"{self.name}\n")
+        self.openssl_runs.append((command, kwargs))
+        if self.error:
+            raise self.error
+        for flag in ("-keyout", "-out"):
+            with open(command[command.index(flag) + 1], "w") as f:
+                f.write("pem")
+        return SimpleNamespace()
+
+
+def on_machine(test, machine):
+    for patcher in (patch.object(socket, "socket", machine.socket), patch.object(subprocess, "run", machine.run)):
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class NetworkTest(unittest.TestCase):
     def test_lan_ip_from_a_routed_socket(self):
         sock = Mock()
@@ -48,25 +76,20 @@ class NetworkTest(unittest.TestCase):
             self.assertEqual(lan.bonjour_name(), "localhost.local")
 
     def test_the_phone_listens_on_the_lan_address_unless_host_names_another(self):
-        with (
-            patch.object(lan, "bonjour_name", return_value="mac.local"),
-            patch.object(lan, "lan_ip", return_value="10.0.0.2"),
-        ):
-            self.assertEqual(lan.expose(None), "10.0.0.2")
-            self.assertEqual(lan.net_identity(), "mac.local|10.0.0.2")
-            self.assertEqual(lan.expose("0.0.0.0"), "0.0.0.0")
-            self.assertEqual(lan.net_identity(), "mac.local|10.0.0.2")
-            self.assertEqual(lan.expose("127.0.0.1"), "")
-            self.assertEqual(lan.net_identity(), "")
+        on_machine(self, Machine())
+        self.assertEqual(lan.expose(None), "10.0.0.2")
+        self.assertEqual(lan.net_identity(), "mac.local|10.0.0.2")
+        self.assertEqual(lan.expose("0.0.0.0"), "0.0.0.0")
+        self.assertEqual(lan.net_identity(), "mac.local|10.0.0.2")
+        self.assertEqual(lan.expose("127.0.0.1"), "")
+        self.assertEqual(lan.net_identity(), "")
 
 
 class CertTest(unittest.TestCase):
     def setUp(self):
         self.home = temp_state(self)
-        for name, value in (("bonjour_name", "mac.local"), ("lan_ip", "10.0.0.2")):
-            patcher = patch.object(lan, name, return_value=value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        self.machine = Machine()
+        on_machine(self, self.machine)
         which = patch.object(shutil, "which", side_effect=lambda path: path if path == "openssl" else None)
         which.start()
         self.addCleanup(which.stop)
@@ -74,17 +97,11 @@ class CertTest(unittest.TestCase):
         local_only.start()
         self.addCleanup(local_only.stop)
 
-    def openssl(self, cmd, *args, **kwargs):
-        key, cert = cmd[cmd.index("-keyout") + 1], cmd[cmd.index("-out") + 1]
-        for path in (cert, key):
-            with open(path, "w") as f:
-                f.write("pem")
-
     def test_generates_once_per_identity(self):
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged() as out:
+        with logged() as out:
             cert, key = lan.ensure_cert()
             again = lan.ensure_cert()
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(len(self.machine.openssl_runs), 1)
         self.assertEqual(
             "INFO Certificado creado para DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1\n", out.getvalue()
         )
@@ -93,48 +110,53 @@ class CertTest(unittest.TestCase):
         self.assertIn("mac.local-10.0.0.2", key)
         self.assertEqual(again, (cert, key))
         names = "DNS:mac.local,DNS:localhost,IP:10.0.0.2,IP:127.0.0.1"
-        run.assert_called_once_with(
+        self.assertEqual(
+            self.machine.openssl_runs,
             [
-                "openssl",
-                "req",
-                "-x509",
-                "-newkey",
-                "rsa:2048",
-                "-nodes",
-                "-days",
-                "3650",
-                "-subj",
-                "/CN=mac.local",
-                "-addext",
-                f"subjectAltName={names}",
-                "-keyout",
-                key,
-                "-out",
-                cert,
+                (
+                    [
+                        "openssl",
+                        "req",
+                        "-x509",
+                        "-newkey",
+                        "rsa:2048",
+                        "-nodes",
+                        "-days",
+                        "3650",
+                        "-subj",
+                        "/CN=mac.local",
+                        "-addext",
+                        f"subjectAltName={names}",
+                        "-keyout",
+                        key,
+                        "-out",
+                        cert,
+                    ],
+                    {"check": True, "capture_output": True},
+                )
             ],
-            check=True,
-            capture_output=True,
         )
         self.assertEqual(oct(os.stat(key).st_mode & 0o777), "0o600")
         os.remove(key)
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged():
+        with logged():
             self.assertEqual(lan.ensure_cert(), (cert, key))
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(len(self.machine.openssl_runs), 2)
 
     def test_a_new_identity_gets_its_own_pair_and_a_known_one_is_reused(self):
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged():
+        with logged():
             first = lan.ensure_cert()
-            lan.lan_ip.return_value = "10.0.0.3"
+            self.machine.ip = "10.0.0.3"
             second = lan.ensure_cert()
-            lan.lan_ip.return_value = "10.0.0.2"
+            self.machine.ip = "10.0.0.2"
             third = lan.ensure_cert()
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(len(self.machine.openssl_runs), 2)
         self.assertNotEqual(first, second)
         self.assertEqual(first, third)
 
     def test_a_failing_openssl_leaves_no_certificate_and_says_why(self):
+        self.machine.error = OSError("no openssl")
         out = io.StringIO()
-        with patch.object(subprocess, "run", side_effect=OSError("no openssl")), logged(out):
+        with logged(out):
             self.assertIsNone(lan.ensure_cert())
         self.assertEqual(out.getvalue(), f"WARNING {lan.CERT_FAILED.format(error='no openssl')}\n")
         self.assertEqual(lan.phone_access(), {"off": lan.CERT_FAILED.format(error="no openssl")})
@@ -142,32 +164,25 @@ class CertTest(unittest.TestCase):
     def test_openssl_is_looked_up_in_the_git_for_windows_folders_too(self):
         bundled = lan.OPENSSL_CANDIDATES[1]
         shutil.which.side_effect = lambda path: path if path == bundled else None
-        with patch.object(subprocess, "run", side_effect=self.openssl) as run, logged():
+        with logged():
             lan.ensure_cert()
-        self.assertEqual(run.call_args[0][0][0], bundled)
+        self.assertEqual(self.machine.openssl_runs[-1][0][0], bundled)
         shutil.which.side_effect = lambda path: None
         out = io.StringIO()
-        with patch.object(subprocess, "run") as run, logged(out):
-            lan.lan_ip.return_value = "10.0.0.3"
+        self.machine.ip = "10.0.0.3"
+        with logged(out):
             self.assertIsNone(lan.ensure_cert())
-        run.assert_not_called()
+        self.assertEqual(len(self.machine.openssl_runs), 1)
         self.assertEqual(out.getvalue(), f"WARNING {lan.NO_OPENSSL}\n")
         self.assertEqual(lan.phone_access(), {"off": lan.NO_OPENSSL})
 
     def test_slug_strips_unsafe_characters(self):
-        with (
-            patch.object(lan, "bonjour_name", return_value="Ana’s Mac.local"),
-            patch.object(subprocess, "run", side_effect=self.openssl),
-            logged(),
-        ):
+        self.machine.name = "Ana’s Mac"
+        with logged():
             cert, key = lan.ensure_cert()
         self.assertEqual(os.path.basename(cert), "cert-Ana_s_Mac.local-10.0.0.2.pem")
         private = os.path.join(self.home, "new")
-        with (
-            patch.object(lan, "STATE_DIR", private),
-            patch.object(subprocess, "run", side_effect=self.openssl),
-            logged(),
-        ):
+        with patch.object(lan, "STATE_DIR", private), logged():
             lan.ensure_cert()
         self.assertEqual(oct(os.stat(private).st_mode & 0o777), "0o700")
         allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
@@ -183,11 +198,8 @@ class PhoneTest(unittest.TestCase):
         self.assertEqual(lan.phone_access(), {"off": lan.HOST_OPTION})
 
     def test_urls(self):
-        with (
-            patch.dict(lan._lan, off=""),
-            patch.object(lan, "lan_ip", return_value="10.0.0.2"),
-            patch.object(lan, "bonjour_name", return_value="mac.local"),
-        ):
+        on_machine(self, Machine())
+        with patch.dict(lan._lan, off=""):
             self.assertEqual(
                 lan.phone_access(), {"url": "https://10.0.0.2:8443/", "name_url": "https://mac.local:8443/"}
             )

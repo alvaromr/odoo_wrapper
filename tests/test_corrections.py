@@ -1,9 +1,10 @@
 """Unit tests for the day dialog's writes: correcting and adding punches, approving requests, the lost check-in."""
 
 import unittest
-import unittest.mock
 from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
+
+import helpers  # noqa: F401 - puts the package on the path and refuses the network when this file runs alone
 
 from odoo_wrapper import corrections as co
 from odoo_wrapper import data as dt
@@ -18,6 +19,10 @@ def at(day, hour, minute=0):
 
 
 class CorrectionsTest(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(dt.drop_data_cache)
+        dt._data_cache[("sid", None)] = (0, {})
+
     def client(self, answers=None, fail=None):
         calls = []
 
@@ -34,15 +39,14 @@ class CorrectionsTest(unittest.TestCase):
 
     def test_a_punch_is_corrected_and_the_caches_dropped(self):
         client = self.client({"read": [{"employee_id": [7, "x"], "check_out": at(0, 17)}]})
-        with unittest.mock.patch.object(dt, "drop_data_cache") as drop:
-            status, body = co.save_attendance(
-                client, {"id": 31512, "check_in": self.iso(0, 9), "check_out": self.iso(0, 17, 40)}
-            )
+        status, body = co.save_attendance(
+            client, {"id": 31512, "check_in": self.iso(0, 9), "check_out": self.iso(0, 17, 40)}
+        )
         self.assertEqual((status, body), (200, {"ok": True, "lost_entry": None}))
         self.assertEqual(
             client.calls[1], ("hr.attendance", "write", [[31512], {"check_in": at(0, 9), "check_out": at(0, 17, 40)}])
         )
-        drop.assert_called_once()
+        self.assertEqual(dt._data_cache, {})
 
     def test_shortening_into_the_same_day_warns_when_the_next_check_in_would_be_lost(self):
         body = {"id": 1, "check_in": self.iso(0, 16, 7), "check_out": self.iso(0, 17, 40)}
@@ -122,10 +126,6 @@ class CorrectionsTest(unittest.TestCase):
 
     def test_a_request_is_approved_as_the_session_user(self):
         client = self.client()
-        with unittest.mock.patch.object(dt, "drop_data_cache") as drop:
-            self.assertEqual(co.approve_request(client, "552"), (200, {"ok": True}))
-        self.assertEqual(client.calls, [("approval.request", "action_approve", [[552]])])
-        drop.assert_called_once()
         self.assertEqual(co.approve_request(client, None), (400, {"error": "Solicitud no válida: None"}))
         self.assertEqual(
             co.approve_request(self.client(fail={"action_approve": OdooError("no eres aprobador")}), 1),
@@ -133,18 +133,22 @@ class CorrectionsTest(unittest.TestCase):
         )
         with self.assertRaises(SessionExpired):
             co.approve_request(self.client(fail={"action_approve": SessionExpired("caducada")}), 1)
+        self.assertEqual(list(dt._data_cache), [("sid", None)])
+        self.assertEqual(co.approve_request(client, "552"), (200, {"ok": True}))
+        self.assertEqual(client.calls, [("approval.request", "action_approve", [[552]])])
+        self.assertEqual(dt._data_cache, {})
 
     def test_a_punch_is_deleted_for_good(self):
         client = self.client()
-        with unittest.mock.patch.object(dt, "drop_data_cache") as drop:
-            self.assertEqual(co.delete_attendance(client, "31512"), (200, {"ok": True}))
-        self.assertEqual(client.calls, [("hr.attendance", "unlink", [[31512]])])
-        drop.assert_called_once()
         self.assertEqual(co.delete_attendance(client, None), (400, {"error": "Fichaje no válido: None"}))
         self.assertEqual(
             co.delete_attendance(self.client(fail={"unlink": OdooError("no puedes borrarlo")}), 1),
             (409, {"error": "no puedes borrarlo"}),
         )
+        self.assertEqual(list(dt._data_cache), [("sid", None)])
+        self.assertEqual(co.delete_attendance(client, "31512"), (200, {"ok": True}))
+        self.assertEqual(client.calls, [("hr.attendance", "unlink", [[31512]])])
+        self.assertEqual(dt._data_cache, {})
 
 
 if __name__ == "__main__":

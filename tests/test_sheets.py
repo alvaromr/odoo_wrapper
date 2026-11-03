@@ -70,9 +70,12 @@ class CredentialsTest(unittest.TestCase):
 
 class SheetsTest(unittest.TestCase):
     def setUp(self):
-        patcher = patch.object(sh, "credentials", return_value={k: EXPORTED[k] for k in sh.CREDENTIALS})
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (
+            patch.object(sh.shutil, "which", return_value="/bin/gws"),
+            patch.object(sh.subprocess, "run", return_value=SimpleNamespace(stdout=EXPORTED_OUTPUT)),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def sheets(self, *replies):
         sheets = sh.Sheets("hoja")

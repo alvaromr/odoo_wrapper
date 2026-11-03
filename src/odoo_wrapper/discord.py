@@ -232,7 +232,7 @@ def notice_day(client: OdooClient, employee: int | None, iso: Any) -> dict[str, 
     except (TypeError, ValueError):
         return None
     found = next((e for e in team.fetch_team(client, (monday,))["employees"] if e["id"] == employee), None)
-    return next((d for d in found["days"] if d["date"] == iso), None) if found else None
+    return next(d for d in found["days"] if d["date"] == iso) if found else None
 
 
 def prefilled_link(client: OdooClient, day: dict[str, Any] | None) -> str | None:

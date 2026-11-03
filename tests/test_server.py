@@ -1,7 +1,8 @@
 """Unit tests for the HTTP side: Odoo sessions as login, the brute-force throttle and the request handler.
 
 The handler is driven directly, without sockets: a request is a Handler built by hand with a fake
-connection, headers and body, and the answer is read back from its output buffer.
+connection, headers and body, and the answer is read back from its output buffer. Odoo is a ServerOdoo handed out
+by the server's own client factory, Discord and GitHub answer at urlopen, and the rest of the package runs for real.
 """
 
 import http.client
@@ -9,13 +10,20 @@ import io
 import json
 import os
 import re
+import shutil
+import socket
+import subprocess
 import sys
+import threading
 import time
 import unittest
+import urllib.request
+from contextlib import contextmanager
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import CONFIG, logged, temp_state
+from helpers import CONFIG, NORMAL, ScriptedClient, logged, temp_state, utc
 
 from odoo_wrapper import client as c
 from odoo_wrapper import data as dt
@@ -25,8 +33,92 @@ from odoo_wrapper import state as st
 from odoo_wrapper.client import AccessDenied, OdooDown, OdooError, SessionExpired, TotpRequired
 
 
+class ServerOdoo(ScriptedClient):
+    """The scripted Odoo plus what the server asks of a client besides data: its rights, its session check, its
+    logout and someone else's employee, each able to fail, with a count of what was asked."""
+
+    url = "https://odoo.example"
+
+    def __init__(self, rows=None, edits=False, failure=None, **kw):
+        super().__init__(rows, **kw)
+        self.edits, self.failure, self.session_error, self.logout_error = edits, failure, None, None
+        self.sessions, self.loaded_others = [], []
+        self.session_checks = self.rights_asked = self.logouts = 0
+
+    def factory(self, session_id):
+        self.sessions.append(session_id)
+        return self
+
+    def session_info(self):
+        self.session_checks += 1
+        if self.session_error:
+            raise self.session_error
+        return super().session_info()
+
+    def load_employee(self):
+        if self.failure:
+            raise self.failure
+
+    def load_other(self, employee):
+        self.load_employee()
+        self.loaded_others.append(employee)
+        self.employee_id = employee
+
+    def sees_others(self):
+        self.rights_asked += 1
+        return self.team
+
+    def edits_punches(self):
+        return self.edits
+
+    def logout(self):
+        self.logouts += 1
+        if self.logout_error:
+            raise self.logout_error
+
+
+class FakeDiscord:
+    """Discord's API at urlopen: answers the bot's name and a direct channel, and records what was asked."""
+
+    ANSWERS = {"/users/@me": {"username": "Odoo"}, "/users/@me/channels": {"id": "chan"}}
+
+    def __init__(self):
+        self.requests = []
+
+    def urlopen(self, request, timeout):
+        path = request.full_url.removeprefix(sv.discord.API)
+        body = json.loads(request.data) if request.data else None
+        self.requests.append((path, request.get_header("Authorization"), body))
+        return io.BytesIO(json.dumps(self.ANSWERS.get(path, {})).encode())
+
+
+class UdpSocket:
+    def __init__(self, *_args):
+        pass
+
+    def connect(self, _address):
+        pass
+
+    def getsockname(self):
+        return ("10.0.0.2", 40000)
+
+    def close(self):
+        pass
+
+
+@contextmanager
+def on_the_lan():
+    with (
+        patch.object(socket, "socket", UdpSocket),
+        patch.object(subprocess, "run", return_value=SimpleNamespace(stdout="mac\n")),
+    ):
+        lan.expose("10.0.0.2")
+        yield
+
+
 class SessionTest(unittest.TestCase):
     def setUp(self):
+        temp_state(self)
         sv._sessions.clear()
         self.addCleanup(sv._sessions.clear)
 
@@ -41,30 +133,34 @@ class SessionTest(unittest.TestCase):
             self.assertEqual(sv.session_cookie(self.cookie(value)), "", value)
 
     def test_nothing_is_valid_without_a_configuration(self):
-        with patch.object(sv, "read_config", return_value={}), patch.object(sv, "new_client") as client:
+        odoo = ServerOdoo()
+        with patch.object(sv, "new_client", odoo.factory):
             self.assertFalse(sv.session_ok("sid"))
-        client.assert_not_called()
+        self.assertEqual(odoo.sessions, [])
 
     def test_an_unknown_session_is_checked_once_against_odoo(self):
-        with patch.object(sv, "read_config", return_value={"url": "u"}), patch.object(sv, "new_client") as client:
-            client.return_value.uid = 4
+        c.save_config(**CONFIG)
+        odoo = ServerOdoo()
+        odoo.uid = 4
+        with patch.object(sv, "new_client", odoo.factory):
             self.assertFalse(sv.session_ok(""))
             self.assertTrue(sv.session_ok("sid"))
             self.assertTrue(sv.session_ok("sid"))
-        client.assert_called_once_with("sid")
-        client.return_value.session_info.assert_called_once()
+        self.assertEqual((odoo.sessions, odoo.session_checks), (["sid"], 1))
         self.assertEqual(sv._sessions, {"sid": 4})
 
     def test_an_expired_session_is_refused(self):
-        with patch.object(sv, "read_config", return_value={"url": "u"}), patch.object(sv, "new_client") as client:
-            client.return_value.session_info.side_effect = SessionExpired("caducada")
+        c.save_config(**CONFIG)
+        odoo = ServerOdoo()
+        odoo.session_error = SessionExpired("caducada")
+        with patch.object(sv, "new_client", odoo.factory):
             self.assertFalse(sv.session_ok("sid"))
         self.assertNotIn("sid", sv._sessions)
 
     def test_new_client_takes_the_configured_server_and_the_cached_uid(self):
         sv._sessions["sid"] = 4
-        with patch.object(sv, "load_config", return_value={"url": "https://o/", "db": "db", "user": "u"}):
-            client, fresh = sv.new_client("sid"), sv.new_client("other")
+        c.save_config("https://o/", "db", "u")
+        client, fresh = sv.new_client("sid"), sv.new_client("other")
         self.assertEqual((client.url, client.db, client.session_id, client.uid), ("https://o", "db", "sid", 4))
         self.assertIsNone(fresh.uid)
 
@@ -146,11 +242,11 @@ class ClockEdgeTest(unittest.TestCase):
         self.assertEqual(sv.spend_pairing(token), "sid")
 
     def test_a_right_is_asked_again_once_its_time_is_up(self):
-        client = SimpleNamespace(session_id="sid", sees_others=unittest.mock.Mock(return_value=True))
-        sv.sees_others(client)
+        odoo = ServerOdoo(team=True)
+        sv.sees_others(odoo)
         self.now += sv.SEES_TTL
-        sv.sees_others(client)
-        self.assertEqual(client.sees_others.call_count, 2)
+        sv.sees_others(odoo)
+        self.assertEqual(odoo.rights_asked, 2)
 
 
 class FakeTLS:
@@ -159,10 +255,11 @@ class FakeTLS:
 
 class HandlerTest(unittest.TestCase):
     def setUp(self):
-        temp_state(self)
-        patcher = patch.dict(lan._lan, off="sin red")
+        self.home = temp_state(self)
+        patcher = patch.dict(lan._lan)
         patcher.start()
         self.addCleanup(patcher.stop)
+        lan.expose("127.0.0.1")
         c.save_config(**CONFIG)
         sv._sessions["sid"] = 3
         self.addCleanup(sv._sessions.clear)
@@ -311,188 +408,276 @@ class HandlerTest(unittest.TestCase):
         self.assertIn(b"Introduce tu usuario", self.get("/empleado?id=9", cookie=None)[2])
 
     def test_the_permission_to_read_others_is_remembered_per_session(self):
-        client = SimpleNamespace(session_id="sid", calls=0)
-
-        def ask():
-            client.calls += 1
-            return True
-
-        client.sees_others = ask
-        self.assertTrue(sv.sees_others(client))
-        self.assertTrue(sv.sees_others(client))
-        self.assertEqual(client.calls, 1)
-        with patch.object(sv, "SEES_TTL", -1):
-            sv.sees_others(client)
-        self.assertEqual(client.calls, 2)
-        with patch.object(sv, "new_client"):
+        odoo = ServerOdoo(team=True)
+        with patch.object(sv, "new_client", odoo.factory):
+            self.assertTrue(sv.sees_others(odoo))
+            self.assertTrue(sv.sees_others(odoo))
+            self.assertEqual(odoo.rights_asked, 1)
+            with patch.object(sv, "SEES_TTL", -1):
+                sv.sees_others(odoo)
+            self.assertEqual(odoo.rights_asked, 2)
             self.post("/api/logout", {})
         self.assertNotIn("sid", sv._rights)
 
     def test_someone_elses_data(self):
         self.assertEqual(self.get("/api/data?employee=x")[0], 400)
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch,
-            patch.object(sv.team, "requests_to_approve", return_value=[{"id": 552}]) as requests,
-        ):
-            client.return_value.sees_others.return_value = False
+        pending = {
+            "id": 552,
+            "request_owner_id": [11, "Ana"],
+            "date_start": utc(60),
+            "date_end": None,
+            "reason": "<p>Olvidé  fichar</p>",
+            "request_status": "pending",
+            "user_status": "pending",
+        }
+        odoo = ServerOdoo({"hr.employee": [{"user_id": [11, "Ana"]}], "approval.request": [pending]})
+
+        def attendance_reads():
+            return sum(model == "hr.attendance" for model, *_ in odoo.queries)
+
+        with patch.object(sv, "new_client", odoo.factory):
             self.assertEqual(self.get("/api/data?employee=9")[:3:2], (403, {"error": sv.NOT_TEAM}))
-            client.assert_called_with("sid")
-            fetch.assert_not_called()
-            client.return_value.sees_others.return_value = True
-            client.return_value.edits_punches.return_value = False
+            self.assertEqual((odoo.sessions, odoo.queries), (["sid"], []))
+            odoo.team = True
             sv._rights.clear()
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
+            asked = {
+                "from": dt.local(pending["date_start"]).isoformat(),
+                "id": 552,
+                "reason": "Olvidé fichar",
+                "status": "pending",
+                "to": None,
+                "user": 11,
+                "can_approve": True,
+            }
             self.assertEqual(
                 (payload["phone"], payload["state"], payload["requests"], payload["can_edit"], payload["sessions"]),
-                (None, st.OTHER_STATE, [{"id": 552}], False, []),
+                (None, st.OTHER_STATE, [asked], False, []),
             )
-            requests.assert_called_with(client.return_value, 9)
-            fetch.assert_called_with(client.return_value, fresh=True, employee=9)
+            self.assertEqual((payload["employee_id"], odoo.loaded_others), (9, [9]))
+            self.assertEqual(attendance_reads(), 1)
+            self.get("/api/data?employee=9")
+            self.assertEqual(attendance_reads(), 1)
+            self.get("/api/data?employee=9&fresh")
+            self.assertEqual(attendance_reads(), 2)
+            self.assertEqual(sum(model == "approval.request" for model, *_ in odoo.queries), 3)
 
     def test_the_own_request_link_needs_a_session_and_takes_only_the_date(self):
         self.assertEqual(self.get("/api/request?date=2026-10-19", cookie=None)[0], 401)
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.discord, "own_request", return_value=(200, {"url": "L"})) as own,
-        ):
-            self.assertEqual(self.get("/api/request?date=2026-10-19&employee=9")[:3:2], (200, {"url": "L"}))
-            own.assert_called_once_with(client.return_value, "2026-10-19")
-            client.assert_called_once_with("sid")
+        odoo = ServerOdoo({"approval.category": [{"id": 12}]})
+        with patch.object(sv, "new_client", odoo.factory):
+            status, _, payload = self.get("/api/request?date=2026-10-19&employee=9")
+        self.assertEqual(
+            (status, payload), (200, {"url": "https://odoo.example/odoo/approvals/12/approval.request/new"})
+        )
+        self.assertEqual((odoo.sessions, odoo.loaded_others), (["sid"], []))
+        roster = next(q for q in odoo.queries if q[1] == "read_group")
+        self.assertIn(("check_in", "<", sv.team.odoo_time(sv.date(2026, 10, 26))), roster[2][0])
 
     def test_the_update_check_needs_a_session_and_forces_a_check_only_when_fresh(self):
         self.assertEqual(self.get("/api/update", cookie=None)[0], 401)
-        answer = {"available": True, "current": "1.0.0", "latest": "1.1.0", "url": "U", "error": ""}
+        clock, asked = [1000.0], []
+
+        def github(request, timeout):
+            asked.append(request.full_url)
+            return io.BytesIO(json.dumps({"tag_name": f"v1.{len(asked)}.0", "html_url": "U"}).encode())
+
+        sv.updates._last.update(at=None, answer=None)
+        self.addCleanup(sv.updates._last.update, at=None, answer=None)
         with (
-            patch.object(sv.updates, "check", return_value=answer) as check,
-            patch.object(sv.updates, "how", return_value="auto"),
+            patch.object(sv.updates, "__version__", "1.0.0"),
+            patch.object(urllib.request, "urlopen", github),
+            patch.object(time, "monotonic", lambda: clock[0]),
+            patch.object(sys, "prefix", self.home),
+            patch.object(shutil, "which", lambda program: f"/bin/{program}"),
         ):
+            answer = {"available": True, "current": "1.0.0", "latest": "1.1.0", "url": "U", "error": ""}
             self.assertEqual(self.get("/api/update")[:3:2], (200, dict(answer, local=True, how="auto")))
-            self.assertEqual(self.get("/api/update?fresh", ip="10.0.0.9")[2]["local"], False)
-        self.assertEqual(check.call_args_list, [((False,),), ((True,),)])
+            self.assertEqual(self.get("/api/update?fresh", ip="10.0.0.9")[2]["latest"], "1.1.0")
+            self.assertEqual(len(asked), 1)
+            clock[0] += sv.updates.FRESH_MIN
+            status, _, payload = self.get("/api/update?fresh", ip="10.0.0.9")
+            self.assertEqual((status, payload["latest"], payload["local"]), (200, "1.2.0", False))
+            self.assertEqual(self.get("/api/update")[2]["latest"], "1.2.0")
+        self.assertEqual(asked, [sv.updates.LATEST] * 2)
 
     def test_only_the_machine_itself_installs_an_update(self):
         self.assertEqual(self.post("/api/update", {}, cookie=None)[0], 401)
+        self.addCleanup(lambda: sv.updates._installing.locked() and sv.updates._installing.release())
+        runs = []
+
+        def uv(command, **_kwargs):
+            runs.append(command)
+            return SimpleNamespace(returncode=0, stdout=f"{self.home}\n", stderr="")
+
         with (
-            patch.object(sv.updates, "install", return_value=(200, {"ok": True})) as install,
             patch.object(sys, "argv", ["odoo-dashboard", "--host", "0.0.0.0", "--open"]),
+            patch.object(sys, "platform", "win32"),
+            patch.object(sys, "prefix", self.home),
+            patch.object(shutil, "which", lambda program: "uv" if program == "uv" else None),
+            patch.object(sv.updates, "HOMES", ()),
+            patch.object(sv.updates, "SYSTEM_BINS", ()),
+            patch.object(subprocess, "run", uv),
+            patch.object(subprocess, "Popen") as helper,
+            patch.object(threading, "Timer"),
         ):
             self.assertEqual(
                 self.post("/api/update", {}, ip="10.0.0.9")[:3:2],
                 (403, {"error": "Solo se actualiza desde el propio ordenador"}),
             )
-            install.assert_not_called()
-            self.assertEqual(self.post("/api/update", {})[:3:2], (200, {"ok": True}))
-        install.assert_called_once_with(["--host", "0.0.0.0"], sv.PORT)
+            self.assertEqual((runs, helper.call_count), ([], 0))
+            self.assertEqual(self.post("/api/update", {})[:3:2], (202, {"ok": True, "skills": ""}))
+        self.assertEqual(runs, [["uv", "tool", "dir"]])
+        plan = json.loads(helper.call_args.args[0][-1])
+        self.assertEqual((plan["port"], plan["old"][3:]), (sv.PORT, ["--host", "0.0.0.0"]))
+        self.assertEqual(plan["command"][-1], sv.updates.SOURCE)
 
     def test_team_writes(self):
         self.assertEqual(self.post("/api/team/attendance", {}, cookie=None)[0], 401)
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.corrections, "save_attendance", return_value=(200, {"ok": True})) as save,
-            patch.object(sv.corrections, "approve_request", return_value=(409, {"error": "no"})) as approve,
-            patch.object(sv.corrections, "delete_attendance", return_value=(200, {"ok": True})) as delete,
-        ):
-            client.return_value.sees_others.return_value = False
-            self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_TEAM}))
+        punch = {
+            "id": 1,
+            "check_in": "2026-10-19T08:00:00+00:00",
+            "check_out": "2026-10-19T16:00:00+00:00",
+        }
+        was = {"employee_id": [7, "Ana"], "check_out": "2026-10-19 16:00:00"}
+
+        def refuse(_args, _kwargs):
+            raise OdooError("no")
+
+        odoo = ServerOdoo({"hr.attendance": [was], "approval.request": refuse})
+
+        def writes():
+            return [q for q in odoo.queries if q[1] in ("write", "unlink", "action_approve")]
+
+        with patch.object(sv, "new_client", odoo.factory):
+            self.assertEqual(self.post("/api/team/attendance", punch)[:3:2], (403, {"error": sv.NOT_TEAM}))
             self.assertEqual(self.post("/api/team/delete", {"id": 1})[:3:2], (403, {"error": sv.NOT_TEAM}))
             self.assertEqual(self.post("/api/team/approve", {"id": 1})[0], 403)
-            save.assert_not_called()
-            client.return_value.sees_others.return_value = True
-            client.return_value.edits_punches.return_value = False
+            odoo.team = True
             sv._rights.clear()
-            self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (403, {"error": sv.NOT_EDITOR}))
+            self.assertEqual(self.post("/api/team/attendance", punch)[:3:2], (403, {"error": sv.NOT_EDITOR}))
             self.assertEqual(self.post("/api/team/delete", {"id": 1})[:3:2], (403, {"error": sv.NOT_EDITOR}))
-            save.assert_not_called()
-            delete.assert_not_called()
-            client.return_value.edits_punches.return_value = True
+            self.assertEqual(writes(), [])
+            odoo.edits = True
             sv._rights.clear()
-            self.assertEqual(self.post("/api/team/attendance", {"id": 1})[:3:2], (200, {"ok": True}))
-            save.assert_called_once_with(client.return_value, {"id": 1})
-            client.assert_called_with("sid")
+            self.assertEqual(self.post("/api/team/attendance", punch)[:3:2], (200, {"ok": True, "lost_entry": None}))
+            self.assertEqual(
+                writes(),
+                [
+                    (
+                        "hr.attendance",
+                        "write",
+                        [[1], {"check_in": "2026-10-19 08:00:00", "check_out": "2026-10-19 16:00:00"}],
+                        None,
+                    )
+                ],
+            )
             self.assertEqual(self.post("/api/team/delete", {"id": 31512})[:3:2], (200, {"ok": True}))
-            delete.assert_called_once_with(client.return_value, 31512)
+            self.assertEqual(writes()[-1], ("hr.attendance", "unlink", [[31512]], None))
             self.assertEqual(self.post("/api/team/approve", {"id": 552})[:3:2], (409, {"error": "no"}))
-            approve.assert_called_once_with(client.return_value, 552)
+            self.assertEqual(odoo.queries[-1], ("approval.request", "action_approve", [[552]], None))
+        self.assertEqual(set(odoo.sessions), {"sid"})
 
     def test_a_discord_message_needs_a_session_that_reads_others_and_nothing_else(self):
+        c.write_private(sv.discord.TOKEN_FILE, "tok")
         body = {"employee": 7, "text": "hola"}
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.discord, "message_employee", return_value=(200, {"ok": True})) as message,
-        ):
-            client.return_value.sees_others.return_value = False
+        odoo = self.discord_odoo()
+        discord = FakeDiscord()
+        with patch.object(sv, "new_client", odoo.factory), patch.object(urllib.request, "urlopen", discord.urlopen):
             self.assertEqual(self.post("/api/team/discord", body)[0], 403)
-            message.assert_not_called()
-            client.return_value.sees_others.return_value = True
-            client.return_value.edits_punches.return_value = False
+            self.assertEqual(discord.requests, [])
+            odoo.team = True
             sv._rights.clear()
             self.assertEqual(self.post("/api/team/discord", body)[:3:2], (200, {"ok": True}))
-            message.assert_called_once_with(client.return_value, body)
+        self.assertEqual(
+            [(path, auth) for path, auth, _ in discord.requests],
+            [("/users/@me/channels", "Bot tok"), ("/channels/chan/messages", "Bot tok")],
+        )
+        self.assertEqual(discord.requests[0][2], {"recipient_id": "111222333"})
+        message = discord.requests[1][2]
+        self.assertEqual(message["content"], "hola\n\n" + sv.discord.FOOTER.format("<@111222333>"))
+        button = message["components"][0]["components"][0]
+        self.assertEqual(button["url"], "https://odoo.example/odoo/approvals/12/approval.request/new")
+
+    def discord_odoo(self):
+        odoo = ServerOdoo({"hr.employee": [{"id": 7, "x_discord": "111222333"}], "approval.category": [{"id": 12}]})
+        odoo.labelled[("hr.employee", "discord")] = "x_discord"
+        return odoo
 
     def test_the_bot_token_is_kept_for_a_session_that_reads_others_and_never_sent_back(self):
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.discord, "set_token", return_value=(200, {"bot": "Odoo"})) as set_token,
-        ):
-            client.return_value.sees_others.return_value = False
+        odoo, discord = self.discord_odoo(), FakeDiscord()
+        with patch.object(sv, "new_client", odoo.factory), patch.object(urllib.request, "urlopen", discord.urlopen):
             self.assertEqual(self.post("/api/team/discord/token", {"token": "tok"})[0], 403)
-            set_token.assert_not_called()
-            client.return_value.sees_others.return_value = True
+            self.assertEqual(discord.requests, [])
+            self.assertFalse(sv.discord.configured())
+            odoo.team = True
             sv._rights.clear()
             self.assertEqual(self.post("/api/team/discord/token", {"token": "tok"})[:3:2], (200, {"bot": "Odoo"}))
-            set_token.assert_called_once_with("tok")
-            with patch.object(sv.discord, "send_test", return_value=(200, {"ok": True})) as send_test:
-                self.assertEqual(self.post("/api/team/discord/test", {})[:3:2], (200, {"ok": True}))
-            send_test.assert_called_once_with(client.return_value)
+            self.assertEqual(discord.requests, [("/users/@me", "Bot tok", None)])
+            self.assertEqual(c.read_private(sv.discord.TOKEN_FILE), "tok")
+            self.assertEqual(self.post("/api/team/discord/test", {})[:3:2], (200, {"ok": True}))
+        self.assertEqual(discord.requests[1][2], {"recipient_id": "111222333"})
+        self.assertEqual(discord.requests[2][2]["content"], sv.discord.TEST_TEXT)
 
     def test_team_api(self):
         self.assertEqual(self.get("/api/team", cookie=None)[0], 401)
         self.assertEqual(self.get("/api/team?week=nope")[0], 400)
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.team, "fetch_team", return_value={"ok": 1}) as fetch,
-        ):
-            client.return_value.sees_others.return_value = False
+        odoo = ServerOdoo()
+
+        def reads():
+            return len(odoo.queries)
+
+        def span(payload):
+            return tuple(payload[key] for key in ("week", "start", "stop"))
+
+        with patch.object(sv, "new_client", odoo.factory):
             status, _, payload = self.get("/api/team")
             self.assertEqual((status, payload), (403, {"error": "Tu usuario de Odoo no ve fichajes de otras personas"}))
-            fetch.assert_not_called()
-            client.return_value.sees_others.return_value = True
-            client.return_value.edits_punches.return_value = True
+            self.assertEqual(odoo.queries, [])
+            odoo.team = odoo.edits = True
             sv._rights.clear()
-            self.assertEqual(
-                self.get("/api/team?week=2026-09-24&fresh")[:3:2],
-                (200, {"ok": 1, "can_edit": True, "can_message": False}),
-            )
-            fetch.assert_called_with(client.return_value, (sv.date(2026, 9, 21),), True)
-            client.assert_called_with("sid")
+            status, _, payload = self.get("/api/team?week=2026-09-24&fresh")
+            self.assertEqual(status, 200)
+            self.assertEqual(span(payload), ("2026-09-21", "2026-09-21", "2026-09-28"))
+            self.assertEqual((payload["employees"], payload["can_edit"], payload["can_message"]), ([], True, False))
+            self.assertEqual(set(odoo.sessions), {"sid"})
+            asked = reads()
             c.write_private(sv.discord.TOKEN_FILE, "tok")
             self.assertIs(self.get("/api/team?week=2026-09-24")[2]["can_message"], True)
-            self.get("/api/team")
-            fetch.assert_called_with(client.return_value, (sv.team.monday_of(sv.date.today()),), False)
-            self.get("/api/team?month=2026-09")
-            fetch.assert_called_with(
-                client.return_value, (sv.date(2026, 8, 31), 5, sv.date(2026, 9, 1), sv.date(2026, 10, 1)), False
+            self.assertEqual(reads(), asked)
+            self.get("/api/team?week=2026-09-24&fresh")
+            self.assertGreater(reads(), asked)
+            monday = sv.team.monday_of(sv.date.today())
+            self.assertEqual(
+                span(self.get("/api/team")[2]),
+                tuple(day.isoformat() for day in (monday, monday, monday + timedelta(weeks=1))),
             )
+            self.assertEqual(span(self.get("/api/team?month=2026-09")[2]), ("2026-08-31", "2026-09-01", "2026-10-01"))
         self.assertEqual(self.get("/api/team?month=2026-13")[0], 400)
         self.assertEqual(self.get("/api/team?year=dos")[0], 400)
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.team, "fetch_year", return_value={"year": 2025}) as fetch,
-        ):
-            client.return_value.sees_others.return_value = True
-            self.assertEqual(self.get("/api/team?year=2025&fresh")[:3:2], (200, {"year": 2025, "can_message": True}))
-            fetch.assert_called_with(client.return_value, 2025, True)
-        with (
-            patch.object(sv, "new_client") as client,
-            patch.object(sv.team, "fetch_fixes", return_value={"employees": []}) as fixes,
-        ):
-            client.return_value.sees_others.return_value = True
-            self.assertEqual(self.get("/api/team?fixes")[:3:2], (200, {"employees": []}))
-            fixes.assert_called_with(client.return_value, False)
+        odoo = ServerOdoo(team=True)
+        with patch.object(sv, "new_client", odoo.factory):
+            status, _, payload = self.get("/api/team?year=2025&fresh")
+            self.assertEqual(
+                (status, payload["year"], payload["employees"], payload["can_message"]), (200, 2025, [], True)
+            )
+            asked = reads()
+            self.get("/api/team?year=2025")
+            self.assertEqual(reads(), asked)
+            self.get("/api/team?year=2025&fresh")
+            self.assertGreater(reads(), asked)
+        odoo = ServerOdoo(team=True)
+        with patch.object(sv, "new_client", odoo.factory):
+            status, _, payload = self.get("/api/team?fixes")
+            self.assertEqual(
+                (status, sorted(payload), payload["employees"]), (200, ["employees", "generated_at", "limits"], [])
+            )
+            asked = reads()
+            self.get("/api/team?fixes")
+            self.assertEqual(reads(), asked)
             self.get("/api/team?fixes&fresh")
-            fixes.assert_called_with(client.return_value, True)
+            self.assertGreater(reads(), asked)
 
     def test_foreign_host_or_origin_is_refused(self):
         self.assertEqual(self.get("/", host="evil.com")[:3:2], (403, {"error": "origen no permitido"}))
@@ -510,21 +695,25 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.get("/api/version", cookie=None)[:3:2], (200, {"version": sv.process.source_version()}))
         self.assertEqual(self.get("/api/state")[2]["lunch_minutes"], st.LUNCH_DEFAULT)
         st.write_state(3, break_minutes=st.BREAK_DEFAULT + 1)
-        with patch.object(dt, "fetch_data", return_value={"sessions": []}) as fetch:
+        odoo = ServerOdoo(edits=True)
+
+        def attendance_reads():
+            return sum(model == "hr.attendance" for model, *_ in odoo.queries)
+
+        with patch.object(sv, "new_client", odoo.factory):
             status, _, payload = self.get("/api/data?fresh")
             self.assertEqual(status, 200)
             self.assertIs(payload["can_edit"], False)
             self.assertEqual(payload["sessions"], [])
             self.assertEqual(payload["state"]["break_minutes"], st.BREAK_DEFAULT + 1)
-            self.assertEqual(payload["phone"], {"off": "sin red"})
-            self.assertEqual((fetch.call_args.args[0].session_id, fetch.call_args.kwargs), ("sid", {"fresh": True}))
+            self.assertEqual(payload["phone"], {"off": lan.HOST_OPTION})
+            self.assertEqual((set(odoo.sessions), attendance_reads()), ({"sid"}, 1))
             self.get("/api/data")
-            self.assertEqual(fetch.call_args.kwargs, {"fresh": False})
-            with patch.object(sv, "edits_punches", return_value=True) as edits:
-                self.assertIs(self.get("/api/data")[2]["can_edit"], False)
-                fetch.return_value = {"sessions": [], "team": True}
-                self.assertIs(self.get("/api/data")[2]["can_edit"], True)
-            self.assertEqual(edits.call_args.args[0].session_id, "sid")
+            self.assertEqual(attendance_reads(), 1)
+            self.get("/api/data?fresh")
+            self.assertEqual(attendance_reads(), 2)
+            odoo.team = True
+            self.assertIs(self.get("/api/data?fresh")[2]["can_edit"], True)
 
     def test_config_shows_the_server_only_to_loopback(self):
         self.assertEqual(self.get("/api/config", cookie=None)[:3:2], (200, dict(CONFIG, configured=True, local=True)))
@@ -535,20 +724,23 @@ class HandlerTest(unittest.TestCase):
             {"url": "", "db": "", "user": "", "configured": False, "local": True},
         )
 
+    def failing(self, error):
+        return patch.object(sv, "new_client", ServerOdoo(failure=error).factory)
+
     def test_data_errors(self):
-        with patch.object(dt, "fetch_data", side_effect=OdooError("caído")):
+        with self.failing(OdooError("caído")):
             status, _, payload = self.get("/api/data")
         self.assertEqual((status, payload["error"]), (502, "Odoo: caído"))
-        with patch.object(dt, "fetch_data", side_effect=OdooDown("Odoo no responde (Connection refused)")):
+        with self.failing(OdooDown("Odoo no responde (Connection refused)")):
             status, _, payload = self.get("/api/data")
         self.assertEqual((status, payload["error"]), (502, "Odoo no responde (Connection refused)"))
-        with patch.object(dt, "fetch_data", side_effect=RuntimeError("roto")), logged() as out:
+        with self.failing(RuntimeError("roto")), logged() as out:
             self.assertEqual(self.get("/api/data")[:3:2], (500, {"error": "Error interno del dashboard"}))
         self.assertTrue(out.getvalue().startswith("ERROR Error interno atendiendo GET /api/data\nTraceback"))
         self.assertTrue(out.getvalue().endswith("RuntimeError: roto\n"))
 
     def test_an_expired_session_is_forgotten_and_the_cookie_cleared(self):
-        with patch.object(dt, "fetch_data", side_effect=SessionExpired("caducada")):
+        with self.failing(SessionExpired("caducada")):
             status, headers, payload = self.get("/api/data")
         self.assertEqual((status, payload["error"]), (401, "caducada"))
         self.assertIn(f"{sv.COOKIE_NAME}=; Path=/; Max-Age=0;", headers["Set-Cookie"])
@@ -560,12 +752,13 @@ class HandlerTest(unittest.TestCase):
             for path in ("/api/state", "/api/request", "/api/update", "/api/data", "/api/team"):
                 self.assertEqual(self.get(path, ip=ip, cookie=None)[:3:2], unauthorized, path)
             self.assertEqual(self.post("/api/state", {}, ip=ip, cookie=None)[:3:2], unauthorized)
-        with patch.object(sv, "new_client") as client:
-            client.return_value.session_info.side_effect = SessionExpired("no")
+        odoo = ServerOdoo()
+        with patch.object(sv, "new_client", odoo.factory):
+            odoo.session_error = SessionExpired("no")
             self.assertEqual(self.get("/api/state", cookie="unknown")[0], 401)
-            client.return_value.session_info.side_effect = OdooError("caído")
+            odoo.session_error = OdooError("caído")
             self.assertEqual(self.get("/api/state", cookie="unknown")[0], 502)
-            client.return_value.session_info.side_effect = None
+            odoo.session_error = None
             self.assertEqual(self.get("/api/state", cookie="unknown")[0], 200)
         self.assertIn("unknown", sv._sessions)
 
@@ -660,12 +853,8 @@ class HandlerTest(unittest.TestCase):
             self.post("/api/pair", {}, ip="10.0.0.9")[:3:2],
             (403, {"error": "Solo se empareja desde el propio ordenador"}),
         )
-        self.assertEqual(self.post("/api/pair", {})[::2], (409, {"error": "sin red"}))
-        with (
-            patch.dict(lan._lan, off=""),
-            patch.object(lan, "lan_ip", return_value="10.0.0.2"),
-            patch.object(lan, "bonjour_name", return_value="mac.local"),
-        ):
+        self.assertEqual(self.post("/api/pair", {})[::2], (409, {"error": lan.HOST_OPTION}))
+        with on_the_lan():
             status, _, ip_pair = self.post("/api/pair", {})
             _, _, name_pair = self.post("/api/pair", {"name": True})
         self.assertEqual((status, ip_pair["expires_in"]), (200, sv.PAIR_TTL))
@@ -695,7 +884,7 @@ class HandlerTest(unittest.TestCase):
         sv._pairings.clear()
         self.addCleanup(sv._pairings.clear)
         sv._pairings["theirs"] = ("other", time.monotonic() + 60)
-        with patch.dict(lan._lan, off=""), patch.object(lan, "lan_ip", return_value="10.0.0.2"):
+        with on_the_lan():
             token = self.post("/api/pair", {})[2]["url"].split("t=")[1]
         self.assertEqual(self.post("/api/pair", {"revoke": True})[:3:2], (200, {"ok": True}))
         self.assertEqual(list(sv._pairings), ["theirs"])
@@ -705,10 +894,10 @@ class HandlerTest(unittest.TestCase):
         sv._pairings.clear()
         self.addCleanup(sv._pairings.clear)
         sv._pairings["mine"] = ("sid", time.monotonic() + 60)
-        with patch.object(sv, "new_client") as client:
+        odoo = ServerOdoo()
+        with patch.object(sv, "new_client", odoo.factory):
             status, headers, payload = self.post("/api/logout", {})
-        client.assert_called_once_with("sid")
-        client.return_value.logout.assert_called_once_with()
+        self.assertEqual((odoo.sessions, odoo.logouts), (["sid"], 1))
         self.assertEqual((status, payload), (200, {"ok": True}))
         self.assertIn(f"{sv.COOKIE_NAME}=; Path=/; Max-Age=0", headers["Set-Cookie"])
         self.assertNotIn("sid", sv._sessions)
@@ -716,7 +905,7 @@ class HandlerTest(unittest.TestCase):
 
     def test_logout_drops_only_its_own_cached_data(self):
         dt._data_cache.update({("sid", None): (0, {}), ("sid", 42): (0, {}), ("other", None): (0, {})})
-        with patch.object(sv, "new_client"):
+        with patch.object(sv, "new_client", ServerOdoo().factory):
             self.post("/api/logout", {})
         self.assertEqual(list(dt._data_cache), [("other", None)])
 
@@ -728,13 +917,14 @@ class HandlerTest(unittest.TestCase):
         self.assertTrue(self.get("/api/state")[2]["muted"])
 
     def test_logout_with_a_dead_or_missing_session_still_clears_the_cookie(self):
-        with patch.object(sv, "new_client") as client:
-            client.return_value.logout.side_effect = SessionExpired("caducada")
+        odoo = ServerOdoo()
+        odoo.logout_error = SessionExpired("caducada")
+        with patch.object(sv, "new_client", odoo.factory):
             self.assertEqual(self.post("/api/logout", {})[0], 200)
             self.assertEqual(self.post("/api/logout", {}, cookie=None)[0], 200)
-            with patch.object(sv, "read_config", return_value={}):
-                self.assertEqual(self.post("/api/logout", {})[0], 200)
-        client.assert_called_once_with("sid")
+            os.remove(c.CONFIG_FILE)
+            self.assertEqual(self.post("/api/logout", {})[0], 200)
+        self.assertEqual((odoo.sessions, odoo.logouts), (["sid"], 1))
 
     def test_stale_pairings_are_purged_when_a_new_one_is_minted(self):
         sv._pairings.clear()
@@ -745,17 +935,16 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(len(sv._pairings), 1)
 
     def test_login_lockout(self):
-        for _ in range(sv.LOGIN_TRIES):
-            self.login({"password": "no"})
-        with patch.object(sv, "login_wait", return_value=12.5) as wait:
+        with patch.object(time, "monotonic", return_value=1000.0):
+            for _ in range(sv.LOGIN_TRIES):
+                self.login({"password": "no"})
             status, _, payload, odoo, _ = self.login({"password": "pw"})
-        wait.assert_called_once_with("127.0.0.1")
-        self.assertEqual((status, payload), (429, {"error": "Demasiados intentos. Espera 13 s"}))
-        odoo.assert_not_called()
-        self.login({"password": "no"}, ip="::1")
-        self.assertEqual(self.login({"password": "pw"}, ip="::1")[0], 200)
-        self.assertNotIn("::1", sv._login_fails)
-        self.assertGreater(sv.login_wait("127.0.0.1"), 0)
+            self.assertEqual((status, payload), (429, {"error": f"Demasiados intentos. Espera {sv.LOGIN_LOCK + 1} s"}))
+            odoo.assert_not_called()
+            self.login({"password": "no"}, ip="::1")
+            self.assertEqual(self.login({"password": "pw"}, ip="::1")[0], 200)
+            self.assertNotIn("::1", sv._login_fails)
+            self.assertEqual(sv.login_wait("127.0.0.1"), sv.LOGIN_LOCK)
 
     def test_unreadable_body(self):
         self.assertEqual(self.post("/api/state", b"{rota")[:3:2], (400, {"error": "Cuerpo de la petición ilegible"}))
@@ -792,12 +981,16 @@ class HandlerTest(unittest.TestCase):
         with patch.object(sv, "new_client", side_effect=RuntimeError), logged():
             self.assertEqual(self.post("/api/attendance", {"action": "checkin"})[0], 500)
 
-    def test_attendance_dispatches_to_data_punch(self):
-        with patch.object(dt, "punch", return_value=(409, {"error": "x"})) as punch:
-            status, _, payload = self.post("/api/attendance", {"action": "break"})
-        self.assertEqual((status, payload), (409, {"error": "x"}))
-        client, action = punch.call_args.args
-        self.assertEqual((client.session_id, action), ("sid", "break"))
+    def test_a_punch_clocks_through_the_session_and_is_refused_when_the_real_state_does_not_allow_it(self):
+        odoo = ServerOdoo()
+        with patch.object(sv, "new_client", odoo.factory):
+            self.assertEqual(
+                self.post("/api/attendance", {"action": "break"})[::2], (409, {"error": "No hay fichaje abierto"})
+            )
+            self.assertEqual(odoo.punches, [])
+            self.assertEqual(self.post("/api/attendance", {"action": "checkin"})[::2], (200, {"ok": True}))
+        self.assertEqual((odoo.sessions, odoo.punches), (["sid", "sid"], [NORMAL["id"]]))
+        self.assertIsNotNone(st.read_state(3)["punched_at"])
 
 
 if __name__ == "__main__":

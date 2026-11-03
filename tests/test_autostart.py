@@ -98,10 +98,10 @@ class MacTest(AutostartCase):
             self.assertFalse(os.path.exists(au.launch_agent()))
             self.on("darwin")
             self.run_.reset_mock()
-            with patch.object(au, "command", return_value=["/new/python", "-c", "x"]):
+            with patch.object(sys, "executable", "/new/python"):
                 au.follow()
         with open(au.launch_agent(), "rb") as f:
-            self.assertEqual(plistlib.load(f)["ProgramArguments"], ["/new/python", "-c", "x"])
+            self.assertEqual(plistlib.load(f)["ProgramArguments"], ["/new/python", "-c", pr.BOOTSTRAP])
         self.run_.assert_not_called()
 
 
@@ -129,10 +129,10 @@ class LinuxTest(AutostartCase):
             self.assertTrue(os.path.exists(os.path.join(self.home, "cfg", "systemd", "user", au.UNIT)))
 
     def test_arguments_are_escaped_for_systemd(self):
-        with patch.object(au, "command", return_value=["/a b/py", '50% "x" $HOME \\']):
+        with patch.object(sys, "executable", '/a b/py 50% "x" $HOME \\'):
             self.on("linux")
         with open(au.unit_file()) as f:
-            self.assertIn('ExecStart="/a b/py" "50%% \\"x\\" $$HOME \\\\"\n', f.read())
+            self.assertIn('ExecStart="/a b/py 50%% \\"x\\" $$HOME \\\\" "-c" ', f.read())
 
     def test_off_disables_and_removes_only_what_is_there(self):
         self.off("linux")
@@ -150,10 +150,10 @@ class LinuxTest(AutostartCase):
             self.assertFalse(os.path.exists(au.unit_file()))
             self.on("linux")
             self.run_.reset_mock()
-            with patch.object(au, "command", return_value=["/new/python"]):
+            with patch.object(sys, "executable", "/new/python"):
                 au.follow()
         with open(au.unit_file()) as f:
-            self.assertIn('ExecStart="/new/python"\n', f.read())
+            self.assertIn('ExecStart="/new/python" "-c" ', f.read())
         self.assertEqual([c.args[0][2:] for c in self.run_.call_args_list], [["daemon-reload"]])
 
 

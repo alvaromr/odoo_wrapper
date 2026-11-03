@@ -6,15 +6,46 @@ import os
 import runpy
 import sys
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
-from datetime import date, datetime, timezone
+import urllib.error
+import urllib.parse
+import urllib.request
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import CONFIG, EMPLOYEE, NORMAL, REST, client, kw, temp_state, utc
+from helpers import (
+    CONFIG,
+    DEVICE_HEADER,
+    EMPLOYEE,
+    NORMAL,
+    REST,
+    ROTATED_HEADER,
+    SESSION_HEADER,
+    TOTP_PAGE,
+    ScriptedClient,
+    ScriptedOpener,
+    client,
+    kw,
+    temp_state,
+    utc,
+)
 
 from odoo_wrapper import cli
 from odoo_wrapper import client as c
+from odoo_wrapper import sheets as sh
+
+GWS_EXPORT = b'{"client_id": "cid", "client_secret": "s3cret", "refresh_token": "r3fresh"}'
+FIRST_DAY, LAST_DAY = date(2026, 8, 31), date(2027, 2, 1)
+STAFF = [
+    {"id": 1, "name": "Bea", "resource_calendar_id": [4, "Std"], "user_id": [11, "bea"]},
+    {"id": 2, "name": "Íñigo", "resource_calendar_id": [4, "Std"], "user_id": [12, "inigo"]},
+]
+WORKWEEK = [
+    {"calendar_id": [4, "Std"], "dayofweek": str(d), "hour_from": 9.0, "hour_to": 17.0, "day_period": "morning"}
+    for d in range(5)
+]
+WORKDAY = [(9, 17, 8.0)]
 
 
 class CommandTest(unittest.TestCase):
@@ -336,10 +367,6 @@ class CommandTest(unittest.TestCase):
         self.assertIn("No hay registros en los últimos 7 días", self.run_cmd(client(self.EMP, kw([])), "history"))
 
 
-def day(iso, flags=(), requests=()):
-    return {"date": iso, "flags": list(flags), "requests": list(requests)}
-
-
 def typed(cell):
     try:
         return (datetime.strptime(cell, "%d/%m/%Y").date() - cli.SHEET_EPOCH).days
@@ -347,71 +374,145 @@ def typed(cell):
         return cell
 
 
-class FakeSheets:
-    """Stands in for sheets.Sheets with its tabs in memory; like Sheets, it stores a typed date as its serial
-    number and answers a range past the last column with nothing for that row."""
+class FakeGoogle:
+    """Google's Sheets API for one spreadsheet, as the opener Sheets talks through: it trades the token, serves
+    and appends to its tabs in memory, and, like Google, stores a typed date as its serial number and answers a
+    range past the last column with nothing for that row."""
 
     def __init__(self, spreadsheet="hoja", **tabs):
         self.id = spreadsheet
         self.tabs = {"Avisos 2026": [], "Avisos Totales": [], **tabs}
-        self.appended = []
+        self.appended, self.requests = [], []
+        self.unreachable_to_append = False
 
-    def get(self, cells):
+    def refuse(self, request, code):
+        return urllib.error.HTTPError(request.full_url, code, "refused", {}, io.BytesIO(b"{}"))
+
+    def open(self, request, timeout):
+        self.requests.append((request.get_method(), request.full_url))
+        if request.full_url == sh.TOKEN_URL:
+            return io.BytesIO(b'{"access_token": "tok"}')
+        if request.get_header("Authorization") != "Bearer tok":
+            raise self.refuse(request, 401)
+        prefix = f"/v4/spreadsheets/{self.id}/values/"
+        path = urllib.parse.unquote(urllib.parse.urlsplit(request.full_url).path)
+        if not path.startswith(prefix):
+            raise self.refuse(request, 404)
+        cells = path[len(prefix) :]
+        if cells.endswith(":append"):
+            if self.unreachable_to_append:
+                raise urllib.error.URLError("sin red")
+            cells = cells.removesuffix(":append")
+            rows = json.loads(request.data)["values"]
+            self.appended.append((cells, rows))
+            self.tabs[cells.split("!")[0]] += [[typed(cell) for cell in row] for row in rows]
+            return io.BytesIO(b"{}")
         tab, columns = cells.split("!")
-        return [row[2:3] for row in self.tabs[tab]] if columns == "D4:D" else self.tabs[tab]
+        return io.BytesIO(
+            json.dumps(
+                {"values": [row[2:3] for row in self.tabs[tab]] if columns == "D4:D" else self.tabs[tab]}
+            ).encode()
+        )
 
-    def append(self, cells, rows):
-        self.appended.append((cells, rows))
-        self.tabs[cells.split("!")[0]] += [[typed(cell) for cell in row] for row in rows]
+
+@contextmanager
+def google_fake(google):
+    with (
+        patch.object(sh.shutil, "which", return_value="/bin/gws"),
+        patch.object(sh.subprocess, "run", return_value=SimpleNamespace(stdout=GWS_EXPORT)),
+        patch.object(sh.urllib.request, "build_opener", return_value=google),
+    ):
+        yield google
+
+
+def frozen(iso):
+    moment = datetime.fromisoformat(iso)
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment.astimezone(tz)
+
+    return Frozen
+
+
+def stamp(day, hour=0):
+    return datetime.combine(day, time(hour)).astimezone().astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def attendances(sessions):
+    def rows(args, kwargs):
+        if len(args) == 3:
+            return [{"employee_id": [e["id"], e["name"]], "check_in": "2026-01-05 08:00:00"} for e in STAFF]
+        return [
+            {
+                "employee_id": [e["id"], e["name"]],
+                "check_in": stamp(day, start),
+                "check_out": end and stamp(day, end),
+                "worked_hours": hours,
+                "attendance_reason_ids": [NORMAL["id"]],
+            }
+            for e in STAFF
+            for day in (FIRST_DAY + timedelta(days=n) for n in range((LAST_DAY - FIRST_DAY).days))
+            if day.weekday() < 5
+            for start, end, hours in sessions.get((e["id"], day), WORKDAY)
+        ]
+
+    return rows
+
+
+def office(sessions, requests):
+    """Odoo as team.py reads it: Bea and Íñigo work nine to five on weekdays with a punch to match, except on the
+    days `sessions` names, as (employee, day) -> [(in, out, hours)] with no out for an open punch; `requests`
+    are (owner user, day, status)."""
+    return ScriptedClient(
+        {
+            "hr.attendance": attendances(sessions),
+            "hr.attendance.reason": [NORMAL, REST],
+            "hr.employee": STAFF,
+            "resource.calendar.attendance": WORKWEEK,
+            "approval.request": [
+                {
+                    "request_owner_id": [owner, "x"],
+                    "date_start": stamp(day, 9),
+                    "date_end": stamp(day, 10),
+                    "reason": False,
+                    "request_status": status,
+                    "user_status": "pending",
+                }
+                for owner, day, status in requests
+            ],
+        }
+    )
+
+
+SEPTEMBER_OCTOBER = {
+    (1, date(2026, 8, 31)): [(9, None, 0)],
+    (1, date(2026, 9, 2)): [(8, None, 0), (9, 23, 14.0)],
+    (1, date(2026, 9, 4)): [],
+    (2, date(2026, 10, 1)): [],
+    (2, date(2026, 10, 2)): [],
+    (2, date(2026, 10, 6)): [(9, None, 0)],
+    (2, date(2026, 10, 8)): [(9, 23, 14.0)],
+}
+REQUESTS = [
+    (11, date(2026, 9, 2), "pending"),
+    (12, date(2026, 9, 2), "new"),
+    (12, date(2026, 9, 2), "approved"),
+    (12, date(2026, 10, 6), "new"),
+]
 
 
 class NoticesTest(unittest.TestCase):
     TODAY = date(2026, 10, 8)
     NOW = "2026-10-08T10:00:00+02:00"
-    SEPTEMBER = {
-        "start": "2026-09-01",
-        "stop": "2026-10-01",
-        "generated_at": NOW,
-        "employees": [
-            {
-                "name": "Bea",
-                "days": [
-                    day("2026-08-31", ["open"]),
-                    day("2026-09-02", ["open", "long"], [{"status": "pending"}]),
-                    day("2026-09-03"),
-                    day("2026-09-04", ["empty"]),
-                ],
-            },
-            {
-                "name": "Íñigo",
-                "days": [
-                    day("2026-09-02", requests=[{"status": "new"}, {"status": "approved"}]),
-                    day("2026-10-01", ["empty"]),
-                ],
-            },
-        ],
-    }
-    OCTOBER = {
-        "start": "2026-10-01",
-        "stop": "2026-11-01",
-        "generated_at": NOW,
-        "employees": [
-            {
-                "name": "Íñigo",
-                "days": [
-                    day("2026-10-02", ["empty"]),
-                    day("2026-10-06", ["open"], [{"status": "new"}]),
-                    day("2026-10-08", ["long"]),
-                ],
-            },
-        ],
-    }
     SEPTEMBER_ROWS = [
         ["Bea", "Septiembre", "02/09/2026", "Solicitud"],
         ["Íñigo", "Septiembre", "02/09/2026", "Solicitud"],
         ["Bea", "Septiembre", "04/09/2026", "Incidencia"],
     ]
     OCTOBER_ROWS = [
+        ["Íñigo", "Octubre", "01/10/2026", "Incidencia"],
         ["Íñigo", "Octubre", "02/10/2026", "Incidencia"],
         ["Íñigo", "Octubre", "06/10/2026", "Solicitud (borrador)"],
     ]
@@ -420,71 +521,67 @@ class NoticesTest(unittest.TestCase):
         temp_state(self)
         c.write_private(cli.SHEET_FILE, "hoja")
 
-    def run_notices(self, sheets, today=TODAY, stdin=None, **payloads):
-        months = {"2026-09-01": self.SEPTEMBER, "2026-10-01": self.OCTOBER, **payloads}
+    def run_notices(self, google, today=TODAY, stdin=None, now=NOW, sessions=SEPTEMBER_OCTOBER, requests=REQUESTS):
+        self.google, self.office = google, office(sessions, requests)
         out = io.StringIO()
         with (
-            patch.object(cli, "Sheets", return_value=sheets) as opened,
+            google_fake(google),
             patch.object(sys, "stdin", stdin),
-            patch.object(cli.team, "build_team", side_effect=lambda *span: months[span[3].isoformat()]) as build,
+            patch.object(cli.team, "datetime", frozen(now)),
             redirect_stdout(out),
         ):
-            self.opened, self.build = opened, build
-            cli.notices("odoo", today)
+            cli.notices(self.office, today)
         return out.getvalue()
 
     def test_the_first_day_of_the_month_counts_and_a_short_row_of_the_sheet_is_padded(self):
-        payload = {
-            "start": "2026-10-01",
-            "stop": "2026-11-01",
-            "generated_at": self.NOW,
-            "employees": [{"name": "Íñigo", "days": [day("2026-10-01", ["empty"])]}],
-        }
-        sheets = FakeSheets()
-        with patch.object(cli.team, "build_team", return_value=payload), redirect_stdout(io.StringIO()):
-            cli.add_notices("odoo", sheets, date(2026, 10, 1))
-        self.assertEqual(sheets.appended, [("Avisos 2026!B4:E", [["Íñigo", "Octubre", "01/10/2026", "Incidencia"]])])
-        self.assertEqual(
-            cli.sheet_rows(FakeSheets(**{"Avisos 2026": [["Bea"]]}), date(2026, 10, 1)), [["Bea", "", "", ""]]
-        )
+        google = FakeGoogle()
+        with (
+            google_fake(google),
+            patch.object(cli.team, "datetime", frozen(self.NOW)),
+            redirect_stdout(io.StringIO()),
+        ):
+            cli.add_notices(office({(2, date(2026, 10, 1)): []}, []), cli.Sheets("hoja"), date(2026, 10, 1))
+        self.assertEqual(google.appended, [("Avisos 2026!B4:E", [["Íñigo", "Octubre", "01/10/2026", "Incidencia"]])])
+        with google_fake(FakeGoogle(**{"Avisos 2026": [["Bea"]]})):
+            self.assertEqual(cli.sheet_rows(cli.Sheets("hoja"), date(2026, 10, 1)), [["Bea", "", "", ""]])
 
     def test_the_previous_month_is_closed_and_the_current_one_brought_up_to_yesterday(self):
-        sheets = FakeSheets()
+        google = FakeGoogle()
         self.assertEqual(
-            self.run_notices(sheets),
+            self.run_notices(google),
             (
                 "Avisos de septiembre añadidos a «Avisos 2026»: 3\n"
                 "Empleados con avisos en septiembre, anotados en «Avisos Totales»: 2\n"
-                "Avisos de octubre añadidos a «Avisos 2026»: 2\n"
+                "Avisos de octubre añadidos a «Avisos 2026»: 3\n"
             ),
         )
-        self.opened.assert_called_once_with("hoja")
         self.assertEqual(
-            sheets.appended,
+            google.appended,
             [
                 ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS),
                 ("Avisos Totales!B4:D", [["Bea", 2, "Septiembre"], ["Íñigo", 1, "Septiembre"]]),
                 ("Avisos 2026!B4:E", self.OCTOBER_ROWS),
             ],
         )
+        weeks = [tuple(q[2][0][1:3]) for q in self.office.queries if q[:2] == ("hr.attendance", "search_read")]
         self.assertEqual(
-            [call.args for call in self.build.call_args_list],
+            weeks,
             [
-                ("odoo", date(2026, 8, 31), 5, date(2026, 9, 1), date(2026, 10, 1)),
-                ("odoo", date(2026, 9, 28), 5, date(2026, 10, 1), date(2026, 11, 1)),
+                (("check_in", ">=", stamp(date(2026, 8, 31))), ("check_in", "<", stamp(date(2026, 10, 5)))),
+                (("check_in", ">=", stamp(date(2026, 9, 28))), ("check_in", "<", stamp(date(2026, 11, 2)))),
             ],
         )
 
     def test_a_closed_month_is_left_alone_and_the_sheet_alone_is_enough_to_add_nothing_twice(self):
-        sheets = FakeSheets()
-        self.run_notices(sheets)
+        google = FakeGoogle()
+        self.run_notices(google)
         os.remove(cli.WRITTEN_FILE)
-        self.assertEqual(self.run_notices(sheets), "Avisos de octubre añadidos a «Avisos 2026»: 0\n")
-        self.assertEqual(sheets.appended[3:], [("Avisos 2026!B4:E", [])])
-        self.assertEqual(self.build.call_count, 1)
+        self.assertEqual(self.run_notices(google), "Avisos de octubre añadidos a «Avisos 2026»: 0\n")
+        self.assertEqual(len(google.appended), 3)
+        self.assertEqual(len([q for q in self.office.queries if q[:2] == ("hr.attendance", "search_read")]), 1)
 
     def test_rows_the_sheet_already_has_are_left_out_whatever_else_they_carry(self):
-        sheets = FakeSheets(
+        google = FakeGoogle(
             **{
                 "Avisos 2026": [
                     ["Bea", "Septiembre", 46267, "Solicitud", "Informal", "Discord"],
@@ -495,65 +592,60 @@ class NoticesTest(unittest.TestCase):
                 "Avisos Totales": [["Zoe", 2, "Agosto"], []],
             }
         )
-        self.run_notices(sheets)
-        self.assertEqual(sheets.appended[0], ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS[1:]))
+        self.run_notices(google)
+        self.assertEqual(google.appended[0], ("Avisos 2026!B4:E", self.SEPTEMBER_ROWS[1:]))
         self.assertEqual(
-            sheets.appended[1], ("Avisos Totales!B4:D", [["Bea", 3, "Septiembre"], ["Íñigo", 1, "Septiembre"]])
+            google.appended[1], ("Avisos Totales!B4:D", [["Bea", 3, "Septiembre"], ["Íñigo", 1, "Septiembre"]])
         )
 
     def test_a_row_written_once_never_comes_back_however_the_sheet_was_changed_by_hand(self):
-        self.run_notices(FakeSheets())
+        self.run_notices(FakeGoogle())
         rewritten = [["Ana María", "Octubre", 46300, "Solicitud"]]
         for by_hand in ([], rewritten):
-            sheets = FakeSheets(**{"Avisos 2026": list(by_hand)})
-            self.run_notices(sheets)
-            self.assertEqual([rows for _, rows in sheets.appended], [[], [], []])
-            self.assertEqual(sheets.tabs, {"Avisos 2026": by_hand, "Avisos Totales": []})
+            google = FakeGoogle(**{"Avisos 2026": list(by_hand)})
+            self.run_notices(google)
+            self.assertEqual(google.appended, [])
+            self.assertEqual(google.tabs, {"Avisos 2026": by_hand, "Avisos Totales": []})
 
     def test_an_append_that_fails_notes_nothing_so_the_next_run_adds_it_all(self):
-        broken = FakeSheets()
-        broken.append = unittest.mock.Mock(side_effect=cli.SheetsError("Google no responde"))
-        with self.assertRaises(cli.SheetsError):
+        broken = FakeGoogle()
+        broken.unreachable_to_append = True
+        with self.assertRaisesRegex(cli.SheetsError, r"Google no responde \(sin red\)"):
             self.run_notices(broken)
         self.assertFalse(os.path.exists(cli.WRITTEN_FILE))
-        sheets = FakeSheets()
-        self.run_notices(sheets)
-        self.assertEqual(len(sheets.tabs["Avisos 2026"]), 5)
+        google = FakeGoogle()
+        self.run_notices(google)
+        self.assertEqual(len(google.tabs["Avisos 2026"]), 6)
         self.assertEqual(
             json.loads(c.read_private(cli.WRITTEN_FILE)), {"hoja": self.SEPTEMBER_ROWS + self.OCTOBER_ROWS}
         )
 
     def test_each_spreadsheet_remembers_its_own_rows(self):
-        self.run_notices(FakeSheets())
-        other = FakeSheets("otra")
+        self.run_notices(FakeGoogle())
+        c.write_private(cli.SHEET_FILE, "otra")
+        other = FakeGoogle("otra")
         self.run_notices(other)
-        self.assertEqual(len(other.tabs["Avisos 2026"]), 5)
+        self.assertEqual(len(other.tabs["Avisos 2026"]), 6)
         self.assertEqual(sorted(json.loads(c.read_private(cli.WRITTEN_FILE))), ["hoja", "otra"])
 
     def test_a_memory_that_cannot_be_read_is_an_empty_one(self):
         for broken in ("no", "[1]", "7"):
             c.write_private(cli.WRITTEN_FILE, broken)
-            sheets = FakeSheets()
-            self.run_notices(sheets)
-            self.assertEqual(len(sheets.tabs["Avisos 2026"]), 5)
+            google = FakeGoogle()
+            self.run_notices(google)
+            self.assertEqual(len(google.tabs["Avisos 2026"]), 6)
 
     def test_january_closes_december_in_last_years_tab(self):
-        december = {
-            "start": "2026-12-01",
-            "stop": "2027-01-01",
-            "generated_at": "2027-01-05T10:00:00+01:00",
-            "employees": [{"name": "Bea", "days": [day("2026-12-31", ["open"])]}],
-        }
-        january = {
-            "start": "2027-01-01",
-            "stop": "2027-02-01",
-            "generated_at": "2027-01-05T10:00:00+01:00",
-            "employees": [{"name": "Bea", "days": [day("2027-01-04", requests=[{"status": "pending"}])]}],
-        }
-        sheets = FakeSheets(**{"Avisos 2027": []})
-        self.run_notices(sheets, date(2027, 1, 5), **{"2026-12-01": december, "2027-01-01": january})
+        google = FakeGoogle(**{"Avisos 2027": []})
+        self.run_notices(
+            google,
+            date(2027, 1, 5),
+            now="2027-01-05T10:00:00+01:00",
+            sessions={(1, date(2026, 12, 31)): [(9, None, 0)]},
+            requests=[(11, date(2027, 1, 4), "pending")],
+        )
         self.assertEqual(
-            sheets.appended,
+            google.appended,
             [
                 ("Avisos 2026!B4:E", [["Bea", "Diciembre", "31/12/2026", "Incidencia"]]),
                 ("Avisos Totales!B4:D", [["Bea", 1, "Diciembre"]]),
@@ -564,19 +656,33 @@ class NoticesTest(unittest.TestCase):
     def test_without_a_saved_spreadsheet_it_is_asked_for_on_a_terminal_and_refused_without_one(self):
         os.remove(cli.SHEET_FILE)
         for no_terminal in (None, io.StringIO()):
+            google = FakeGoogle()
             with self.assertRaisesRegex(c.OdooError, "No hay hoja de avisos guardada"):
-                self.run_notices(FakeSheets(), stdin=no_terminal)
-            self.opened.assert_not_called()
-            self.build.assert_not_called()
+                self.run_notices(google, stdin=no_terminal)
+            self.assertEqual(google.requests, [])
+            self.assertEqual(self.office.queries, [])
+        nueva = FakeGoogle("nueva")
         with patch("builtins.input", return_value="https://docs.google.com/spreadsheets/d/nueva/edit") as asked:
-            self.run_notices(FakeSheets("nueva"), stdin=SimpleNamespace(isatty=lambda: True))
-            self.run_notices(FakeSheets("nueva"), stdin=SimpleNamespace(isatty=lambda: True))
+            self.run_notices(nueva, stdin=SimpleNamespace(isatty=lambda: True))
+            self.run_notices(nueva, stdin=SimpleNamespace(isatty=lambda: True))
         asked.assert_called_once_with("Dirección de la hoja de avisos: ")
-        self.opened.assert_called_once_with("nueva")
+        self.assertTrue(nueva.requests)
+        self.assertEqual(c.read_private(cli.SHEET_FILE), "nueva")
 
 
 class StopLoop(Exception):
     pass
+
+
+class Unreachable(ScriptedOpener):
+    def open(self, req):
+        self.calls.append((req.full_url, None, req.get_header("Cookie")))
+        raise OSError("sin red")
+
+
+EXPIRED = {"error": {"code": 100, "message": "Odoo Session Expired"}}
+SESSION = kw({"uid": 3})
+EMPLOYEE_ROW = kw([EMPLOYEE])
 
 
 class MainTest(unittest.TestCase):
@@ -594,6 +700,34 @@ class MainTest(unittest.TestCase):
             cli.main()
         return caught.exception.code, out.getvalue(), err.getvalue()
 
+    def run_ok(self, *argv):
+        out = io.StringIO()
+        with patch.object(sys, "argv", ["odoo", *argv]), redirect_stdout(out):
+            cli.main()
+        return out.getvalue()
+
+    def signed_in(self):
+        temp_state(self)
+        c.save_config(**CONFIG)
+        c.write_private(cli.CLI_SESSION_FILE, "sid")
+
+    def odoo_answers(self, *scripts):
+        self.openers = [ScriptedOpener(*script) if isinstance(script, list) else script for script in scripts]
+        queue = iter(self.openers)
+        return patch.object(urllib.request, "build_opener", side_effect=lambda *handlers: next(queue))
+
+    def discord_says(self, *results):
+        pending, self.discord_requests = list(results), []
+
+        def urlopen(request, timeout):
+            self.discord_requests.append(request)
+            result = pending.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return io.BytesIO(json.dumps(result).encode())
+
+        return patch.object(cli.discord.urllib.request, "urlopen", side_effect=urlopen)
+
     def test_usage(self):
         for argv in ((), ("-h",), ("--help",), ("help",)):
             code, out, _ = self.run_main(*argv)
@@ -606,45 +740,62 @@ class MainTest(unittest.TestCase):
         self.assertEqual(out, f"Comando desconocido: volar\n{cli.USAGE}\n")
 
     def test_dispatches_each_command(self):
-        for cmd, function in (
-            ("status", "status"),
-            ("checkin", "check_in"),
-            ("checkout", "check_out"),
-            ("toggle", "toggle"),
-            ("break", "take_break"),
-            ("resume", "resume"),
-            ("history", "history"),
+        self.signed_in()
+        open_now = kw([{"id": 1, "check_in": utc(30)}])
+        for cmd, script, said in (
+            ("status", [EMPLOYEE_ROW, kw([]), kw([]), kw([])], "Estado: NO FICHADO (salida)"),
+            ("checkin", [EMPLOYEE_ROW, open_now], "Ya estás fichado desde las"),
+            ("checkout", [EMPLOYEE_ROW, kw([])], "No hay fichaje abierto. Usa 'checkin' para entrar."),
+            (
+                "toggle",
+                [
+                    EMPLOYEE_ROW,
+                    open_now,
+                    kw([NORMAL]),
+                    {"result": {"attendance_state": "checked_out", "attendance": {"check_out": utc(0)}}},
+                ],
+                "CHECK-OUT registrado a las",
+            ),
+            ("break", [EMPLOYEE_ROW, open_now, kw([NORMAL])], "Este Odoo no tiene el motivo Descanso"),
+            ("resume", [EMPLOYEE_ROW, kw([]), kw([NORMAL, REST])], "No hay un descanso abierto."),
+            ("history", [EMPLOYEE_ROW, kw([])], "No hay registros en los últimos 7 días"),
         ):
-            with (
-                patch.object(cli, "cli_client") as odoo,
-                patch.dict(cli.COMMANDS),
-                patch.object(cli, function) as run,
-                patch.object(sys, "argv", ["odoo", cmd]),
-            ):
-                if cmd != "history":
-                    cli.COMMANDS[cmd] = run
-                cli.main()
-            self.assertEqual(run.call_args.args[0], odoo.return_value, cmd)
+            with self.odoo_answers([SESSION, *script]):
+                self.assertIn(said, self.run_ok(cmd), cmd)
+            self.assertEqual(self.openers[0].calls[0][2], "session_id=sid", cmd)
 
     def test_history_takes_a_number_of_days(self):
-        with patch.object(cli, "cli_client") as odoo, patch.object(cli, "history") as history:
-            with patch.object(sys, "argv", ["odoo", "history", "30"]):
-                cli.main()
-            history.assert_called_once_with(odoo.return_value, 30)
-            for days in ("cero", "0"):
+        self.signed_in()
+        with self.odoo_answers([SESSION, EMPLOYEE_ROW, kw([])]):
+            self.assertIn("No hay registros en los últimos 30 días", self.run_ok("history", "30"))
+        for days in ("cero", "0"):
+            with self.odoo_answers([]):
                 code, _, err = self.run_main("history", days)
-                self.assertEqual(code, 1)
-                self.assertIn(f"ERROR: history espera un número de días, no «{days}»", err)
+            self.assertEqual(code, 1)
+            self.assertIn(f"ERROR: history espera un número de días, no «{days}»", err)
 
     def test_notices_run_for_today_and_what_google_refuses_goes_to_stderr(self):
-        with patch.object(cli, "cli_client") as odoo, patch.object(cli, "notices") as notices:
-            with patch.object(sys, "argv", ["odoo", "notices"]):
-                cli.main()
-            notices.assert_called_once_with(odoo.return_value, date.today())
-            notices.side_effect = cli.SheetsError("Google no responde (sin red)")
-            code, _, err = self.run_main("notices")
+        self.signed_in()
+        c.write_private(cli.SHEET_FILE, "hoja")
+        closed = {"Avisos Totales": [["Bea", 1, "Septiembre"]]}
+        refusing = FakeGoogle(**closed)
+        refusing.unreachable_to_append = True
+        accepting = FakeGoogle(**closed)
+        for google in (refusing, accepting):
+            with (
+                google_fake(google),
+                patch.object(cli, "OdooClient", return_value=office(SEPTEMBER_OCTOBER, REQUESTS)),
+                patch.object(cli, "datetime", frozen("2026-10-08T10:00:00+02:00")),
+                patch.object(cli.team, "datetime", frozen("2026-10-08T10:00:00+02:00")),
+            ):
+                if google is refusing:
+                    code, _, err = self.run_main("notices")
+                else:
+                    said = self.run_ok("notices")
         self.assertEqual(code, 1)
         self.assertIn("ERROR: Google no responde (sin red)", err)
+        self.assertEqual(said, "Avisos de octubre añadidos a «Avisos 2026»: 3\n")
+        self.assertEqual(len(accepting.tabs["Avisos 2026"]), 3)
 
     def test_sheet_remembers_the_spreadsheet_of_an_address_without_a_session(self):
         home = temp_state(self)
@@ -663,28 +814,26 @@ class MainTest(unittest.TestCase):
 
     def test_discord_keeps_the_bot_token_without_a_session(self):
         temp_state(self)
-        with (
-            patch.object(cli, "cli_client") as odoo,
-            patch.object(cli.getpass, "getpass", return_value=" tok "),
-            patch.object(cli.discord, "save_token", return_value="Odoo") as save,
-        ):
-            out = io.StringIO()
-            with patch.object(sys, "argv", ["odoo", "discord"]), redirect_stdout(out):
-                cli.main()
-            save.assert_called_once_with("tok")
-            cli.getpass.getpass.assert_called_once_with("Token del bot de Discord: ")
-            self.assertEqual(out.getvalue(), f"Bot «Odoo» guardado en {cli.discord.TOKEN_FILE}\n")
-            save.side_effect = cli.DiscordError("Discord no responde")
-            code, _, err = self.run_main("discord")
-        odoo.assert_not_called()
+        with patch.object(cli.getpass, "getpass", return_value=" tok ") as getpass:
+            with self.discord_says({"username": "Odoo"}):
+                out = self.run_ok("discord")
+            getpass.assert_called_once_with("Token del bot de Discord: ")
+            self.assertEqual(out, f"Bot «Odoo» guardado en {cli.discord.TOKEN_FILE}\n")
+            self.assertEqual(self.discord_requests[0].full_url, f"{cli.discord.API}/users/@me")
+            self.assertEqual(self.discord_requests[0].get_header("Authorization"), "Bot tok")
+            self.assertEqual(c.read_private(cli.discord.TOKEN_FILE), "tok")
+            with self.discord_says(urllib.error.URLError("sin red")):
+                code, _, err = self.run_main("discord")
         self.assertEqual(code, 1)
         self.assertIn("ERROR: Discord no responde", err)
 
     def test_odoo_errors_go_to_stderr(self):
-        with patch.object(cli, "cli_client", side_effect=c.OdooError("sin configurar")):
+        self.signed_in()
+        refused = {"error": {"code": 200, "data": {"message": "sin acceso"}}}
+        with self.odoo_answers([SESSION, refused]):
             code, _, err = self.run_main("status")
         self.assertEqual(code, 1)
-        self.assertIn("ERROR: sin configurar", err)
+        self.assertIn("ERROR: sin acceso", err)
 
     def test_a_missing_or_expired_session_points_to_login(self):
         temp_state(self)
@@ -695,64 +844,64 @@ class MainTest(unittest.TestCase):
         _, _, err = self.run_main("status")
         self.assertIn("ERROR: No hay sesión de Odoo guardada", err)
         c.write_private(cli.CLI_SESSION_FILE, "sid")
-        with patch.dict(cli.COMMANDS, {"status": lambda client: (_ for _ in ()).throw(c.SessionExpired("caducada"))}):
+        with self.odoo_answers([EXPIRED]):
             _, _, err = self.run_main("status", stdin=io.StringIO())
-        self.assertIn("ERROR: caducada. Ejecuta: odoo login", err)
+        self.assertIn("ERROR: La sesión de Odoo ha caducado. Ejecuta: odoo login", err)
 
     def test_with_a_terminal_an_expired_session_logs_in_and_starts_over(self):
         temp_state(self)
         c.save_config(**CONFIG)
         c.write_private(cli.CLI_SESSION_FILE, "old")
-        seen = []
-
-        def status(client):
-            seen.append(client.session_id)
-            if client.session_id == "old":
-                raise c.SessionExpired("caducada")
-
+        login = {"result": {"uid": 9}, "cookies": [SESSION_HEADER]}
         with (
-            patch.dict(cli.COMMANDS, {"status": status}),
+            self.odoo_answers([EXPIRED], [login], [SESSION, EMPLOYEE_ROW, kw([]), kw([]), kw([])]),
+            patch.object(cli.getpass, "getpass", return_value="p"),
+            patch("builtins.input", return_value=""),
             patch.object(sys, "stdin", self.TTY),
-            patch.object(cli, "cli_login", side_effect=lambda: c.write_private(cli.CLI_SESSION_FILE, "fresh")),
             patch.object(sys, "argv", ["odoo", "status"]),
             redirect_stdout(io.StringIO()) as out,
         ):
             cli.main()
-        self.assertEqual(seen, ["old", "fresh"])
-        self.assertIn("caducada. Inicia sesión para continuar.", out.getvalue())
-        with patch.dict(cli.COMMANDS, {"status": status}), patch.object(cli, "cli_login") as login:
-            c.write_private(cli.CLI_SESSION_FILE, "old")
+        self.assertEqual([opener.calls[0][2] for opener in self.openers], ["session_id=old", None, "session_id=abc123"])
+        self.assertEqual(self.openers[1].calls[0][1], {"db": "db", "login": "u", "password": "p"})
+        self.assertEqual(c.read_private(cli.CLI_SESSION_FILE), "abc123")
+        self.assertIn("La sesión de Odoo ha caducado. Inicia sesión para continuar.", out.getvalue())
+        self.assertIn("Estado: NO FICHADO (salida)", out.getvalue())
+        c.write_private(cli.CLI_SESSION_FILE, "old")
+        with (
+            self.odoo_answers([EXPIRED], [login], [EXPIRED]),
+            patch.object(cli.getpass, "getpass", return_value="p"),
+            patch("builtins.input", return_value=""),
+        ):
             code, _, err = self.run_main("status", stdin=self.TTY)
-        login.assert_called_once_with()
+        self.assertEqual(len(self.openers[1].calls), 1)
         self.assertEqual(code, 1)
-        self.assertIn("ERROR: caducada. Ejecuta: odoo login", err)
+        self.assertIn("ERROR: La sesión de Odoo ha caducado. Ejecuta: odoo login", err)
 
     def test_keep_alive_pings_the_session_on_disk_whatever_odoo_answers(self):
         temp_state(self)
-        answers = iter([c.SessionExpired("caducada"), OSError("sin red"), {"uid": 3}])
-        seen = []
+        with patch.object(cli.time, "sleep", side_effect=StopLoop), self.assertRaises(StopLoop):
+            cli.keep_alive()
+        c.save_config(**CONFIG)
+        c.write_private(cli.CLI_SESSION_FILE, "old")
+        pauses = [lambda: c.write_private(cli.CLI_SESSION_FILE, "fresh"), lambda: None]
 
-        def ping(odoo):
-            seen.append(odoo.session_id)
-            c.write_private(cli.CLI_SESSION_FILE, "fresh")
-            answer = next(answers)
-            if isinstance(answer, Exception):
-                raise answer
+        def pause(seconds):
+            if not pauses:
+                raise StopLoop
+            pauses.pop(0)()
 
         with (
-            patch.object(cli.OdooClient, "session_info", autospec=True, side_effect=ping),
-            patch.object(cli.time, "sleep", side_effect=StopLoop) as sleep,
+            self.odoo_answers([EXPIRED], Unreachable(), [SESSION]),
+            patch.object(cli.time, "sleep", side_effect=pause) as sleep,
+            self.assertRaises(StopLoop),
         ):
-            with self.assertRaises(StopLoop):
-                cli.keep_alive()
-            self.assertEqual(seen, [])
-            c.save_config(**CONFIG)
-            c.write_private(cli.CLI_SESSION_FILE, "old")
-            sleep.side_effect = [None, None, StopLoop]
-            with self.assertRaises(StopLoop):
-                cli.keep_alive()
-        self.assertEqual(seen, ["old", "fresh", "fresh"])
+            cli.keep_alive()
         sleep.assert_called_with(cli.KEEPALIVE_INTERVAL)
+        self.assertEqual(sleep.call_count, 3)
+        self.assertEqual(
+            [opener.calls[0][2] for opener in self.openers], ["session_id=old", "session_id=fresh", "session_id=fresh"]
+        )
 
     def test_cli_client_uses_the_saved_session(self):
         temp_state(self)
@@ -765,21 +914,29 @@ class MainTest(unittest.TestCase):
         home = temp_state(self)
         answers = iter(["https://odoo.example/", "db", "ana"])
         with (
-            patch.object(cli, "OdooClient") as odoo,
+            self.odoo_answers([{"result": {"uid": 9}, "cookies": [SESSION_HEADER]}]),
             patch("builtins.input", side_effect=lambda _: next(answers)) as ask,
             patch.object(cli.getpass, "getpass", return_value="p") as getpass,
+            patch.object(sys, "argv", ["odoo", "login"]),
+            redirect_stdout(io.StringIO()) as out,
         ):
-            odoo.return_value.session_id, odoo.return_value.device = "fresh", ""
-            with patch.object(sys, "argv", ["odoo", "login"]), redirect_stdout(io.StringIO()) as out:
-                cli.main()
-        odoo.assert_called_once_with("https://odoo.example/", "db", device="")
-        odoo.return_value.login.assert_called_once_with("ana", "p")
+            cli.main()
+        self.assertEqual(
+            self.openers[0].calls,
+            [
+                (
+                    "https://odoo.example/web/session/authenticate",
+                    {"db": "db", "login": "ana", "password": "p"},
+                    None,
+                )
+            ],
+        )
         getpass.assert_called_once_with("Contraseña: ")
         self.assertEqual(
             [call.args[0] for call in ask.call_args_list], ["URL de Odoo: ", "Base de datos: ", "Usuario: "]
         )
         self.assertEqual(c.load_config(), {"url": "https://odoo.example", "db": "db", "user": "ana"})
-        self.assertEqual(c.read_private(cli.CLI_SESSION_FILE), "fresh")
+        self.assertEqual(c.read_private(cli.CLI_SESSION_FILE), "abc123")
         self.assertEqual(oct(os.stat(cli.CLI_SESSION_FILE).st_mode & 0o777), "0o600")
         self.assertIn(home, out.getvalue())
         self.assertEqual(sorted(os.listdir(home)), ["cli_session", "config.json"])
@@ -790,17 +947,23 @@ class MainTest(unittest.TestCase):
         c.write_private(cli.CLI_DEVICE_FILE, "old")
         answers = iter(["", "123456"])
         with (
-            patch.object(cli, "OdooClient") as odoo,
+            self.odoo_answers(
+                [
+                    {"result": {}, "cookies": [SESSION_HEADER]},
+                    {"page": TOTP_PAGE},
+                    {"status": 303, "cookies": [ROTATED_HEADER, DEVICE_HEADER]},
+                    {"result": {"uid": 9}},
+                ]
+            ),
             patch("builtins.input", side_effect=lambda _: next(answers)) as ask,
             patch.object(cli.getpass, "getpass", return_value="p"),
             redirect_stdout(io.StringIO()),
         ):
-            odoo.return_value.session_id, odoo.return_value.device = "fresh", "dev2"
-            odoo.return_value.login.side_effect = c.TotpRequired("código")
             cli.cli_login()
-        odoo.assert_called_once_with("https://odoo.example", "db", device="old")
-        odoo.return_value.login_totp.assert_called_once_with("123456")
+        self.assertEqual(self.openers[0].calls[1][2], "session_id=abc123; td_id=old")
+        self.assertEqual(self.openers[0].calls[2][1], {"totp_token": "123456", "csrf_token": "tok1", "remember": "1"})
         self.assertEqual(ask.call_args.args[0], "Código de verificación (2FA): ")
+        self.assertEqual(c.read_private(cli.CLI_SESSION_FILE), "rotated")
         self.assertEqual(c.read_private(cli.CLI_DEVICE_FILE), "dev2")
         self.assertEqual(oct(os.stat(cli.CLI_DEVICE_FILE).st_mode & 0o777), "0o600")
         self.assertEqual(sorted(os.listdir(home)), ["cli_device", "cli_session", "config.json"])
@@ -809,40 +972,38 @@ class MainTest(unittest.TestCase):
         temp_state(self)
         c.save_config(**CONFIG)
         with (
-            patch.object(cli, "OdooClient") as odoo,
+            self.odoo_answers([{"result": {"uid": 9}, "cookies": [SESSION_HEADER]}]),
             patch("builtins.input", return_value="") as ask,
             patch.object(cli.getpass, "getpass", return_value="p"),
             redirect_stdout(io.StringIO()),
         ):
-            odoo.return_value.session_id, odoo.return_value.device = "fresh", ""
             cli.cli_login()
         self.assertEqual(ask.call_args.args[0], "Usuario [u]: ")
-        odoo.return_value.login.assert_called_once_with("u", "p")
+        self.assertEqual(self.openers[0].calls[0][1], {"db": "db", "login": "u", "password": "p"})
 
     def test_a_blank_user_is_sent_as_blank(self):
         temp_state(self)
         answers = iter(["https://odoo.example/", "db", ""])
         with (
-            patch.object(cli, "OdooClient") as odoo,
+            self.odoo_answers([{"result": {"uid": 9}, "cookies": [SESSION_HEADER]}]),
             patch("builtins.input", side_effect=lambda _: next(answers)),
             patch.object(cli.getpass, "getpass", return_value="p"),
             redirect_stdout(io.StringIO()),
         ):
-            odoo.return_value.session_id, odoo.return_value.device = "fresh", ""
             cli.cli_login()
-        odoo.return_value.login.assert_called_once_with("", "p")
+        self.assertEqual(self.openers[0].calls[0][1], {"db": "db", "login": "", "password": "p"})
 
     def test_a_failed_login_saves_nothing(self):
         temp_state(self)
+        denied = {"error": {"code": 200, "data": {"name": "odoo.exceptions.AccessDenied", "message": "Access Denied"}}}
         with (
-            patch.object(cli, "OdooClient") as odoo,
-            patch("builtins.input", return_value="x"),
+            self.odoo_answers([denied]),
+            patch("builtins.input", side_effect=["https://odoo.example", "db", "ana"]),
             patch.object(cli.getpass, "getpass", return_value="p"),
         ):
-            odoo.return_value.login.side_effect = c.AccessDenied("no")
             code, _, err = self.run_main("login")
         self.assertEqual(code, 1)
-        self.assertIn("ERROR: no", err)
+        self.assertIn("ERROR: Usuario o contraseña incorrectos", err)
         self.assertEqual(c.read_config(), {})
 
     def test_module_entry_point(self):
