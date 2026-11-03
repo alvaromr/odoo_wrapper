@@ -430,9 +430,7 @@ def punch(client: OdooClient, action: Any) -> tuple[int, Row]:
         return 400, {"error": f"Acción desconocida: {action}"}
     open_att = client.open_attendance()
     normal, rest = client.sign_in_reasons()
-    refused = step(
-        client, open_att, cast("Optional[int]", normal and normal["id"]), rest, client.open_is_rest(open_att, rest)
-    )
+    refused = step(client, open_att, normal["id"] if normal else None, rest, client.open_is_rest(open_att, rest))
     if refused:
         return 409, {"error": refused}
     stamp = datetime.now().astimezone().isoformat()

@@ -418,7 +418,8 @@ def read_employees(client: OdooClient, ids: list[int], fields: list[str]) -> lis
 
 def discord_of(client: OdooClient, employee_id: int) -> str | None:
     """Return what an employee's Discord field holds, or None."""
-    return cast("str | None", read_employees(client, [employee_id], ["name"])[0]["discord"])
+    held: str | None = read_employees(client, [employee_id], ["name"])[0]["discord"]
+    return held
 
 
 def first_punches(client: OdooClient, ids: list[int]) -> dict[int, str]:

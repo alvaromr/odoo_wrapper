@@ -184,11 +184,13 @@ copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a sub
 which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
 calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
 unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. pytest stays at 9.1, because
-mutmut 3.8.0 reads a test's `_nodeid`, which pytest 9.2 removed.
+mutmut 3.8.0 reads a test's `_nodeid`, which pytest 9.2 removed. Before the tests it runs mypy over every mutant,
+at the gate's version, and counts those mypy rejects as caught: the gate would stop them too. That is what makes
+the type in a `cast` need no pragma.
 
 ```bash
-no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 mutmut@3.8.0 run  # pyproject.toml
-no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 mutmut@3.8.0 results  # the mutants no test killed
+no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 --with mypy==1.18.2 mutmut@3.8.0 run  # pyproject.toml
+no_proxy='*' uvx --python 3.12 --with pytest==9.1.1 --with mypy==1.18.2 mutmut@3.8.0 results  # the mutants no test killed
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant

@@ -73,3 +73,4 @@ strict = true
 source_paths = ["src/odoo_wrapper/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-q", "-p", "no:cacheprovider"]
+type_check_command = ["mypy", "src/odoo_wrapper", "--output", "json", "--no-warn-unused-ignores"]
