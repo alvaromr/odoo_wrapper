@@ -13,6 +13,7 @@
 // it on the global object, which in a vm context is the sandbox, not node's.
 // The suites never reach the network: loading this file makes every socket connect throw, so a call left unmocked
 // fails its test instead of reaching a real server.
+// A warning from node, a deprecation or any other, fails the suite too: loading this file turns each into an error.
 // Below the harness are the fixtures more than one suite builds on: the personal payload, the management
 // view's week and fixes, and the helpers that open and drive its page.
 
@@ -25,6 +26,10 @@ import vm from "node:vm";
 net.Socket.prototype.connect = () => {
   throw new Error("The page suites never reach the network: stub the call that tried to");
 };
+
+process.on("warning", (warning) => {
+  throw warning;
+});
 
 const TEMPLATES = new URL("../src/odoo_wrapper/templates/", import.meta.url);
 const JS_DIR = new URL("js/", TEMPLATES);

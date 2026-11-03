@@ -11,10 +11,11 @@ in strict mode (tsconfig.json), the page's suite with its coverage, and a smoke 
 built by uv on the oldest and the newest Python, installed alone, and its two commands run. Every Python is uv's
 own, brought up to the latest patch the pinned uv knows before anything runs, since that is the patch users get;
 each Python step names it, so a difference between machines shows. A warning fails the Python suites and Biome as an
-error does, and a deprecation fails the page's suite. First it checks that node, pnpm and uv are the versions
-TOOLCHAIN pins, so every machine runs the gate the same way. Every step runs even after one fails, so a single run
-lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it before each commit, and the gate installs
-that hook itself (git's core.hooksPath) the first time it runs in a clone, so no clone goes without it.
+error does, and so does one from node in the page's suite (tests/page.mjs). First it checks that node, pnpm and uv
+are the versions TOOLCHAIN pins, so every machine runs the gate the same way. Every step runs even after one fails,
+so a single run lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it before each commit, and
+the gate installs that hook itself (git's core.hooksPath) the first time it runs in a clone, so no clone goes
+without it.
 
 The tools come locked with every dependency they pull in, so each run installs the same files. Ruff and mypy come
 from tests/tools/lint.txt, generated from lint.in with a hash for every file, and installed with the hashes required
@@ -60,7 +61,7 @@ PYTHON_STEPS = [
 PAGE_STEPS = [
     ("Biome", ["pnpm", "exec", "biome", "ci", "--error-on-warnings"]),
     ("TypeScript", ["node", "node_modules/typescript-7/bin/tsc", "-p", "tsconfig.json"]),
-    ("page suite and coverage", ["node", "--throw-deprecation", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
+    ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
 ]
 
 
