@@ -932,10 +932,20 @@ test("the state read from a hash sets only what it names, with its own spelling 
   run('readState("#v=month&d=charts")');
   run('readState("v=year#")');
   assert.deepEqual(run("[team.view, team.display]"), ["month", "charts"]);
-  assert.equal(run('readState("#")'), undefined);
+  assert.equal(run('readState("#")'), run("thisDay().slice(0, 7)"));
   assert.equal(run("team.search"), "");
   assert.deepEqual(run("[...team.fixKinds]"), ["open"]);
   assert.match(run("stateHash()"), /^#v=month&p=.*&f=all&d=charts&k=open$/);
+});
+
+test("a hash without the period opens the current one of its view", async () => {
+  const { page } = site({ data: teamPayload(), path: "/gestion" });
+  await settle();
+  const today = page.run("thisDay()");
+  assert.deepEqual(
+    ["#v=year&f=all", "#v=month", "#v=week"].map((hash) => page.run(`readState(${JSON.stringify(hash)})`)),
+    [today.slice(0, 4), today.slice(0, 7), undefined],
+  );
 });
 
 test("the view buttons, the search and the arrows keep the page where the URL says", async () => {

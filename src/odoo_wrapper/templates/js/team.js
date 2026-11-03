@@ -658,7 +658,7 @@ export function readState(hash) {
   /** @type {HTMLInputElement} */ (byId("search")).value = team.search;
   if (params.has("k"))
     team.fixKinds = new Set(/** @type {string} */ (params.get("k")).split(",").filter((k) => FixKinds.includes(k)));
-  return params.get("p") || undefined;
+  return params.get("p") || Views[team.view].now();
 }
 
 function saveState() {
