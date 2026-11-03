@@ -3,6 +3,8 @@
 Los cambios que nota quien usa las herramientas, por versión. El formato sigue
 [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y las versiones, [Semantic Versioning](https://semver.org/lang/es/).
 
+## [Unreleased]
+
 ## [1.1.0] - 2026-11-03
 
 ### Añadido
@@ -24,7 +26,9 @@ Los cambios que nota quien usa las herramientas, por versión. El formato sigue
   `--host 0.0.0.0` sigue escuchando en todas.
 - El log del panel lleva un nivel en cada línea: INFO, WARNING o ERROR.
 - El log anota una vez lo que Odoo no sirve y con qué sigue el panel: contratos, solicitudes de cambio, el campo
-  «Discord», los permisos para corregir y los motivos de fichaje.
+  «Discord», los permisos para corregir y los motivos de fichaje. También por qué una configuración dañada cuenta
+  como sin configurar.
+- `odoo notices` avisa cuando no puede leer su registro de filas ya escritas: las filas borradas a mano vuelven.
 - Las páginas no ejecutan scripts ni estilos escritos dentro del HTML (Content-Security-Policy).
 
 ### Corregido
@@ -37,5 +41,6 @@ Los cambios que nota quien usa las herramientas, por versión. El formato sigue
 
 Primera versión publicada: CLI de fichaje, panel de horas, vista de gestión, avisos por Discord y hoja de avisos.
 
+[Unreleased]: https://github.com/alvaromr/odoo_wrapper/compare/v1.1.0...HEAD
 [1.1.0]: https://github.com/alvaromr/odoo_wrapper/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/alvaromr/odoo_wrapper/releases/tag/v1.0.0

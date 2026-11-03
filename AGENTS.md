@@ -158,8 +158,9 @@ the editable install, before merging a change that could break them:
 Every push to `main` is a release, because users install `main` and the dashboards' update banner only
 looks at releases (`updates.py`'s header says why): a push without one reaches nobody. In the commit that
 goes to `main`, raise `__version__` in `src/odoo_wrapper/__init__.py`, the only place it is written
-(semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit), and give
-that version its section in `CHANGELOG.md`.
+(semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit), and
+rename `[Unreleased]` in `CHANGELOG.md` to that version and its date, leaving a new empty one above. Every change
+a user notices adds its line under `[Unreleased]` in its own commit.
 Once `main` is pushed, publish it from `main`:
 
 ```bash
@@ -199,7 +200,7 @@ depends on the day the suite runs.
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
 `node --test 'tests/*.test.mjs'` (the page's logic, each suite on the harness in `tests/page.mjs`). `ruff format` lays out every Python file, tests included,
-in 120 columns (`pyproject.toml`), and Biome the page's JS and CSS and the JS tests (`biome.jsonc`), which it
+at the line length `pyproject.toml` sets, and Biome the page's JS and CSS and the JS tests (`biome.jsonc`), which it
 also lints; run them rather than wrapping by hand. Types are strict on both sides: mypy `--strict` over the
 package, every function annotated, each module starting with `from __future__ import annotations` (Ruff adds
 it) so they read as on 3.10+ while the package runs on 3.9; and TypeScript over the page's JS, typed in JSDoc
