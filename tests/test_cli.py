@@ -511,7 +511,7 @@ class NoticesTest(unittest.TestCase):
         temp_state(self)
         c.write_private(cli.SHEET_FILE, "hoja")
 
-    def run_notices(self, google, today=TODAY, stdin=None, now=NOW, sessions=SEPTEMBER_OCTOBER, requests=REQUESTS):
+    def run_notices(self, google, today=TODAY, *, stdin=None, now=NOW, sessions=SEPTEMBER_OCTOBER, requests=REQUESTS):
         self.google, self.office = google, office(sessions, requests)
         out = io.StringIO()
         with (

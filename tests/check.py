@@ -25,7 +25,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = ".githooks"
-RUFF = "ruff@0.14.3"
+RUFF = "ruff@0.17.3"
 MYPY = "mypy@1.18.2"
 BIOME = "@biomejs/biome@2.6.3"
 TYPESCRIPT = "typescript@5.9.3"

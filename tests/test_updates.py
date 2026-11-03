@@ -164,7 +164,11 @@ class InstallTest(unittest.TestCase):
             patch.object(up.sys, "prefix", self.prefix),
             patch.dict(os.environ, {"HOME": self.home}),
             patch.object(up, "SYSTEM_BINS", ()),
-            patch.object(up.shutil, "which", side_effect=lambda program: self.programs.get(program)),
+            patch.object(
+                up.shutil,
+                "which",
+                side_effect=lambda program: self.programs.get(program),  # noqa: PLW0108 - tests replace self.programs
+            ),
             patch.object(up.threading, "Timer", new=lambda *args: FakeTimer(self.timers, *args)),
         ]
         for p in patches:

@@ -27,7 +27,7 @@ def at(day, hour, minute=0):
     return local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def att(employee, day, start, end, hours, reasons=(5,)):
+def att(employee, day, start, end, hours, *, reasons=(5,)):
     return {
         "employee_id": [employee, "x"],
         "check_in": at(day, *start),
@@ -443,8 +443,9 @@ class BuildTeamTest(unittest.TestCase):
             ScriptedClient(
                 rows(
                     **{
-                        "hr.attendance": lambda args, kwargs: attendance(args, kwargs)
-                        + ([tap] if len(args) == 1 else [])
+                        "hr.attendance": lambda args, kwargs: (
+                            attendance(args, kwargs) + ([tap] if len(args) == 1 else [])
+                        )
                     }
                 )
             ),
@@ -600,9 +601,13 @@ class BuildTeamTest(unittest.TestCase):
         client = ScriptedClient(
             rows(
                 **{
-                    "hr.attendance": lambda args, kwargs: attendance(args, kwargs)
-                    if len(args) == 3 or ("check_out", "=", False) in args[0] or ("check_out", "!=", False) in args[0]
-                    else live,
+                    "hr.attendance": lambda args, kwargs: (
+                        attendance(args, kwargs)
+                        if len(args) == 3
+                        or ("check_out", "=", False) in args[0]
+                        or ("check_out", "!=", False) in args[0]
+                        else live
+                    ),
                     "hr.employee": lambda args, kwargs: [
                         {"id": 2, "name": "Bea", "resource_calendar_id": [4, "Std"], "user_id": False}
                     ],
@@ -788,10 +793,13 @@ class YearTest(unittest.TestCase):
         dt.drop_data_cache()
         calls = []
         original = tm.build_team
-        tm.build_team = lambda client, *span: calls.append(span) or {
-            "generated_at": "2026-09-24T10:00:00",
-            "employees": [],
-        }
+        tm.build_team = lambda client, *span: (
+            calls.append(span)
+            or {
+                "generated_at": "2026-09-24T10:00:00",
+                "employees": [],
+            }
+        )
         self.addCleanup(setattr, tm, "build_team", original)
         client = SimpleNamespace(session_id="sid")
         self.assertEqual(tm.fetch_year(client, 2026)["year"], 2026)
@@ -850,11 +858,14 @@ class FixesTest(unittest.TestCase):
         dt.drop_data_cache()
         calls = []
         original = tm.build_team
-        tm.build_team = lambda client, monday, weeks: calls.append((monday, weeks)) or {
-            "generated_at": "x",
-            "limits": {},
-            "employees": [],
-        }
+        tm.build_team = lambda client, monday, weeks: (
+            calls.append((monday, weeks))
+            or {
+                "generated_at": "x",
+                "limits": {},
+                "employees": [],
+            }
+        )
         self.addCleanup(setattr, tm, "build_team", original)
         client = ScriptedClient({"hr.attendance": [{"check_in": "2025-03-05 08:00:00"}]})
         self.assertEqual(tm.fetch_fixes(client), {"generated_at": "x", "limits": {}, "employees": []})
@@ -873,9 +884,9 @@ class FetchTeamTest(unittest.TestCase):
         dt.drop_data_cache()
         calls = []
         original = tm.build_team
-        tm.build_team = lambda client, monday, weeks, start, stop: calls.append(
-            (client.session_id, monday, weeks)
-        ) or len(calls)
+        tm.build_team = lambda client, monday, weeks, start, stop: (
+            calls.append((client.session_id, monday, weeks)) or len(calls)
+        )
         self.addCleanup(setattr, tm, "build_team", original)
         client = SimpleNamespace(session_id="sid")
         self.assertEqual(tm.fetch_team(client, (MONDAY,)), 1)

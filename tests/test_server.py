@@ -276,6 +276,7 @@ class HandlerTest(unittest.TestCase):
         method,
         path,
         body=None,
+        *,
         host="localhost:8931",
         origin=None,
         cookie="sid",

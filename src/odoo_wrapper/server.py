@@ -589,11 +589,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 TEAM_ACTIONS: dict[str, tuple[Callable[[OdooClient, Body], Reply], bool]] = {
-    "/api/team/discord": (lambda client, body: discord.message_employee(client, body), False),
+    "/api/team/discord": (discord.message_employee, False),
     "/api/team/discord/token": (lambda _client, body: discord.set_token(body.get("token")), False),
     "/api/team/discord/test": (lambda client, _body: discord.send_test(client), False),
     "/api/team/approve": (lambda client, body: corrections.approve_request(client, body.get("id")), False),
-    "/api/team/attendance": (lambda client, body: corrections.save_attendance(client, body), True),
+    "/api/team/attendance": (corrections.save_attendance, True),
     "/api/team/delete": (lambda client, body: corrections.delete_attendance(client, body.get("id")), True),
 }
 GET_ROUTES = {
