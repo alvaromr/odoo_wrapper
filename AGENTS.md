@@ -45,7 +45,7 @@ tests/               unittest + node tests, check.py (the gate), fix.py, mutate.
                      their Python tools locked; see below
 package.json         the gate's Node tools (Biome, TypeScript, StrykerJS), locked in pnpm-lock.yaml; never the
                      package's: it ships none
-.githooks/           pre-commit: runs the gate before each commit
+.githooks/           pre-commit: runs the gate before each commit, on what the commit holds
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
 .claude-plugin/      marketplace.json: publishes .ai/ as the Claude Code plugin `odoo`, its skills/ the

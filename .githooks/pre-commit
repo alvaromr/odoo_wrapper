@@ -1,3 +1,17 @@
 #!/bin/sh
-# The gate before every commit: tests/check.py says what it runs, and installs this hook the first time.
-exec python3 tests/check.py
+# The gate before every commit, on exactly what the commit holds: tests/check.py says what it runs, and installs this
+# hook the first time. What is not staged, untracked files included, is set aside in a stash while it runs and put
+# back after, whatever the gate says. If that is cut short, `git stash list` shows it and `git stash pop` restores it.
+before=$(git rev-parse -q --verify refs/stash)
+git stash push -q --keep-index --include-untracked -m "pre-commit: what was not staged, while the gate ran"
+after=$(git rev-parse -q --verify refs/stash)
+restore() {
+  if [ "$after" != "$before" ]; then
+    git stash pop -q
+  fi
+}
+trap 'restore; exit 130' INT TERM
+python3 tests/check.py
+status=$?
+restore
+exit $status
