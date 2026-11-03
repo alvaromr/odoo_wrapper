@@ -13,13 +13,14 @@ import sys
 from check import MYPY, ROOT, TYPESCRIPT
 
 MUTMUT = "mutmut@3.8.1"
+MUTMUT_PYTEST = "pytest==9.2.0"
 MUTMUT_PYTHON = "3.12"
 STRYKER = "@stryker-mutator/core@10.0.0"
 
 
 def python_round():
     env = {**os.environ, "no_proxy": "*"}
-    mutmut = ["uvx", "--python", MUTMUT_PYTHON, "--with", MYPY.replace("@", "=="), MUTMUT]
+    mutmut = ["uvx", "--python", MUTMUT_PYTHON, "--with", MUTMUT_PYTEST, "--with", MYPY.replace("@", "=="), MUTMUT]
     done = subprocess.run([*mutmut, "run"], cwd=ROOT, env=env, check=False)
     subprocess.run([*mutmut, "results"], cwd=ROOT, env=env, check=False)
     return done.returncode
