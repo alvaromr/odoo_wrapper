@@ -111,6 +111,16 @@ Read the header of a module before touching it.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
 
+## Decisions and deviations
+
+Where the repo departs on purpose from a common practice, and why:
+
+- **The strings the user reads stay where they are used,** neither in resource files nor gathered per module.
+  The tool speaks only Spanish (Hard rules, 6), so a catalogue would be indirection with nothing to swap, and a
+  message is read best beside the code that shows it; a constant holds one only when that reads better or it
+  repeats (How to verify changes). Each message is written whole, never pieced from fragments, so moving them
+  out for a second language stays mechanical.
+
 ## Installing for development
 
 The README installs a user's copy: the commands from GitHub's `main`, the skills as a plugin cached from it.
