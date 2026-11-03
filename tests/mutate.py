@@ -4,18 +4,21 @@
 `python3 tests/mutate.py` runs mutmut over the package (pyproject.toml) and lists the mutants no test killed;
 `python3 tests/mutate.py js` runs StrykerJS over the page's JS (stryker.config.json), which takes about an hour. The
 tools come at the versions pinned here, and mutmut type-checks each mutant with the gate's own mypy (check.py).
+StrykerJS gets its own TypeScript: it reads tsconfig.json through TypeScript's JavaScript API, which TypeScript 7,
+the gate's, no longer ships, so it stays on 6, the last line that has it.
 """
 
 import os
 import subprocess
 import sys
 
-from check import MYPY, ROOT, TYPESCRIPT
+from check import MYPY, ROOT
 
 MUTMUT = "mutmut@3.8.1"
 MUTMUT_PYTEST = "pytest==9.2.0"
 MUTMUT_PYTHON = "3.12"
 STRYKER = "@stryker-mutator/core@10.1.1"
+STRYKER_TYPESCRIPT = "typescript@6.0.3"
 
 
 def python_round():
@@ -27,7 +30,7 @@ def python_round():
 
 
 def js_round():
-    command = ["pnpm", f"--package={STRYKER}", f"--package={TYPESCRIPT}", "dlx", "stryker", "run"]
+    command = ["pnpm", f"--package={STRYKER}", f"--package={STRYKER_TYPESCRIPT}", "dlx", "stryker", "run"]
     return subprocess.run(command, cwd=ROOT, check=False).returncode
 
 
