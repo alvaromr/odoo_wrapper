@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """The gate: every check AGENTS.md § How to verify changes asks for, in one command that fails if any fails.
 
-`python3 tests/check.py` runs Ruff (format and lint), mypy (strict types), the Python suite on the oldest Python the
-package supports (MIN_PYTHON, read from .python-version, which pyproject.toml's requires-python must match; Ruff
+`python3 tests/check.py` runs Ruff (format and lint), mypy (strict types, for TYPED_PYTHON: mypy 2 checks for 3.10
+or newer only, so what 3.9 lacks is caught by the next step, which runs every line on 3.9), the Python suite on the
+oldest Python the package supports (MIN_PYTHON, read from .python-version, which pyproject.toml's requires-python
+must match; Ruff
 takes its target from requires-python itself), the same suite measuring every line and branch on COVERAGE_PYTHON
 (branches need 3.14), Biome over the page's JS and CSS and the JS tests (format, lint and import order, as
 biome.jsonc sets), TypeScript checking the page's JS against its JSDoc types in strict mode (tsconfig.json), and the
@@ -26,7 +28,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = ".githooks"
 RUFF = "ruff@0.17.3"
-MYPY = "mypy@1.20.2"
+MYPY = "mypy@2.4.0"
+TYPED_PYTHON = "3.10"
 BIOME = "@biomejs/biome@2.6.3"
 TYPESCRIPT = "typescript@7.0.2"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
@@ -44,7 +47,7 @@ NODE_COVERAGE = [
 STEPS = [
     ("Ruff format", ["uvx", RUFF, "format", "--check"]),
     ("Ruff", ["uvx", RUFF, "check"]),
-    ("mypy", ["uvx", MYPY, "--python-version", MIN_PYTHON]),
+    ("mypy", ["uvx", MYPY, "--python-version", TYPED_PYTHON]),
     (
         f"Python {MIN_PYTHON} suite",
         ["uv", "run", "--no-project", "--python", MIN_PYTHON, "-m", "unittest", "discover", "-s", "tests", "-q"],
