@@ -65,6 +65,7 @@ Don't duplicate — each fact has one home:
 - **The skills** — only when an agent should reach for the CLI and what to confirm first; `odoo-notices` also
   carries `SETUP.md`, what a machine needs for `odoo notices` on each operating system.
 - **`README.md`** — human quickstart only, the install included.
+- **`docs/decisions/`** — each practice the repo departs from on purpose, why, and who approved it.
 - **This file** — how to work on the repo, and the Odoo API notes below.
 
 Read the header of a module before touching it.
@@ -111,15 +112,9 @@ Read the header of a module before touching it.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
 
-## Decisions and deviations
+## Decisions
 
-Where the repo departs on purpose from a common practice, and why:
-
-- **The strings the user reads stay where they are used,** neither in resource files nor gathered per module.
-  The tool speaks only Spanish (Hard rules, 6), so a catalogue would be indirection with nothing to swap, and a
-  message is read best beside the code that shows it; a constant holds one only when that reads better or it
-  repeats (How to verify changes). Each message is written whole, never pieced from fragments, so moving them
-  out for a second language stays mechanical.
+Before changing a practice, read `docs/decisions/`.
 
 ## Installing for development
 
