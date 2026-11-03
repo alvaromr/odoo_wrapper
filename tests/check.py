@@ -32,7 +32,7 @@ TYPESCRIPT = "typescript@5.9.3"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
     MIN_PYTHON = pinned.read().strip()
 COVERAGE_PYTHON = "3.14"
-TOOLCHAIN = {"node": "26.8.2", "pnpm": "12.4.2", "uv": "0.7.6"}
+TOOLCHAIN = {"node": "26.13.0", "pnpm": "12.16.1", "uv": "0.13.6"}
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 NODE_COVERAGE = [
     "--experimental-test-coverage",
