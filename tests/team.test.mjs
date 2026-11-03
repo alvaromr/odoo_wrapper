@@ -1,44 +1,38 @@
-// The management view's suites (team.js, teamfixes.js, teamstate.js): what each cell, tooltip, chart and card
-// draws, with the classes and tags the stylesheet reads, and the history, storage and keys that move between
-// periods. The clock is page.mjs's: today is TUESDAY 2026-09-15, which the payloads below are built around.
+// team.js: the management view's page, what each cell, tooltip, chart and card draws, with the classes and tags
+// the stylesheet reads, and the history, storage and keys that move between periods. The clock is page.mjs's:
+// today is TUESDAY 2026-09-15, which the payloads below are built around.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import vm from "node:vm";
 import {
   cellText,
+  drag,
   hover,
-  IMPORT_RE,
-  isoDate,
+  LIMITS,
   load,
-  readModule,
+  marksOf,
+  punch,
+  siteReply as reply,
   rowName,
+  segment,
   settle,
+  shape,
+  shift,
+  site,
+  stamp,
+  svgTexts,
   teamFixes,
   teamPayload,
+  teamWeek,
+  tipClasses,
   UP_TO_DATE,
+  withFilters,
   Y25,
 } from "./page.mjs";
 
-const LIMITS = { long_day: 12, under_margin: 1 / 60, over_margin: 5 };
 const TODAY = "2026-09-15";
 
-const reply = (json, ok = true, status = 200) => ({ ok, status, json: async () => json });
-const shift = (iso, days) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return isoDate(new Date(y, m - 1, d + days));
-};
 const range = (first, n = 7) => Array.from({ length: n }, (_, i) => shift(first, i));
-const stamp = (iso, hour, minute = 0) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d, hour, minute).toISOString();
-};
-const punch = (date, from, to) => ({
-  in: stamp(date, from),
-  out: to == null ? null : stamp(date, to),
-  hours: to == null ? null : to - from,
-  rest: false,
-});
 const day = (date, extra) => ({
   date,
   hours: 0,
@@ -86,107 +80,10 @@ const period = (first, employees, extra) => ({
   ...extra,
 });
 
-function site({ data, fixes = teamFixes(), path = "/gestion#f=all", ...rest }) {
-  const urls = [];
-  const fetchImpl = async (url) => {
-    if (url === "/api/update") return reply(UP_TO_DATE);
-    urls.push(url);
-    if (url.includes("fixes")) return typeof fixes === "function" ? fixes(url) : reply(fixes);
-    return typeof data === "function" ? data(url) : reply(data);
-  };
-  const page = load({ entry: "team.js", fetchImpl, path, ...rest });
-  return { page, urls, doc: page.document };
-}
-
-const segment = (page, id, attr, keys) => {
-  const seg = page.document.getElementById(id);
-  const stray = page.document.createElement("span");
-  stray.textContent = "x";
-  seg.appendChild(stray);
-  for (const key of keys) {
-    const button = page.document.createElement("button");
-    button.dataset[attr] = key;
-    seg.appendChild(button);
-  }
-  const click = (key) =>
-    seg.listeners.click[0]({
-      target: {
-        closest: (selector) => (selector === "button" ? seg.children.find((b) => b.dataset[attr] === key) : null),
-      },
-    });
-  return { seg, stray, click };
-};
 const grid = (doc) => {
   const [thead, tbody] = doc.getElementById("grid").children;
   return { thead, tbody, rows: tbody.children, head: thead.children[0].children };
 };
-const svgTexts = (node) =>
-  (node.children || []).flatMap((c) =>
-    typeof c === "string" ? [] : [...(c.tagName === "TEXT" ? [c.textContent] : []), ...svgTexts(c)],
-  );
-const marksOf = (svg) => svg.children.filter((c) => c.tagName === "G");
-const shape = (nodes) => nodes.map((n) => `${n.tagName} ${n.className}`.trim());
-const tipClasses = (page, node) => {
-  node.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-  const rows = page.document.getElementById("tip").children;
-  assert.ok(rows.every((c) => c.tagName === "DIV"));
-  const classes = rows.map((c) => c.className);
-  node.listeners.pointerleave[0]();
-  return classes;
-};
-const drag = (scroller) => {
-  const on = (type) => scroller.listeners[type][0];
-  on("pointerdown")({ button: 0, target: { closest: () => null }, clientX: 100, clientY: 0 });
-  on("pointermove")({ clientX: 40, clientY: 0 });
-  on("pointerup")();
-};
-
-function loadModules(...names) {
-  const ctx = vm.createContext({ Date, __stryker__: { activeMutant: process.env.__STRYKER_ACTIVE_MUTANT__ } });
-  const blank = (text) => text.replace(/[^\n]/g, " ");
-  for (const name of names) {
-    vm.runInContext(
-      readModule(name)
-        .replace(IMPORT_RE, blank)
-        .replace(/^export\s/gm, blank),
-      ctx,
-    );
-  }
-  return (code) => JSON.parse(JSON.stringify(vm.runInContext(code, ctx)));
-}
-
-test("the shared state starts on this week, this month and this year, with no search", () => {
-  const run = loadModules("format.js", "teamstate.js");
-  assert.deepEqual(run("[team.month, team.year, team.search, team.view, team.filter, team.display, team.fixDay]"), [
-    "2026-09",
-    "2026",
-    "",
-    "week",
-    "issues",
-    "table",
-    10,
-  ]);
-  assert.deepEqual(run("FlagText"), {
-    open: "Sin cerrar",
-    empty: "Sin fichar",
-    long: "Jornada muy larga",
-  });
-});
-
-test("the name search folds case and accents, ignores the spaces around it, and nothing more", () => {
-  const run = loadModules("format.js", "teamstate.js");
-  assert.deepEqual(
-    [
-      'named({ name: "López" }, "lopez")',
-      'named({ name: "Zoe" }, "  zoe ")',
-      'named({ name: "ZOE" }, "oe")',
-      'named({ name: "Ana" }, "")',
-      'named({ name: "Ana" }, "bea")',
-      'named({ name: "Strauß" }, "strauss")',
-    ].map(run),
-    [true, true, true, true, false, false],
-  );
-});
 
 test("a day cell tells today, what is still to come, flags and live sessions, with the tags the stylesheet reads", async () => {
   const days = [
@@ -1047,193 +944,1012 @@ test("a saved punch reloads the period and the fixes from the server, not from i
   assert.ok(urls.includes("/api/team?fixes&fresh"));
 });
 
-const fixItem = (kind, date, extra) => ({
-  date,
-  kind,
-  hours: kind === "long" ? 14 : 0,
-  target: 8,
-  sessions: { open: [punch(date, 9, null)], long: [punch(date, 8, 22)] }[kind] || [],
-  ...extra,
-});
-const fixes = (crew) => ({
-  generated_at: new Date().toISOString(),
-  limits: LIMITS,
-  employees: crew.map(([name, items], i) => ({ id: i + 1, name, items })),
-});
-
-test("the people to fix come most open sessions first, then most days, then by name", async () => {
-  const days = (kinds) => kinds.map((kind, i) => fixItem(kind, shift("2026-09-01", i)));
-  const crew = fixes([
-    ["Zaira", days(["long", "long", "long", "long", "long"])],
-    ["Ana", days(["long"])],
-    ["Beto", days(["open"])],
-    ["Ábel", days(["open"])],
-    ["Cris", days(["open", "long", "long"])],
-    ["Dora", days(["open", "open"])],
-  ]);
-  const { page } = site({ data: teamPayload(), fixes: crew });
+test("the management view draws one row per person, sorted in Spanish, with its flags", async () => {
+  const page = load({ entry: "team.js", data: teamPayload() });
+  const pick = withFilters(page);
   await settle();
-  const sorted = page.run(`(() => {
-    const crew = team.fixes.employees;
-    const orders = [crew, crew.slice().reverse(), crew.slice(2).concat(crew.slice(0, 2)), crew.slice(4).concat(crew.slice(0, 4))];
-    return orders.map((employees) => fixRows({ employees }).map((r) => r.name));
-  })()`);
-  for (const names of sorted) assert.deepEqual(names, ["Dora", "Cris", "Ábel", "Beto", "Zaira", "Ana"]);
-});
-
-test("a mark covers only the sessions to blame, from their start to their end, or to now when still open", async () => {
-  const row = {
-    id: 5,
-    name: "X",
-    items: [
-      fixItem("open", "2026-09-10", { sessions: [punch("2026-09-10", 8, 12), punch("2026-09-10", 13, null)] }),
-      fixItem("long", "2026-09-11", { sessions: [punch("2026-09-11", 6, 9), punch("2026-09-11", 10, 23)], hours: 16 }),
-      fixItem("long", "2026-09-12", { sessions: [punch("2026-09-12", 6, 12), punch("2026-09-12", 13, 20)], hours: 13 }),
-      fixItem("empty", "2026-09-13"),
-    ],
-  };
-  const { page } = site({ data: teamPayload() });
-  await settle();
-  const at = (y, m, d, h = 0) => new Date(y, m - 1, d, h).getTime();
-  const now = at(2026, 9, 15, 10);
+  const doc = page.document;
+  assert.equal(doc.getElementById("weekLabel").textContent, `Semana del 3 mar al 9 mar${Y25}`);
+  assert.match(
+    doc.getElementById("criteria").textContent,
+    /^Bajo objetivo: una semana terminada con 1m o más por debajo .* más de 5h por encima .* más de 12h fichadas en un día\./,
+  );
+  assert.match(doc.getElementById("subtitle").textContent, /^4 personas · actualizado el 10 mar a las 09:05/);
   assert.deepEqual(
-    page.run(
-      `fixMarks(${JSON.stringify(row)}, new Date(${now})).map((m) => [m.cls, m.start.getTime(), m.end.getTime()])`,
-    ),
+    doc.getElementById("filterSeg").children.map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
     [
-      ["error", at(2026, 9, 10, 13), now],
-      ["error late", at(2026, 9, 11, 10), at(2026, 9, 11, 23)],
-      ["error late", at(2026, 9, 12, 6), at(2026, 9, 12, 12)],
-      ["error late", at(2026, 9, 12, 13), at(2026, 9, 12, 20)],
-      ["missing", at(2026, 9, 13), at(2026, 9, 14)],
+      ["Con incidencias (2)", "true"],
+      ["Bajo objetivo (1)", "false"],
+      ["Demasiadas horas (1)", "false"],
+      ["Con solicitudes (1)", "false"],
+      ["Todas (4)", "false"],
     ],
   );
-});
-
-test("the strip ends at the midnight after the last error, and starts a week before the first", async () => {
-  const { page } = site({ data: teamPayload() });
-  await settle();
-  const span = (items) =>
-    page.run(
-      `(() => { const s = fixSpan([{ items: ${JSON.stringify(items)} }], new Date(2025, 11, 30)); return [s.from, s.to].map((d) => [d.getMonth(), d.getDate(), d.getHours()]); })()`,
-    );
-  assert.deepEqual(span([fixItem("long", "2025-06-02", { sessions: [punch("2025-06-02", 18, 21)] })]), [
-    [4, 26, 0],
-    [5, 10, 0],
-  ]);
-  assert.deepEqual(span([fixItem("empty", "2025-06-02")]), [
-    [4, 26, 0],
-    [5, 10, 0],
-  ]);
-});
-
-test("the strip's axis names a tick per day, two days or a Monday, by how far it is zoomed", async () => {
-  const labels = async (date, zoom) => {
-    const { page, doc } = site({ data: teamPayload(), fixes: fixes([["Dora", [fixItem("empty", date)]]]) });
-    await settle();
-    page.run(`team.fixDay = ${zoom}; renderFixes()`);
-    return svgTexts(doc.getElementById("fixes").children[0].children[2]);
-  };
-  assert.deepEqual(await labels("2026-08-30", 10), ["24 ago", "31 ago", "7 sep"]);
-  assert.deepEqual(await labels("2026-09-04", 10), ["31 ago", "7 sep"]);
-  assert.deepEqual(await labels("2026-09-04", 25), [
-    "28 ago",
-    "30 ago",
-    "1 sep",
-    "3 sep",
-    "5 sep",
-    "7 sep",
-    "9 sep",
-    "11 sep",
-  ]);
-  assert.deepEqual(await labels("2026-09-04", 50), [
-    "Vie 28",
-    "Sáb 29",
-    "Dom 30",
-    "Lun 31",
-    "Mar 1",
-    "Mié 2",
-    "Jue 3",
-    "Vie 4",
-    "Sáb 5",
-    "Dom 6",
-    "Lun 7",
-    "Mar 8",
-    "Mié 9",
-    "Jue 10",
-    "Vie 11",
-    "Sáb 12",
-  ]);
-});
-
-test("the card of fixes draws a row per person with its chips, says what it holds, and zooms within its bounds", async () => {
-  const { doc, page } = site({ data: teamPayload() });
-  const kinds = segment(page, "fixKinds", "kind", ["open", "long", "empty"]);
-  await settle();
-  assert.equal(kinds.stray.textContent, "x");
-  const scroller = doc.getElementById("fixes");
-  const cells = scroller.children[0].children;
-  assert.equal(scroller.children[0].tagName, "DIV");
-  assert.equal(scroller.children[0].className, "fix-grid");
-  assert.deepEqual(shape(cells.slice(0, 3)), ["SPAN label", "SPAN label", "SVG"]);
-  assert.deepEqual(shape(cells.slice(3)), ["A fix-name", "DIV chips", "SVG", "A fix-name", "DIV chips", "SVG"]);
-  assert.deepEqual(shape(cells[4].children), ["SPAN chip warn", "SPAN chip", "SPAN chip"]);
-  assert.deepEqual(shape(cells[7].children), ["SPAN chip"]);
-  assert.equal(
-    doc.getElementById("fixesNote").textContent,
-    "Entradas sin cerrar, jornadas de más de 12h y días con jornada prevista sin fichar, " +
-      "de todo el historial de cada persona y sea cual sea el periodo que estés viendo. Una fila por persona.",
+  pick("requests");
+  assert.deepEqual(doc.getElementById("grid").children[1].children.map(rowName), ["Álvaro"]);
+  pick("all");
+  const [thead, tbody] = doc.getElementById("grid").children;
+  assert.deepEqual(
+    thead.children[0].children.map((th) => th.textContent),
+    ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Semana"],
   );
-  assert.deepEqual([doc.getElementById("zoomIn").disabled, doc.getElementById("zoomOut").disabled], [false, false]);
-  assert.equal(scroller.scrollLeft, scroller.scrollWidth);
-
-  page.run("team.search = '  '; team.fixKinds = new Set(); renderFixes()");
-  assert.match(doc.getElementById("fixesNote").textContent, /persona\. Nadie con los tipos elegidos\.$/);
-  page.run("team.search = ' zoe '; renderFixes()");
+  assert.deepEqual(tbody.children.map(rowName), ["Álvaro", "Ana", "Bruno", "Zoe"]);
+  assert.deepEqual(
+    tbody.children.map((tr) => tr.children[0].children[0].href),
+    ["/empleado?id=1", "/empleado?id=2", "/empleado?id=4", "/empleado?id=3"],
+  );
+  const bruno = tbody.children[2].children;
+  assert.equal(cellText(bruno[6]), "Sobran 6h 30m|46h 30m| de 40h");
+  page.run("team.data.employees.find(e => e.name === 'Bruno').suspect = true; render()");
+  const suspect = doc.getElementById("grid").children[1].children[2].children[6];
+  assert.equal(cellText(suspect), "Sobran 6h 30m|46h 30m| de 40h|⚠ incluye una jornada muy larga: suma no fiable");
+  assert.equal(suspect.classList.contains("bad"), true);
+  page.run("team.data.employees.find(e => e.name === 'Bruno').suspect = false; render()");
+  assert.equal(hover(page, bruno[6]).at(-1), "46h 30m de 40h previstas: sobran 6h 30m, más de 5h");
+  const alvaro = tbody.children[0].children;
+  assert.equal(alvaro[2].classList.contains("warn"), true);
+  assert.equal(alvaro[2].classList.contains("bad"), false);
+  assert.equal(cellText(alvaro[2]), "Sin fichar|Solicitud pendiente 09:00–17:40|Solicitud rechazada 09:00");
+  assert.deepEqual(
+    alvaro[2].children.slice(1).map((c) => c.className),
+    ["req pending", "req refused"],
+  );
+  assert.deepEqual(hover(page, alvaro[2]), [
+    `Mar 4 mar${Y25}`,
+    "Sin fichajes",
+    "Jornada prevista de 8h sin fichajes ni ausencia",
+    "Solicitud pendiente 09:00–17:40",
+    "Olvidé fichar",
+    "Solicitud rechazada 09:00",
+  ]);
+  alvaro[2].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
+  assert.deepEqual(
+    page.document
+      .getElementById("tip")
+      .children.filter((c) => /^Solicitud/.test(c.textContent))
+      .map((c) => c.className),
+    ["t-note pending", "t-note refused"],
+  );
+  alvaro[2].listeners.pointerleave[0]();
+  assert.equal(page.document.getElementById("tip").style.display, "none");
+  assert.deepEqual(hover(page, alvaro[6]), [
+    "Saldo de la semana, día a día",
+    "Ningún día cerrado con jornada prevista",
+    "32h de 40h previstas: faltan 8h",
+  ]);
+  const zoe = tbody.children[3].children;
+  assert.deepEqual(hover(page, zoe[1]), [`Lun 3 mar${Y25}`, "09:00–16:30 7h 30m", "Frente a 8h previstas −30m"]);
+  assert.deepEqual(hover(page, zoe[6]), [
+    "Saldo de la semana, día a día",
+    `Lun 3 mar${Y25} −30m`,
+    "Semana frente a 40h +0h",
+  ]);
+  assert.equal(cellText(alvaro[6]), "Faltan 8h|32h| de 40h");
+  assert.equal(alvaro[6].classList.contains("bad"), true);
+  const ana = tbody.children[1].children;
+  assert.equal(cellText(ana[4]), "Vacaciones");
+  assert.equal(cellText(ana[6]), "30h| sin horario");
+  assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
   assert.match(
     doc.getElementById("fixesNote").textContent,
-    /persona\. Nadie cuyo nombre contenga «zoe» con los tipos elegidos\.$/,
+    /^Entradas sin cerrar, jornadas de más de 12h y días con jornada prevista sin fichar/,
   );
-  assert.equal(scroller.children[0].children.length, 3);
-  page.run("team.fixes = null; renderFixes()");
-  assert.equal(scroller.children.length, 0);
-  assert.match(doc.getElementById("fixesNote").textContent, /^Buscando fichajes por corregir/);
-});
-
-test("a punch to fix describes itself in its tooltip, with the year it was on", async () => {
-  const { doc, page } = site({ data: teamPayload() });
-  await settle();
-  const marks = marksOf(doc.getElementById("fixes").children[0].children[5]);
-  assert.deepEqual(hover(page, marks[0])[0], "Zoe · Jue 20 feb 2025");
-  assert.deepEqual(tipClasses(page, marks[0]), ["t-title", "t-note warn", "t-row", "t-note"]);
-  assert.deepEqual(hover(page, marks[1])[0], "Zoe · Sáb 12 sep 2026");
-  assert.deepEqual(tipClasses(page, marks[1]), ["t-title", "t-note warn", "t-row warn", "t-note"]);
-  assert.deepEqual(tipClasses(page, marks[2]), ["t-title", "t-note warn", "t-note"]);
-});
-
-test("the kinds and the zoom leave the note alone when the fixes could not be read", async () => {
-  const { doc, page } = site({ data: teamPayload(), fixes: () => reply({ error: "Odoo no responde" }, false, 502) });
-  const kinds = segment(page, "fixKinds", "kind", ["open", "long", "empty"]);
-  await settle();
-  const note = doc.getElementById("fixesNote");
-  assert.equal(note.textContent, "No se pudieron cargar los fichajes por corregir: Odoo no responde");
+  const fixes = doc.getElementById("fixes").children[0].children;
+  assert.deepEqual(
+    fixes.slice(0, 2).map((c) => c.textContent),
+    ["Persona", "Pendiente"],
+  );
+  const cells = fixes.slice(3);
+  assert.deepEqual(
+    cells.filter((c) => c.tagName === "A").map((a) => [a.textContent, a.href]),
+    [
+      ["Zoe", "/empleado?id=3"],
+      ["Bruno", "/empleado?id=4"],
+    ],
+  );
+  assert.deepEqual(
+    cells[1].children.map((c) => [c.textContent, c.className]),
+    [
+      ["Abierta desde el 20 feb 2025 08:00", "chip warn"],
+      ["1 jornada muy larga · 20h", "chip"],
+      ["1 sin fichar", "chip"],
+    ],
+  );
+  assert.deepEqual(
+    cells[4].children.map((c) => c.textContent),
+    ["1 sin fichar"],
+  );
+  const zoeMarks = cells[2].children.filter((c) => c.tagName === "G");
+  assert.deepEqual(
+    zoeMarks.map((g) => g.children[1].getAttribute("class")),
+    ["bar error", "bar error late", "bar missing"],
+  );
+  assert.deepEqual(hover(page, zoeMarks[0]), [
+    "Zoe · Jue 20 feb 2025",
+    "Sin cerrar",
+    "08:00–abierto abierta",
+    "Entrada a las 08:00 sin salida",
+  ]);
+  assert.deepEqual(hover(page, zoeMarks[2]).slice(1), [
+    "Sin fichar",
+    "Jornada prevista de 8h sin fichajes ni ausencia",
+  ]);
+  assert.deepEqual(hover(page, zoeMarks[1]).slice(1), [
+    "Jornada muy larga",
+    "08:00–04:00 20h",
+    "20h fichadas en el día, más de 12h",
+  ]);
+  zoeMarks[1].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
+  assert.equal(doc.getElementById("tip").children[2].classList.contains("warn"), true);
+  zoeMarks[1].listeners.pointerleave[0]();
+  const brunoMarks = cells[5].children.filter((c) => c.tagName === "G");
+  assert.deepEqual(
+    brunoMarks.map((g) => g.children[1].getAttribute("class")),
+    ["bar missing"],
+  );
+  assert.ok(fixes[2].children.filter((c) => c.tagName === "TEXT").length >= 6);
+  const lines = (strip) => strip.children.filter((c) => c.tagName === "LINE").map((l) => l.getAttribute("class"));
+  assert.ok(lines(cells[2]).filter((c) => c === "day").length > 70);
+  assert.ok(lines(cells[2]).includes("monday"));
+  const width = () => Number(cells[2].getAttribute("width"));
+  const strip = () => doc.getElementById("fixes").children[0].children.slice(3)[2];
+  const before = Number(strip().getAttribute("width"));
+  assert.equal(before, Math.round(page.run("fixSpan(fixRows(team.fixes)).days") * 10));
   doc.getElementById("zoomIn").listeners.click[0]();
-  doc.getElementById("zoomOut").listeners.click[0]();
-  kinds.click("long");
-  assert.equal(note.textContent, "No se pudieron cargar los fichajes por corregir: Odoo no responde");
-  assert.match(page.calls.hash, /k=open%2Cempty$/);
+  assert.equal(Number(strip().getAttribute("width")), Math.round(page.run("fixSpan(fixRows(team.fixes)).days") * 15));
+  for (let k = 0; k < 20; k++) doc.getElementById("zoomIn").listeners.click[0]();
+  assert.equal(page.run("team.fixDay"), 96);
+  assert.equal(doc.getElementById("zoomIn").disabled, true);
+  for (let k = 0; k < 20; k++) doc.getElementById("zoomOut").listeners.click[0]();
+  assert.equal(page.run("team.fixDay"), 2);
+  assert.equal(doc.getElementById("zoomOut").disabled, true);
+  assert.ok(width() > 0);
+  assert.deepEqual(
+    [1, 2, 7, 14].map(String),
+    [40, 20, 6, 3].map((px) => String(page.run(`tickStep(${px})`))),
+  );
+  const now = new Date(2025, 5, 30, 12);
+  const span =
+    page.run(`(() => { const s = fixSpan([{ items: [{ date: "2025-06-20", sessions: [{ in: new Date(2025, 5, 20, 16).toISOString() }] }] }],
+    new Date(${now.getTime()})); return [s.from.getDate(), s.from.getHours(), Math.round(s.days * 10) / 10]; })()`);
+  assert.deepEqual(span, [13, 0, 17.5]);
+  const old = page.run(
+    `fixSpan([{ items: [{ date: "2020-01-01", sessions: [] }] }], new Date(${now.getTime()})).from.getFullYear()`,
+  );
+  assert.equal(old, 2019);
+  assert.equal(page.run(`fixSpan([], new Date(${now.getTime()})).days`), 7.5);
+  const closed = page.run(`(() => { const s = fixSpan([{ items: [
+    { date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(), out: new Date(2025, 5, 2, 21).toISOString() }] },
+    { date: "2025-06-04", sessions: [] }] }], new Date(${now.getTime()}));
+    return [s.from.getDate(), s.to.getDate(), s.to.getHours(), s.days]; })()`);
+  assert.deepEqual(closed, [26, 12, 0, 17]);
+  const midnightEnd =
+    page.run(`fixSpan([{ items: [{ date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(),
+    out: new Date(2025, 5, 3).toISOString() }] }] }], new Date(${now.getTime()})).days`);
+  assert.equal(midnightEnd, 15);
+  page.run("team.fixes = null; renderFixes()");
+  assert.match(doc.getElementById("fixesNote").textContent, /^Buscando fichajes por corregir/);
+  doc.getElementById("zoomIn").listeners.click[0]();
+  page.run(`team.data = ${JSON.stringify(teamPayload())}; render()`);
+  assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), false);
 });
 
-test("a mark does not open its day at the end of a drag, and does once the drag is over", async () => {
-  const mine = fixes([["Zoe", [fixItem("open", "2025-03-03")]]]);
-  const { doc, urls } = site({ data: teamPayload(), fixes: mine });
+test("the filters keep incidents, under or over target, or everyone, and say when nobody is left", async () => {
+  const page = load({ entry: "team.js", data: teamPayload() });
+  const pick = withFilters(page);
   await settle();
-  const mark = () => marksOf(doc.getElementById("fixes").children[0].children[5])[0];
-  drag(doc.getElementById("fixes"));
-  await mark().listeners.click[0]();
+  const rows = () => page.document.getElementById("grid").children[1].children;
+  assert.deepEqual(rows().map(rowName), ["Álvaro", "Bruno"]);
+  pick("under");
+  assert.deepEqual(rows().map(rowName), ["Álvaro"]);
+  pick("over");
+  assert.deepEqual(rows().map(rowName), ["Bruno"]);
+  pick("all");
+  assert.deepEqual(rows().map(rowName), ["Álvaro", "Ana", "Bruno", "Zoe"]);
+  page.run(
+    "team.data.employees.find(e => e.name === 'Zoe').days[5].sessions = team.data.employees[0].days[0].sessions.concat([{ in: '2025-03-08T09:00:00', out: '2025-03-08T10:00:00', hours: 1, rest: false }]); render()",
+  );
+  const head = () => page.document.getElementById("grid").children[0].children[0].children.map((th) => th.textContent);
+  assert.deepEqual(head(), ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Sáb 8", "Semana"]);
+  assert.equal(rows()[0].children.length, 8);
+  pick("over");
+  assert.equal(head().includes("Sáb 8"), false);
+  page.run("team.data.employees = team.data.employees.filter(e => e.name === 'Zoe'); render()");
+  assert.equal(page.document.getElementById("openCard").classList.contains("hidden"), false);
+  page.run("team.fixes = { ...team.fixes, employees: [] }; render()");
+  assert.equal(rows()[0].children[0].textContent, "Nadie con demasiadas horas esta semana");
+  assert.equal(rows()[0].children[0].colSpan, 7);
+  pick("issues");
+  assert.equal(rows()[0].children[0].textContent, "Nadie tiene incidencias esta semana");
+  assert.equal(page.document.getElementById("openCard").classList.contains("hidden"), true);
+  pick("all");
+  page.run("team.data.employees = []; render()");
+  assert.equal(rows()[0].children[0].textContent, "Nadie a la vista");
+  page.document.getElementById("filterSeg").listeners.click[0]({ target: { closest: () => null } });
+});
+
+test("today's open session reads as in progress, not as zero", async () => {
+  const data = teamPayload();
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
+  const day = (i) => {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    return d;
+  };
+  const isoOf = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  data.week = isoOf(monday);
+  const index = (today.getDay() + 6) % 7;
+  data.employees = [
+    {
+      id: 1,
+      name: "Ana",
+      hours: 0,
+      target: 8,
+      flags: [],
+      days: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+        date: isoOf(day(i)),
+        hours: 0,
+        target: 8,
+        absence: null,
+        flags: [],
+        requests: [],
+        sessions:
+          i === index
+            ? [
+                {
+                  in: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9).toISOString(),
+                  out: null,
+                  hours: null,
+                  rest: false,
+                },
+              ]
+            : [],
+      })),
+    },
+  ];
+  const page = load({ entry: "team.js", data });
+  const pick = withFilters(page);
+  await settle();
+  pick("all");
+  const cell = page.document.getElementById("grid").children[1].children[0].children[index + 1];
+  assert.equal(iso, data.employees[0].days[index].date);
+  assert.equal(cellText(cell), "0h| en curso");
+  assert.equal(cell.classList.contains("today"), true);
+  assert.deepEqual(hover(page, cell).slice(1), ["09:00–abierto en curso"]);
+});
+
+test("week buttons ask the server for the week they point at", async () => {
+  const page = load({ entry: "team.js", data: teamPayload() });
+  await settle();
+  const click = async (id) => {
+    const button = page.document.getElementById(id);
+    await button.listeners.click[0]({ currentTarget: button });
+    assert.equal(button.disabled, false);
+  };
+  await click("prevWeek");
+  await click("nextWeek");
+  await click("refreshBtn");
+  await click("thisWeek");
+  assert.deepEqual(
+    page.calls.fetch.map(([url]) => url),
+    [
+      "/api/team",
+      "/api/team?fixes",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-03-10",
+      "/api/team?week=2025-02-24",
+      "/api/team?week=2025-03-03&fresh",
+      "/api/team?fixes&fresh",
+      "/api/team?week=2025-02-24",
+      "/api/team",
+      "/api/team?week=2025-02-24",
+    ],
+  );
+  page.run("team.data = null");
+  withFilters(page)("all");
+});
+
+test("the loading bar runs while a load is in flight, and stops even when it fails", async () => {
+  let finish;
+  const page = load({
+    entry: "team.js",
+    fetchImpl: (url) =>
+      url.includes("week=")
+        ? Promise.resolve({ ok: true, status: 200, json: async () => teamPayload() })
+        : new Promise((resolve) => {
+            finish = resolve;
+          }),
+  });
+  const bar = page.document.getElementById("loadbar");
+  assert.equal(bar.classList.contains("on"), true);
+  finish({ ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) });
+  await settle();
+  assert.equal(bar.classList.contains("on"), false);
+});
+
+const monthPayload = () => {
+  const p = teamPayload();
+  p.start = "2025-03-01";
+  p.stop = "2025-04-01";
+  const later = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    const t = new Date(y, m - 1, d + 7);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  };
+  for (const e of p.employees) {
+    e.days = e.days.concat(teamWeek().map((d) => ({ ...d, date: later(d.date) })));
+    e.balance = e.target == null ? null : e.hours - e.target;
+    e.due = e.target;
+    e.weeks = [
+      { monday: "2025-03-03", hours: e.hours, target: e.target, balance: e.balance, due: e.target, flags: e.flags },
+      {
+        monday: "2025-03-10",
+        hours: 40,
+        target: e.target == null ? null : 40,
+        balance: e.target == null ? null : 0,
+        due: e.target == null ? null : 40,
+        flags: [],
+      },
+    ];
+  }
+  return p;
+};
+const withViews = (page) => {
+  const seg = page.document.getElementById("viewSeg");
+  for (const key of ["week", "month", "year"]) {
+    const button = page.document.createElement("button");
+    button.dataset.view = key;
+    seg.appendChild(button);
+  }
+  return (key) =>
+    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.view === key) } });
+};
+
+test("the month view shows each week whole, how many days carry a flag, and the month's own balance", async () => {
+  const page = load({ entry: "team.js", data: monthPayload() });
+  const view = withViews(page);
+  const pick = withFilters(page);
+  await settle();
+  view("week");
+  view("month");
+  await settle();
+  const doc = page.document;
+  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-03");
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?month=2025-02");
+  assert.equal(doc.getElementById("weekLabel").textContent, "Marzo de 2025");
+  assert.deepEqual(
+    doc.getElementById("viewSeg").children.map((b) => b.getAttribute("aria-pressed")),
+    ["false", "true", "false"],
+  );
+  pick("all");
+  const [thead, tbody] = doc.getElementById("grid").children;
+  assert.deepEqual(
+    thead.children[0].children.map((th) => th.textContent),
+    ["Persona", "3 mar – 9 mar", "10 mar – 16 mar", "Mes"],
+  );
+  const alvaro = tbody.children[0].children;
+  assert.equal(cellText(alvaro[1]), "Faltan 8h|32h| de 40h|1 día con errores de fichaje");
+  assert.equal(alvaro[1].classList.contains("bad"), true);
+  assert.equal(alvaro[2].classList.contains("bad"), false);
+  assert.equal(cellText(alvaro[3]), "Faltan 8h|32h| de 40h");
+  assert.equal(alvaro[3].classList.contains("bad"), true);
+  assert.equal(tbody.children[3].children[3].classList.contains("bad"), false);
+  assert.deepEqual(hover(page, alvaro[3]), [
+    "Saldo de cada semana, entera",
+    "3 mar – 9 mar −8h",
+    "10 mar – 16 mar +0h",
+    "Solo los días del mes −8h",
+  ]);
+  page.run(
+    'team.data = { ...team.data, stop: "2999-01-01", employees: team.data.employees.map(e => ({ ...e, due: 24 })) }; render()',
+  );
+  assert.equal(
+    cellText(doc.getElementById("grid").children[1].children[0].children[3]),
+    "Faltan 8h hasta ayer|16h| de 24h",
+  );
+  assert.deepEqual(
+    [
+      "{ flags: [], balance: -2, weeks: [] }",
+      "{ flags: [], balance: -2, flagged_days: 1, weeks: [] }",
+      "{ flags: [], balance: 1, weeks: [{ flags: ['under'] }] }",
+      "{ flags: [], balance: -2, flagged_days: 1, weeks: [{ flags: ['under'] }] }",
+    ].map((e) => page.run(`Filters.under.keep(${e})`)),
+    [true, false, false, true],
+  );
+  assert.deepEqual(
+    [
+      "{ flags: [], balance: 6, weeks: [{ flags: ['over'] }] }",
+      "{ flags: [], balance: 2, weeks: [{ flags: ['over'] }] }",
+    ].map((e) => page.run(`Filters.over.keep(${e})`)),
+    [true, false],
+  );
+  assert.deepEqual(["gapText(0)", "gapText(0.001)", "gapText(1.5)", "gapText(-0.25)"].map(page.run), [
+    "Al día",
+    "Al día",
+    "Sobran 1h 30m",
+    "Faltan 15m",
+  ]);
+  assert.equal(cellText(tbody.children[1].children[3]), "30h| sin horario");
+  page.run("team.data = { ...team.data, employees: [] }; team.filter = 'issues'; render()");
+  assert.equal(
+    doc.getElementById("grid").children[1].children[0].children[0].textContent,
+    "Nadie tiene incidencias este mes",
+  );
+  page.run(`team.data = ${JSON.stringify(monthPayload())}; team.filter = 'all'; render()`);
+  const again = doc.getElementById("grid").children[1].children[0].children;
+  again[2].listeners.keydown[0]({ key: "Tab" });
+  again[2].listeners.keydown[0]({ key: "Enter" });
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?week=2025-03-10");
+  assert.deepEqual([page.run("team.search"), doc.getElementById("search").value], ["Álvaro", "Álvaro"]);
+  await settle();
+  assert.equal(page.run("team.view"), "week");
+  view("month");
+  await settle();
+  const cells = doc.getElementById("grid").children[1].children[0].children;
+  cells[1].listeners.click[0]();
+  await settle();
+  assert.equal(page.run("team.view"), "week");
+  view("week");
+});
+
+test("in the month view the arrows and «Hoy» move by months", async () => {
+  const page = load({ entry: "team.js", data: monthPayload() });
+  const view = withViews(page);
+  await settle();
+  view("month");
+  await settle();
+  const click = async (id) => {
+    const button = page.document.getElementById(id);
+    await button.listeners.click[0]({ currentTarget: button });
+  };
+  await click("prevWeek");
+  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-02");
+  await click("nextWeek");
+  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-04");
+  await click("refreshBtn");
+  assert.equal(page.calls.fetch.at(-3)[0], "/api/team?month=2025-03&fresh");
+  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?fixes&fresh");
+  await click("thisWeek");
+  const now = new Date();
+  assert.equal(
+    page.calls.fetch.at(-2)[0],
+    `/api/team?month=${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+  );
+  assert.equal(page.run('shiftMonth("2025-12", 1)'), "2026-01");
+  assert.equal(page.run('shiftMonth("2025-01", -1)'), "2024-12");
+});
+
+const yearPayload = (year = 2025) => {
+  const months = (changes) =>
+    Array.from({ length: 12 }, (_, i) => ({
+      month: `${year}-${String(i + 1).padStart(2, "0")}`,
+      hours: 140,
+      target: 140,
+      balance: 0,
+      due: 140,
+      under: 0,
+      over: 0,
+      flagged_days: 0,
+      ...changes[i],
+    }));
+  return {
+    year: 2025,
+    week: "2024-12-30",
+    start: "2025-01-01",
+    stop: "2026-01-01",
+    generated_at: new Date(2026, 0, 2).toISOString(),
+    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 },
+    open: [],
+    employees: [
+      {
+        id: 1,
+        name: "Álvaro",
+        hours: 1600,
+        target: 1700,
+        balance: -100,
+        due: 1700,
+        flags: ["under"],
+        months: months({
+          2: { under: 1, flagged_days: 2 },
+          4: { over: 2, balance: 12.5 },
+          6: { hours: 137, under: 1, balance: -3 },
+        }),
+      },
+      {
+        id: 2,
+        name: "Ana",
+        hours: 900,
+        target: null,
+        balance: null,
+        due: null,
+        flags: [],
+        months: months({}).map((m) => ({ ...m, target: null, balance: null, due: null })),
+      },
+    ],
+  };
+};
+
+const byPeriod = (urls) => async (url) => {
+  if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
+  urls.push(url);
+  const data = url.includes("fixes")
+    ? teamFixes()
+    : url.includes("year=")
+      ? yearPayload()
+      : url.includes("month=")
+        ? monthPayload()
+        : teamPayload();
+  return { ok: true, status: 200, json: async () => data };
+};
+
+test("the year view shows each month against its target, its weeks off target and its flagged days", async () => {
+  const urls = [];
+  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
+  page.calls.fetch = { at: (i) => [urls.at(i)] };
+  const view = withViews(page);
+  const pick = withFilters(page);
+  await settle();
+  view("year");
+  await settle();
+  const doc = page.document;
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?year=2025");
+  assert.equal(doc.getElementById("weekLabel").textContent, "2025");
+  pick("all");
+  const [thead, tbody] = doc.getElementById("grid").children;
+  assert.deepEqual(
+    thead.children[0].children.map((th) => th.textContent),
+    ["Persona", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic", "Año"],
+  );
+  const alvaro = tbody.children[0].children;
+  assert.equal(cellText(alvaro[3]), "Al día|140h| de 140h|1 semana bajo objetivo|2 días con errores de fichaje");
+  assert.deepEqual(
+    [alvaro[3].classList.contains("bad"), alvaro[3].classList.contains("warn"), alvaro[3].children[3].className],
+    [false, true, "meta block"],
+  );
+  assert.equal(cellText(alvaro[7]), "Faltan 3h|137h| de 140h|1 semana bajo objetivo");
+  assert.deepEqual([alvaro[7].classList.contains("bad"), alvaro[7].children[3].className], [true, "flag"]);
+  assert.equal(cellText(alvaro[5]), "Sobran 12h 30m|140h| de 140h|2 semanas con demasiadas horas");
+  assert.equal(alvaro[1].classList.contains("bad"), false);
+  assert.equal(cellText(alvaro[13]), "Faltan 100h|1600h| de 1700h");
+  assert.equal(alvaro[13].classList.contains("bad"), true);
+  assert.equal(tbody.children[1].children[13].classList.contains("bad"), false);
+  const ana = tbody.children[1].children;
+  assert.equal(cellText(ana[1]), "140h| sin horario");
+  assert.equal(cellText(ana[13]), "900h| sin horario");
+  pick("issues");
+  assert.deepEqual(doc.getElementById("grid").children[1].children.map(rowName), ["Álvaro"]);
+  const made = "{ flags: ['under'], balance: -1, flagged_days: 1, months: [{ balance: 0 }, { balance: -2 }] }";
+  assert.deepEqual(
+    [made, made.replace("-1", "5"), made.replace("-2", "3")].map((e) => page.run(`Filters.under.keep(${e})`)),
+    [true, false, false],
+  );
+  assert.equal(
+    page.run(
+      "Filters.under.keep({ flags: [], balance: -5, flagged_days: 2, months: [{ balance: -5, flagged_days: 2 }] })",
+    ),
+    false,
+  );
+  page.run("team.data = { ...team.data, employees: [] }; render()");
+  assert.equal(
+    doc.getElementById("grid").children[1].children[0].children[0].textContent,
+    "Nadie tiene incidencias este año",
+  );
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  page.run(
+    `team.year = "${now.getFullYear()}"; team.data = ${JSON.stringify(yearPayload(now.getFullYear()))}; render()`,
+  );
+  const cells = doc.getElementById("grid").children[1].children[0].children;
+  const index = now.getMonth() + 1;
+  assert.equal(cells[index].classList.contains("today"), true);
+  assert.match(cellText(cells[index]), /Al día hasta ayer/);
+  assert.equal(cellText(cells[13]), "Faltan 100h hasta ayer|1600h| de 1700h");
+  if (index < 12) {
+    assert.equal(cells[index + 1].classList.contains("future"), true);
+    assert.equal(cells[index + 1].children.length, 0);
+  }
+  page.run(`team.year = "2025"; team.data = ${JSON.stringify(yearPayload())}; render()`);
+  const again = doc.getElementById("grid").children[1].children[0].children;
+  again[3].listeners.keydown[0]({ key: "Tab" });
+  again[3].listeners.keydown[0]({ key: "Enter" });
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?month=2025-03");
+  assert.equal(page.run("team.search"), "Álvaro");
+  await settle();
+  view("year");
+  await settle();
+  doc.getElementById("grid").children[1].children[0].children[3].listeners.click[0]();
+  await settle();
+  assert.equal(page.run("team.view"), "month");
+  assert.ok(thisMonth);
+});
+
+test("in the year view the arrows and «Hoy» move by years, with no background prefetch", async () => {
+  const urls = [];
+  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
+  page.calls.fetch = { at: (i) => [urls.at(i)] };
+  const view = withViews(page);
+  await settle();
+  view("year");
+  await settle();
+  const click = async (id) => {
+    const button = page.document.getElementById(id);
+    await button.listeners.click[0]({ currentTarget: button });
+  };
+  await click("prevWeek");
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?year=2024");
+  await click("nextWeek");
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?year=2026");
+  await click("refreshBtn");
+  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?year=2025&fresh");
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?fixes&fresh");
+  await click("thisWeek");
+  assert.equal(page.calls.fetch.at(-1)[0], `/api/team?year=${new Date().getFullYear()}`);
+  page.run(`team.year = "${new Date().getFullYear()}"`);
+  view("week");
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  assert.equal(page.calls.fetch.at(-1)[0], `/api/team?week=${iso}`);
+});
+
+const withDisplay = (page) => {
+  const seg = page.document.getElementById("displaySeg");
+  for (const key of ["table", "charts"]) {
+    const button = page.document.createElement("button");
+    button.dataset.display = key;
+    seg.appendChild(button);
+  }
+  return (key) =>
+    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.display === key) } });
+};
+
+test("the charts tab shows each person's balance and incidents per period, in every view", async () => {
+  const urls = [];
+  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
+  const display = withDisplay(page);
+  const view = withViews(page);
+  const pick = withFilters(page);
+  await settle();
+  pick("all");
+  page.run(
+    "team.data.employees.forEach((e, i) => { e.balance = [-8, 0.5, null, 6.5][i]; e.flagged_days = i === 3 ? 2 : 0; })",
+  );
+  display("charts");
+  const doc = page.document;
+  assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), true);
+  assert.equal(doc.getElementById("charts").classList.contains("hidden"), false);
+  const [people, timeline] = doc.getElementById("charts").children;
+  assert.deepEqual(
+    page.run(`divergingBars([{ label: "a", value: -4, rows: [] }, { label: "b", value: 40, suspect: true, rows: [] }], String)
+    .children.filter(c => c.tagName === "G").map(g => g.children[2].getAttribute("width"))`),
+    ["355", "355"],
+  );
+  const bars = people.children.at(-2);
+  assert.deepEqual(svgTexts(bars), ["Zoe", "−8h", "Álvaro", "+30m", "Bruno", "⚠ +6h 30m"]);
+  assert.equal(
+    people.children.at(-1).textContent,
+    "⚠ Saldo no fiable: incluye errores de fichaje, que se corrigen antes de juzgar sus horas.",
+  );
+  assert.deepEqual(svgTexts(timeline.children.at(-1)).map(String), ["0", "1", "Lun", "1", "Mar", "Mié", "Jue", "Vie"]);
+  const marks = bars.children.filter((c) => c.tagName === "G");
+  assert.equal(marks.length, 3);
+  assert.equal(marks[0].children[2].getAttribute("class"), "bar short");
+  assert.equal(marks[1].children[2].getAttribute("class"), "bar surplus");
+  assert.equal(marks[2].children[2].getAttribute("class"), "bar error");
+  marks[0].listeners.click[0]();
+  marks[1].listeners.keydown[0]({ key: "Enter" });
+  marks[1].listeners.keydown[0]({ key: "Tab" });
+  assert.deepEqual(page.calls.assigned, ["/empleado?id=3", "/empleado?id=1"]);
+  assert.deepEqual(hover(page, marks[0]), ["Zoe", "Fichadas 40h", "Previstas 40h", "Saldo Faltan 8h"]);
+  page.run(
+    'team.data = { ...team.data, stop: "2999-01-01" }; team.data.employees.forEach(e => { e.due = 32; }); render()',
+  );
+  const runningBars = doc
+    .getElementById("charts")
+    .children[0].children.at(-2)
+    .children.filter((c) => c.tagName === "G");
+  assert.deepEqual(hover(page, runningBars[0]), ["Zoe", "Fichadas 24h", "Previstas 32h", "Saldo Faltan 8h"]);
+  page.run('team.data = { ...team.data, stop: "2025-03-10" }; render()');
+  const columns = timeline.children.at(-1).children.filter((c) => c.tagName === "G");
+  assert.equal(columns.length, 5);
+  assert.deepEqual(hover(page, columns[1]), [`Mar 4 mar${Y25}`, "Personas con errores de fichaje 1", "Álvaro"]);
+  display("table");
+  assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), false);
+  display("charts");
+  view("month");
+  await settle();
+  const month = doc.getElementById("charts").children;
+  assert.equal(month[1].children[2].className, "legend-row");
+  const weeks = month[1].children.at(-1).children.filter((c) => c.tagName === "G");
+  assert.equal(weeks.length, 2);
+  assert.deepEqual(hover(page, weeks[0]), [
+    "3 mar – 9 mar",
+    "Bajo objetivo 1",
+    "Álvaro",
+    "Demasiadas horas 1",
+    "Bruno",
+  ]);
+  weeks[0].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
+  const tipKids = page.document.getElementById("tip").children;
+  assert.deepEqual(
+    tipKids.map((c) => c.className),
+    ["t-title", "t-row", "t-note t-name", "t-sep", "t-row", "t-note t-name"],
+  );
+  assert.deepEqual(
+    tipKids.filter((c) => c.className === "t-row").map((r) => r.children[0].children[0].className),
+    ["swatch short", "swatch over"],
+  );
+  weeks[0].listeners.pointerleave[0]();
+  view("year");
+  await settle();
+  const year = doc.getElementById("charts").children;
+  assert.equal(year[1].children.at(-1).children.filter((c) => c.tagName === "G").length, 12);
+  page.run(
+    "team.data = { ...team.data, employees: team.data.employees.map(e => ({ ...e, balance: null })) }; render()",
+  );
+  assert.equal(doc.getElementById("charts").children[0].children.at(-1).textContent, "Nadie con jornada prevista");
+  doc.getElementById("displaySeg").listeners.click[0]({ target: { closest: () => null } });
+  doc.getElementById("charts").replaceChildren();
+  page.calls.window.resize[0]();
+  assert.equal(doc.getElementById("charts").children.length, 2);
+  page.run("team.data = null");
+  page.calls.window.resize[0]();
+  display("table");
+});
+
+test("the management page keeps its view in the URL and in the session, and restores it", async () => {
+  const urls = [];
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const page = load({
+    entry: "team.js",
+    fetchImpl: byPeriod(urls),
+    path: "/gestion#v=month&p=2025-03&f=all&d=charts&k=open,bogus,off&q=zo",
+    storage,
+  });
+  await settle();
+  assert.equal(urls[0], "/api/team?month=2025-03");
+  assert.deepEqual(page.run("[team.view, team.filter, team.display, team.search]"), ["month", "all", "charts", "zo"]);
+  assert.deepEqual(page.run("[...team.fixKinds]"), ["open"]);
+  assert.equal(page.calls.hash, "#v=month&p=2025-03&f=all&d=charts&k=open&q=zo");
+  assert.equal(store.get("gestion"), "#v=month&p=2025-03&f=all&d=charts&k=open&q=zo");
+  const again = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion", storage });
+  assert.equal(again.run("team.view"), "month");
+  const bogus = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion#v=nope&f=nope&d=nope" });
+  assert.deepEqual(bogus.run("[team.view, team.filter, team.display, team.search]"), ["week", "issues", "table", ""]);
+  const broken = {
+    getItem: () => {
+      throw new Error("bloqueado");
+    },
+    setItem: () => {
+      throw new Error("bloqueado");
+    },
+  };
+  const blocked = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion", storage: broken });
+  await settle();
+  assert.equal(blocked.run("team.view"), "week");
+});
+
+test("each step into a period is a history entry, and going back reloads the one before", async () => {
+  const urls = [];
+  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls), path: "/gestion#v=year&p=2025&f=all&d=table" });
+  await settle();
+  assert.equal(urls[0], "/api/team?year=2025");
+  page.document.getElementById("grid").children[1].children[0].children[3].listeners.click[0]();
+  await settle();
+  assert.equal(page.calls.pushed.length, 1);
+  assert.match(page.calls.pushed[0], /^#v=month&p=2025-03&f=all&d=table&k=.*&q=%C3%81lvaro$/);
+  page.document
+    .getElementById("prevWeek")
+    .listeners.click[0]({ currentTarget: page.document.getElementById("prevWeek") });
+  await settle();
+  assert.ok(urls.includes("/api/team?month=2025-02"));
+  assert.equal(page.calls.pushed.length, 2);
+  page.run('location.hash = "#v=year&p=2025&f=all&d=table"');
+  page.calls.window.popstate[0]();
+  await settle();
+  assert.equal(urls.at(-1), "/api/team?year=2025");
+  assert.deepEqual(page.run("[team.view, team.search, document.getElementById('search').value]"), ["year", "", ""]);
+  assert.equal(page.calls.pushed.length, 2);
+});
+
+test("the table shows even when the list of fixes fails, which says why", async () => {
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async (url) =>
+      url.includes("fixes")
+        ? { ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) }
+        : { ok: true, status: 200, json: async () => teamPayload() },
+  });
+  await settle();
+  assert.equal(page.document.getElementById("gridCard").classList.contains("hidden"), false);
+  assert.equal(
+    page.document.getElementById("fixesNote").textContent,
+    "No se pudieron cargar los fichajes por corregir: Odoo no responde",
+  );
+});
+
+test("a refused or failed load says why", async () => {
+  const page = load({
+    entry: "team.js",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: "Tu usuario de Odoo no ve fichajes de otras personas" }),
+    }),
+  });
+  await settle();
+  const msg = page.document.getElementById("loadmsg");
+  assert.equal(msg.textContent, "Error cargando datos de Odoo: Tu usuario de Odoo no ve fichajes de otras personas");
+  assert.equal(msg.classList.contains("hidden"), false);
+});
+
+test("the table pans by dragging, and a drag does not open the cell it ends on", async () => {
+  const page = load({ entry: "team.js", data: teamPayload() });
+  withFilters(page)("all");
+  await settle();
+  const doc = page.document;
+  const scroller = doc.getElementById("gridScroll");
+  const on = (type) => scroller.listeners[type][0];
+  const cell = doc.getElementById("grid").children[1].children[0].children[1];
+  scroller.scrollLeft = 200;
+  scroller.scrollTop = 100;
+  on("pointerdown")({ button: 0, pointerType: "touch", target: { closest: () => null }, clientX: 300, clientY: 0 });
+  on("pointermove")({ clientX: 250, clientY: 0 });
+  assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [200, 100]);
+  on("pointerdown")({
+    button: 0,
+    pointerType: "mouse",
+    target: { closest: () => null },
+    clientX: 300,
+    clientY: 300,
+    pointerId: 1,
+  });
+  on("pointermove")({ clientX: 302, clientY: 298 });
+  assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [200, 100]);
+  on("pointermove")({ clientX: 250, clientY: 260 });
+  on("pointerup")();
+  assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [250, 140]);
+  cell.listeners.click[0]();
   assert.equal(doc.getElementById("dayDialog").open, false);
-  assert.equal(urls.includes("/api/team?week=2025-03-03"), false);
-  await mark().listeners.click[0]();
-  assert.equal(urls.includes("/api/team?week=2025-03-03"), true);
+  cell.listeners.click[0]();
   assert.equal(doc.getElementById("dayDialog").open, true);
+});
+
+test("the management cells, charts and controls in their other cases", async () => {
+  const page = load({ entry: "team.js", data: teamPayload() });
+  await settle();
+  const doc = page.document;
+  const probe = (code) => {
+    page.run(`document.getElementById("probe").replaceChildren(${code})`);
+    return doc.getElementById("probe").children[0];
+  };
+  const limits = "{ long_day: 12, under_margin: 1 / 60, over_margin: 5 }";
+  const day = (date, extra = "") =>
+    `{ date: "${date}", hours: 0, target: 8, absence: null, sessions: [], flags: [], requests: [] ${extra} }`;
+  assert.equal(probe(`dayCell({}, ${day("2099-01-01")}, "2026-01-01", ${limits})`).classList.contains("future"), true);
+  const days = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06", "2026-03-07", "2026-03-08"];
+  const week = `{ monday: "2026-03-02", hours: 0, target: null, balance: null, flags: [] }`;
+  const employee = `{ id: 1, name: "Ana", weeks: [${week}], days: [${days.map((d, i) => day(d, i < 2 ? ', flags: ["empty"]' : "")).join(",")}] }`;
+  const cell = probe(`weekCell(${employee}, 0, "2026-03-04", ${limits})`);
+  assert.equal(cell.classList.contains("today"), true);
+  assert.ok(cell.children.some((c) => c.textContent === "2 días con errores de fichaje"));
+  assert.deepEqual(hover(page, cell), ["Saldo de la semana, día a día", "Ningún día cerrado con jornada prevista"]);
+  const month = probe(
+    `monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-05-01")`,
+  );
+  assert.deepEqual(hover(page, month).slice(-1), ["Solo los días del mes −10h"]);
+  const running = probe(
+    `monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-03-15")`,
+  );
+  assert.deepEqual(hover(page, running).slice(-1), ["Días del mes hasta ayer −10h"]);
+  const yearMonth = (m, year = -5) =>
+    probe(
+      `yearMonthCell({ balance: ${year} }, { month: "2026-01", hours: 1, target: 1, under: 0, over: 0, flagged_days: 0, ${m} }, "2026-06-01", ${limits})`,
+    );
+  assert.equal(yearMonth("balance: -2").classList.contains("bad"), true);
+  assert.equal(yearMonth("balance: -2", 3).classList.contains("bad"), false);
+  assert.equal(yearMonth("balance: -2, flagged_days: 1").classList.contains("bad"), false);
+  const over = yearMonth("balance: 6, over: 1", 6);
+  assert.deepEqual([over.classList.contains("bad"), over.children.at(-1).className], [true, "flag"]);
+  assert.equal(yearMonth("balance: 6, over: 1", 2).children.at(-1).className, "meta block");
+  assert.deepEqual(
+    ["bad", "warn"].map((c) => yearMonth("balance: 0").classList.contains(c)),
+    [false, false],
+  );
+  assert.equal(yearMonth("balance: 0, flagged_days: 2").classList.contains("warn"), true);
+  assert.equal(page.run(`team.year = "2020"; Views.year.anchor()`), "2020-01-01");
+  assert.equal(page.run(`team.year = thisDay().slice(0, 4); Views.year.anchor()`), page.run("thisDay()"));
+  assert.match(page.run(`team.week = null; team.view = "week"; stateHash()`), /^#v=week&p=&/);
+  page.run(`team.fixes = { ...team.fixes, employees: [{ id: 5, name: "Uno", items: [
+    { date: "2025-03-04", kind: "long", hours: 13, target: 8, sessions: [{ in: "2025-03-04T08:00:00", out: "2025-03-04T21:00:00", hours: 13 }] }] }] }; renderFixes()`);
+  const chips = () =>
+    doc
+      .getElementById("fixes")
+      .children[0].children.flatMap((c) => c.children || [])
+      .map((k) => k.textContent);
+  assert.ok(chips().includes("1 jornada muy larga · 13h"));
+  page.run(
+    "team.fixes.employees[0].items.push({ ...team.fixes.employees[0].items[0], date: '2025-03-05' }); renderFixes()",
+  );
+  assert.ok(chips().includes("2 jornadas muy largas · 26h"));
+  page.run(`team.view = "month"; periods({ employees: [] }, [], "2026-01-01")`);
+  page.run(`team.view = "week"; renderCharts({ ...team.data, stop: "2000-01-01" }, team.data.employees, "2026-01-01")`);
+  assert.doesNotMatch(doc.getElementById("charts").children[0].children[1].textContent, /hasta ayer/);
+  page.run(`renderCharts({ ...team.data, stop: "2999-01-01" }, team.data.employees, "2026-01-01")`);
+  assert.match(doc.getElementById("charts").children[0].children[1].textContent, /hasta ayer: hoy aún no cuenta/);
+  const columns = probe(
+    `groupedColumns([{ label: "L", values: { a: 1 } }], [{ key: "a", label: "Serie", cls: "error" }])`,
+  );
+  assert.deepEqual(
+    hover(
+      page,
+      columns.children.find((c) => c.tagName === "G"),
+    ),
+    ["L", "Serie 1"],
+  );
+  const views = doc.getElementById("viewSeg");
+  page.run("team.data = null");
+  const monthButton = doc.createElement("button");
+  monthButton.dataset.view = "month";
+  views.listeners.click[0]({ target: { closest: () => monthButton } });
+  await settle();
+  assert.equal(page.run("team.view"), "month");
+  const scroller = doc.getElementById("fixes");
+  const captured = [];
+  scroller.setPointerCapture = (id) => captured.push(id);
+  scroller.listeners.pointerdown[0]({
+    button: 0,
+    target: { closest: () => null },
+    clientX: 5,
+    clientY: 0,
+    pointerId: 7,
+  });
+  assert.deepEqual(captured, []);
+  scroller.listeners.pointermove[0]({ clientX: 50, clientY: 0 });
+  assert.deepEqual(captured, [7]);
+  scroller.listeners.pointerup[0]();
+});
+
+test("the name search ignores case and accents, reaches every list and is kept in the URL", async () => {
+  const data = teamPayload();
+  const page = load({ entry: "team.js", data, path: "/gestion#f=all&q=ZO" });
+  const pick = withFilters(page);
+  await settle();
+  const doc = page.document;
+  const names = () => doc.getElementById("grid").children[1].children.map(rowName);
+  const fixed = () =>
+    doc
+      .getElementById("fixes")
+      .children[0].children.filter((c) => c.tagName === "A")
+      .map((a) => a.textContent);
+  assert.equal(doc.getElementById("search").value, "ZO");
+  assert.deepEqual(names(), ["Zoe"]);
+  assert.deepEqual(fixed(), ["Zoe"]);
+  const search = doc.getElementById("search");
+  search.listeners.input[0]({ target: { value: "BRÚNO" } });
+  assert.deepEqual([names(), fixed()], [["Bruno"], ["Bruno"]]);
+  search.listeners.input[0]({ target: { value: "alvaro" } });
+  assert.deepEqual(names(), ["Álvaro"]);
+  assert.match(page.calls.hash, /q=alvaro/);
+  search.listeners.input[0]({ target: { value: "  nadie  " } });
+  assert.equal(names()[0], "Nadie cuyo nombre contenga «nadie»");
+  assert.deepEqual(fixed(), []);
+  assert.match(
+    doc.getElementById("fixesNote").textContent,
+    /Nadie cuyo nombre contenga «nadie» con los tipos elegidos\.$/,
+  );
+  assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
+  search.listeners.input[0]({ target: { value: "" } });
+  assert.deepEqual(names(), ["Álvaro", "Ana", "Bruno", "Zoe"]);
+  pick("issues");
+  page.run("team.data = null");
+  search.listeners.input[0]({ target: { value: "zo" } });
+  assert.deepEqual([page.run("team.search"), fixed()], ["zo", ["Zoe"]]);
+  page.run("team.fixes = null");
+  search.listeners.input[0]({ target: { value: "" } });
 });

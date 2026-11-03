@@ -4,7 +4,21 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { at, withData } from "./page.mjs";
+import {
+  at,
+  bannerLine,
+  dashboard,
+  hover,
+  isoDate,
+  load,
+  payload,
+  SCHEDULE,
+  session,
+  settle,
+  TUESDAY,
+  teamPayload,
+  withData,
+} from "./page.mjs";
 
 const decimals = (text) => text.replace(/\d+\.\d{3,}/g, (n) => String(Math.round(Number(n) * 100) / 100));
 
@@ -1168,4 +1182,592 @@ test("a short week is not red in the table before the range's balance says so", 
   put(p, "ws", [week({ total: 38, delta: -2 })]);
   p.run("renderTable(ws)");
   assert.equal(tableRows(p)[2].children[0].children.at(-1).className, "");
+});
+
+test("the schedule sentence groups days by hours", () => {
+  const { run } = load();
+  assert.equal(run("scheduleSentence()"), "");
+  run(SCHEDULE);
+  assert.equal(run("scheduleSentence()"), "8h 30m de lunes a jueves, 6h los viernes");
+  run("store.expected = [8, 8, 0, 0, 0, 0, 0]");
+  assert.equal(run("scheduleSentence()"), "8h los lunes y martes");
+});
+
+test("the schedule is told with the day names of the days that have hours", () => {
+  const page = dashboard();
+  page.run("store.expected = [0, 0, 8, 0, 0, 4, 4]");
+  assert.equal(page.run("scheduleSentence()"), "8h los miércoles, 4h los sábados y domingos");
+  page.run("store.expected = [8, 8, 8, 8, 8, 0, 0]");
+  assert.equal(page.run("scheduleSentence()"), "8h de lunes a viernes");
+});
+
+test("a session over the long limit is red, and one that ends the next day runs to midnight", async () => {
+  const today = new Date();
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) - 7);
+  const tuesday = new Date(monday);
+  tuesday.setDate(monday.getDate() + 1);
+  const wednesday = new Date(monday);
+  wednesday.setDate(monday.getDate() + 2);
+  const page = load({
+    data: payload([session(at(monday, 9), at(monday, 14)), session(at(tuesday, 15), at(wednesday, 9))], {
+      long_hours: 12,
+      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
+    }),
+  });
+  await page.run("loadAndRender()");
+  const card = page.document.getElementById("weekCal");
+  const rows = () => card.querySelectorAll(".tl-row");
+  page.run("renderTimeline(document.getElementById('weekCal'), buildWeek(1))");
+  const tl = rows().slice(-7);
+  const dayRow = (date) => tl.find((r) => r.querySelectorAll(".dnum")[0]?.textContent === String(date.getDate()));
+  const tuesdayRow = dayRow(tuesday);
+  const block = tuesdayRow.querySelectorAll(".sess")[0];
+  assert.equal(block.classList.contains("long"), true);
+  assert.equal(block.textContent, "15:00 – 09:00 (+1)");
+  assert.match(block.style.width, /100%/);
+  assert.equal(tuesdayRow.querySelectorAll(".dvalue")[0].classList.contains("long"), true);
+  assert.deepEqual(hover(page, block).slice(-2), [
+    "Termina al día siguiente",
+    "Jornada muy larga: 18h en el día, más de 12h, casi siempre una salida sin fichar",
+  ]);
+  assert.equal(dayRow(monday).querySelectorAll(".sess")[0].classList.contains("long"), false);
+  assert.equal(page.run("buildWeek(1).suspect"), true);
+  page.run("calView = 'objetivo'; calOffset = 1; renderCalendar()");
+  const bars = card.querySelectorAll(".dayrow").map((r) => r.querySelectorAll(".bar")[0]?.style.width);
+  assert.deepEqual(bars.slice(0, 2), ["50%", "100%"]);
+  assert.equal(page.run("buildWeek(0).suspect"), false);
+  page.run("renderTable(buildWeeks(2))");
+  const table = page.document.getElementById("tableView");
+  assert.ok(table.querySelectorAll("td.warn").some((td) => td.textContent === "fichaje por revisar"));
+});
+
+test("the banner lists this person's punch errors and opens their week", async () => {
+  const today = new Date();
+  const back = (n) => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+    return d;
+  };
+  const page = load({
+    data: payload(
+      [
+        session(at(back(200), 9), at(back(199), 9)),
+        session(at(back(10), 16), at(back(9), 8, 30)),
+        session(at(back(3), 9), null),
+        session(at(back(1), 9), at(back(1), 17)),
+        session(at(back(20), 6), at(back(20), 10)),
+      ],
+      {
+        long_hours: 12,
+        weeks: 40,
+        contract_hours: { [isoDate(back(5))]: 7.5 },
+        schedule: { hours: [0, 0, 0, 0, 0, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
+      },
+    ),
+  });
+  await page.run("loadAndRender()");
+  const box = page.document.getElementById("errorsBanner");
+  assert.equal(box.classList.contains("hidden"), false);
+  const details = box.children[0];
+  assert.equal(details.tagName, "DETAILS");
+  assert.equal(details.open, false);
+  assert.equal(details.children[0].children[0].textContent, "⚠ 4 fichajes por corregir");
+  details.open = true;
+  details.listeners.toggle[0]();
+  page.run("renderErrors()");
+  assert.equal(box.children[0].open, true);
+  const items = box.children[0].children[2].children.map((li) => li.children[0]);
+  assert.deepEqual(
+    items.map((i) => i.children[2].textContent),
+    ["Sin cerrar", "Sin fichar", "Jornada de 16h 30m", "Jornada de 24h"],
+  );
+  assert.match(bannerLine(items[1]), / · Sin fichar con jornada prevista de 7h 30m$/);
+  assert.match(bannerLine(items[0]), / · Sin cerrar entrada a las 09:00, sin salida$/);
+  items[1].listeners.click[0]();
+  const values = page.document
+    .getElementById("weekCal")
+    .querySelectorAll(".dvalue")
+    .filter((v) => v.textContent === "sin fichar");
+  assert.equal(values.length, 1);
+  assert.equal(values[0].classList.contains("long"), true);
+  items[2].listeners.click[0]();
+  assert.equal(page.run("weekOffsetOf(new Date())"), 0);
+  assert.equal(page.run("calOffset"), page.run(`weekOffsetOf(new Date(${back(10).getTime()}))`));
+  assert.ok(page.run("calOffset") >= 1);
+  page.run("renderKpis(buildWeeks(40))");
+  const [averageTile, balanceTile, usualTile] = page.document.getElementById("kpis").children;
+  assert.deepEqual(
+    usualTile.children.map((c) => c.textContent),
+    ["Horario habitual", "07:30 – 13:30", "entrada y salida medias · 2 días"],
+  );
+  for (const tile of [averageTile, balanceTile]) {
+    assert.equal(tile.children[1].className, "value num warn");
+    assert.match(
+      tile.children.at(-1).textContent,
+      /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar o días sin fichar\)$/,
+    );
+  }
+  const stale = page.run(`(() => { const w = buildWeek(weekOffsetOf(new Date(${back(3).getTime()})));
+    const d = w.days.find(d => d.sessions.some(unclosed)); return [d.hours, w.openDays, w.error, dayError(d), dayValue(d).textContent]; })()`);
+  assert.deepEqual(stale, [0, 1, true, true, "sin cerrar"]);
+  page.run("store.weekTarget = 40; renderOverview(buildWeeks(40))");
+  const has = (node, c) => (node.getAttribute("class") || "").split(" ").includes(c);
+  const cols = page.document
+    .getElementById("overviewChart")
+    .children[0].children.filter((g) => g.tagName === "G" && has(g, "col"));
+  const errors = cols.filter((g) => has(g, "error"));
+  assert.ok(errors.length >= 2);
+  assert.ok(errors.every((g) => g.children.filter((c) => has(c, "err-mark")).length === 1));
+  assert.ok(cols.filter((g) => !has(g, "error")).every((g) => g.children.every((c) => !has(c, "err-mark"))));
+  assert.ok(errors.some((g) => hover(page, g).some((t) => /sin fichar$/.test(t))));
+  assert.ok(errors.some((g) => hover(page, g).includes("Incluye una jornada muy larga: suma no fiable")));
+  assert.ok(errors.some((g) => hover(page, g).includes("1 día con una entrada sin cerrar")));
+  page.run("calOffset = 0");
+  const oldest = cols[0];
+  oldest.listeners.click[0]();
+  assert.equal(page.run("calOffset"), 39);
+  cols.at(-2).listeners.keydown[0]({ key: "Enter" });
+  assert.equal(page.run("calOffset"), 1);
+  cols.at(-2).listeners.keydown[0]({ key: "Tab" });
+  assert.equal(page.run("calOffset"), 1);
+  page.run(
+    "const ws = buildWeeks(40); Object.defineProperty(ws[0], 'total', { value: 230 }); ws[0].suspect = true; renderOverview(ws)",
+  );
+  const chart = page.document.getElementById("overviewChart").children[0];
+  const ticks = chart.children.filter((c) => has(c, "ticklabel")).map((t) => Number(t.textContent));
+  assert.equal(Math.max(...ticks), 40);
+  const tallest = chart.children
+    .filter((g) => g.tagName === "G" && has(g, "col"))[0]
+    .children.find((c) => has(c, "bar"));
+  assert.match(tallest.getAttribute("d"), / L [\d.]+ 14 Q /);
+  page.run("store.data.sessions = []; store.contractHours = new Map(); indexSessions(); renderErrors()");
+  assert.equal(box.classList.contains("hidden"), true);
+});
+
+test("the week card switches between the timeline and the hours per day", async () => {
+  const today = new Date();
+  const page = load({
+    data: payload([session(at(today, 9), at(today, 12))], {
+      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] },
+    }),
+  });
+  await page.run("loadAndRender()");
+  const card = page.document.getElementById("weekCal");
+  const buttons = card.querySelectorAll(".seg")[0].children;
+  assert.deepEqual(
+    buttons.map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
+    [
+      ["Horario", "true"],
+      ["Objetivo", "false"],
+    ],
+  );
+  assert.ok(card.querySelectorAll(".tl-row").length >= 5);
+  assert.equal(card.querySelectorAll(".exp-tick").length, 0);
+  buttons[1].listeners.click[0]();
+  assert.ok(card.querySelectorAll(".exp-tick").length >= 5);
+  assert.equal(card.querySelectorAll(".tl-row").length, 0);
+  assert.equal(card.querySelectorAll(".seg")[0].children[1].getAttribute("aria-pressed"), "true");
+});
+
+test("the usual hours get one tile per length of day when the days worked had more than one", () => {
+  const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
+  const page = withData([
+    on(7, 9, 0, 18, 0),
+    on(8, 9, 30, 18, 30),
+    on(11, 8, 0, 14, 0),
+    on(12, 10, 30, 12, 30),
+    session(at(TUESDAY, 9), null),
+  ]);
+  const usual = (contracts) => {
+    page.run(`store.contractHours = new Map(${JSON.stringify(contracts)}); renderKpis(buildWeeks(2))`);
+    return page.document
+      .getElementById("kpis")
+      .children.slice(2)
+      .map((tile) => tile.children.map((c) => c.textContent));
+  };
+  assert.deepEqual(usual([["2026-09-15", 7]]), [
+    ["Horario habitual · jornada de 8h 30m", "09:15 – 18:15", "entrada y salida medias · 2 días"],
+    ["Horario habitual · jornada de 6h", "08:00 – 14:00", "entrada y salida medias · 1 día"],
+  ]);
+  assert.deepEqual(usual([["2026-09-11", 8.5]]), [
+    ["Horario habitual", "09:12 – 15:45", "entrada y salida medias · 5 días"],
+  ]);
+});
+
+test("the gap between two sessions is drawn only where no hour leave covers it", () => {
+  const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
+  const leave = (day, h1, m1, h2, m2) => [
+    `2026-09-0${day}`,
+    [
+      {
+        type: "Médico",
+        hours: 1,
+        from: new Date(2026, 8, day, h1, m1).toISOString(),
+        to: new Date(2026, 8, day, h2, m2).toISOString(),
+      },
+    ],
+  ];
+  const page = withData([
+    on(7, 9, 30, 11, 25),
+    on(7, 12, 56, 16, 28),
+    on(8, 9, 0, 12, 0),
+    on(8, 14, 0, 17, 0),
+    on(9, 9, 0, 13, 0),
+    on(9, 14, 0, 18, 0),
+  ]);
+  page.run(
+    `store.leaveMap = new Map(${JSON.stringify([
+      leave(7, 11, 30, 12, 55),
+      leave(8, 12, 0, 13, 0),
+      leave(9, 18, 0, 19, 0),
+    ])}); renderTimeline(document.getElementById("weekCal"), buildWeek(1))`,
+  );
+  const gaps = page.document
+    .getElementById("weekCal")
+    .querySelectorAll(".tl-row")
+    .slice(0, 3)
+    .map((row) => row.querySelectorAll(".gap").map((g) => [g.textContent, g.style.left]));
+  assert.deepEqual(
+    gaps.map((day) => day.map(([text]) => text)),
+    [["5m"], ["1h"], ["1h"]],
+  );
+  assert.deepEqual(
+    gaps.map((day) => day[0][1]),
+    ["31.060606060606055%", "45.45454545454545%", "45.45454545454545%"],
+  );
+});
+
+test("the dashboard's texts in their other cases", () => {
+  const monday = new Date(2026, 8, 14),
+    last = new Date(2026, 8, 7);
+  const on = (base, days, h, m = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, h, m);
+  const page = withData([
+    session(on(last, 0, 20), on(last, 2, 8)),
+    session(on(last, 3, 21), on(last, 4, 1)),
+    session(on(monday, 0, 8), on(monday, 0, 16, 30)),
+    session(on(monday, 1, 8), on(monday, 1, 8, 15), true),
+    session(on(monday, 1, 8, 15), null),
+  ]);
+  const text = (code) => page.run(code);
+  const past = new Date(TUESDAY.getTime() - 3600e3).getTime();
+  assert.match(
+    text(`punchText({ at: new Date(${past}), out: new Date(), rest: true })`),
+    /^Fin del descanso a las 09:00 · hace /,
+  );
+  assert.match(
+    text(`punchText({ at: new Date(${past}), out: null, rest: true, open: true })`),
+    /^En descanso desde las 09:00 · llevas /,
+  );
+  const headline = (code) => text(`heroHeadline(${code}).children.map(c => c.textContent)`);
+  assert.deepEqual(
+    headline(`{ expected: 0, vacation: true, auto: "Festivo", leaves: [], hours: 0 }, 0, 0, null, 0`).slice(0, 3),
+    ["Hoy", "Sin jornada", "Festivo"],
+  );
+  assert.deepEqual(headline(`{ expected: 8, hours: 8, leaves: [] }, 0, 0, null, 0`).slice(0, 3), [
+    "Hoy",
+    "Jornada cumplida",
+    "justo en las 8h previstas",
+  ]);
+
+  page.run("renderHero()");
+  const hero = page.document.getElementById("hero");
+  assert.ok(hero.querySelectorAll(".note").some((n) => n.textContent === "Descanso de hoy: 15m ausente"));
+  page.run(`store.absMap = new Map([["2026-09-15", "Festivo"]]); renderHero()`);
+  assert.ok(hero.querySelectorAll(".note").some((n) => /^Mar 15 sep · Festivo · /.test(n.textContent)));
+  assert.equal(
+    hero
+      .querySelectorAll(".btn")
+      .find((b) => b.textContent === "Fichar salida")
+      .classList.contains("pulse"),
+    false,
+  );
+  page.run(`store.absMap = new Map(); store.expected = [0.5, 0.25, 0, 0, 0, 0, 0]; renderHero()`);
+  assert.ok(
+    hero.querySelectorAll(".meter-caption").some((c) => /· objetivo alcanzado$/.test(c.children[0].textContent)),
+  );
+  page.run(SCHEDULE);
+
+  page.run("renderKpis([])");
+  assert.equal(page.document.getElementById("kpis").children.length, 0);
+  const tile = (delta) =>
+    text(`(() => { renderKpis([{ complete: true, target: 8, total: 8 + ${delta}, delta: ${delta}, error: false, days: [] }]);
+    return document.getElementById("kpis").children[1].children[1].className; })()`);
+  assert.deepEqual([tile(0), tile(-2), tile(2)], ["value num", "value num down", "value num"]);
+
+  page.run(`(() => { const ws = buildWeeks(3); Object.assign(ws[0], { missedDays: 2, openDays: 2, delta: -3 });
+    Object.assign(ws[1], { suspect: true, delta: -1 }); Object.assign(ws[2], { delta: -2, complete: true });
+    window.ws = ws; })()`);
+  const host = page.document.getElementById("overviewChart");
+  Object.assign(host, { scrollWidth: 1000, scrollLeft: 100, clientWidth: 200 });
+  page.run("store.weekTarget = 40; rangeShort = true; renderOverview(window.ws)");
+  assert.equal(host.scrollLeft, 100);
+  const cols = host.children[0].children.filter((g) => g.tagName === "G");
+  const first = hover(page, cols[0]);
+  assert.ok(["2 días sin fichar", "2 días con una entrada sin cerrar"].every((t) => first.includes(t)));
+  assert.equal(first.at(-1), "Bajo objetivo −3h");
+  const tone = (col) => {
+    col.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
+    const color = page.document.getElementById("tip").querySelectorAll(".v").at(-1).className;
+    col.listeners.pointerleave[0]();
+    return color;
+  };
+  assert.deepEqual(cols.slice(0, 3).map(tone), ["v warn", "v warn", "v down"]);
+  page.run("rangeShort = false; renderOverview(window.ws)");
+  const madeUp = host.children[0].children.filter((g) => g.tagName === "G")[2];
+  assert.equal(tone(madeUp), "v");
+
+  const card = page.document.getElementById("weekCal");
+  page.run("calOffset = 0; calView = 'objetivo'; renderCalendar()");
+  const today = card.querySelectorAll(".dayrow")[1];
+  const tip = hover(page, today);
+  assert.equal(tip[0], "Mar 15 sep · hoy");
+  assert.ok(tip.includes("08:15 – … 1h 45m en curso"));
+  assert.ok(tip.includes("08:00 – 08:15 · descanso 15m"));
+  page.run(`store.absMap = new Map([["2026-09-14", "Festivo"]]); calView = 'horario'; renderCalendar()`);
+  const rows = card.querySelectorAll(".tl-row");
+  assert.deepEqual(
+    rows.slice(0, 2).map((r) => ["today", "vac"].filter((c) => r.classList.contains(c))),
+    [["vac"], ["today"]],
+  );
+  const open = rows[1].querySelectorAll(".sess").find((s) => !s.classList.contains("rest"));
+  assert.deepEqual(hover(page, open).slice(0, 2), ["Mar 15 sep · 08:15 – en curso", "Trabajo 1h 45m"]);
+  page.run("store.absMap = new Map(); calOffset = 1; renderCalendar()");
+  const long = card.querySelectorAll(".tl-row")[0].querySelectorAll(".sess")[0];
+  assert.ok(hover(page, long).includes("Termina 2 días después"));
+  page.run("renderErrors()");
+  const banner = page.document.getElementById("errorsBanner");
+  const items = banner.children[0].children[2].children.map((li) => bannerLine(li.children[0]));
+  assert.ok(items.includes("Lun 7 sep 2026 · Jornada de 36h"));
+  page.run(
+    `store.data.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`,
+  );
+  assert.equal(banner.classList.contains("hidden"), true);
+  page.run(SCHEDULE);
+  page.run(
+    `store.data.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"]
+      .map((v) => {
+        const [d, h1, m1, h2, m2] = v.split(",").map(Number);
+        return JSON.stringify(session(on(last, d, h1, m1), on(last, d, h2, m2)));
+      })
+      .join(",")}]; indexSessions(); calOffset = 1; rangeShort = true; renderCalendar(); renderTable(buildWeeks(2))`,
+  );
+  assert.equal(card.querySelectorAll(".badge")[0].textContent, "▼ −1h vs 40h");
+  const downs = () =>
+    page.document
+      .getElementById("tableView")
+      .querySelectorAll("td")
+      .filter((td) => td.classList.contains("down"));
+  assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge down", 1]);
+  page.run("rangeShort = false; renderCalendar(); renderTable(buildWeeks(2))");
+  assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge flat", 0]);
+  page.run(
+    `store.data.sessions.at(-1).out = "${on(last, 4, 14).toISOString()}"; store.data.sessions.at(-1).hours = 6; indexSessions(); renderCalendar()`,
+  );
+  assert.equal(card.querySelectorAll(".badge")[0].textContent, "+0h vs 40h");
+  page.run("setRangeMonths(1); renderAll(); setRangeMonths(0); renderAll()");
+  page.run(`store.since = "2026-09-14"`);
+  assert.deepEqual(page.run("buildWeek(1).days.map(d => d.expected)"), [0, 0, 0, 0, 0, 0, 0]);
+  assert.equal(page.run("buildWeek(0).target"), 40);
+  page.run(`store.since = ""`);
+  page.run(`store.data.sessions = [${JSON.stringify(session(on(last, 0, 8), on(last, 0, 9)))}, ${JSON.stringify(session(on(last, 0, 10), on(last, 0, 23)))}];
+    store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`);
+  assert.equal(
+    bannerLine(banner.children[0].children[2].children[0].children[0]),
+    "Lun 7 sep 2026 · Jornada de 14h en 2 sesiones",
+  );
+});
+
+test("the personal page's punches to fix open the correcting dialog when the session may", async () => {
+  const today = new Date();
+  const back = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+  const errors = [session(at(back(10), 16), at(back(9), 8, 30))];
+  const week = { ...teamPayload(), can_edit: true };
+  const day = isoDate(back(10));
+  week.employees[0] = { ...week.employees[0], id: 9, days: [{ ...week.employees[0].days[0], date: day }] };
+  const urls = [];
+  let down = false;
+  const page = load({
+    path: "/empleado?id=9",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url === "/api/team/attendance") {
+        down = true;
+        return { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
+      }
+      if (url.startsWith("/api/team")) {
+        if (down) throw new Error("sin red");
+        return { ok: true, status: 200, json: async () => week };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => payload(errors, { team: true, can_edit: true, employee_id: 3 }),
+      };
+    },
+  });
+  await page.run("loadAndRender()");
+  const doc = page.document;
+  const items = () => doc.getElementById("errorsBanner").children[0].children[2].children;
+  const fix = items()[0].children[1];
+  assert.equal(fix.textContent, "Corregir");
+  await fix.listeners.click[0]();
+  await settle();
+  assert.ok(urls.includes(`/api/team?week=${day}`));
+  const dialog = doc.getElementById("dayDialog");
+  assert.equal(dialog.open, true);
+  assert.equal(doc.getElementById("dayDialogTitle").textContent, "Zoe");
+  const editor = doc.getElementById("dayDialogBody").children[1];
+  editor.children
+    .find((c) => c.className === "edit-row")
+    .children.at(-1)
+    .listeners.click[0]();
+  const added = editor.children
+    .filter((c) => c.className === "edit-row")
+    .at(-1)
+    .children.filter((c) => c.tagName === "INPUT");
+  [added[0].value, added[1].value] = ["09:00", "10:00"];
+  const save = editor.children.find((c) => c.className === "edit-actions").children[0];
+  const loads = urls.filter((u) => u.startsWith("/api/data")).length;
+  await save.listeners.click[0]();
+  await save.listeners.click[0]();
+  await settle();
+  assert.equal(urls.filter((u) => u.startsWith("/api/data")).length, loads + 1);
+  assert.equal(doc.getElementById("dayDialogNote").textContent, "Guardado.");
+  down = false;
+  doc.getElementById("dayDialogClose").listeners.click[0]();
+  assert.equal(dialog.open, false);
+  down = true;
+  await fix.listeners.click[0]();
+  await settle();
+  assert.deepEqual([fix.textContent, fix.title], ["No se pudo abrir", "sin red"]);
+  page.run("store.data.can_edit = false; renderErrors()");
+  assert.equal(items()[0].children.length, 1);
+  page.run("store.other = null; renderErrors()");
+  assert.equal(items()[0].children[1].textContent, "Solicitar cambio");
+  page.run("store.data.can_edit = true; renderErrors()");
+  assert.deepEqual(
+    items()[0]
+      .children.slice(1)
+      .map((b) => b.textContent),
+    ["Corregir", "Solicitar cambio"],
+  );
+  down = false;
+  await items()[0].children[1].listeners.click[0]();
+  await settle();
+  assert.ok(urls.at(-1).startsWith("/api/team?week="));
+});
+
+test("your own punches to fix open Odoo's change request form, and the header an empty one", async () => {
+  const today = new Date();
+  const back = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+  const urls = [];
+  let down = false;
+  const page = load({
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.startsWith("/api/request")) {
+        if (down) return { ok: false, status: 409, json: async () => ({ error: "sin categoría" }) };
+        return { ok: true, status: 200, json: async () => ({ url: "https://odoo.example/form" }) };
+      }
+      return { ok: true, status: 200, json: async () => payload([session(at(back(10), 16), at(back(9), 8, 30))]) };
+    },
+  });
+  page.run(
+    "window.tabs = []; window.open = (url, target) => { const tab = { url, target, opener: window, " +
+      "closed: false, close() { this.closed = true; } }; window.tabs.push(tab); return tab; }",
+  );
+  await page.run("loadAndRender()");
+  const ask = page.document.getElementById("errorsBanner").children[0].children[2].children[0].children[1];
+  assert.equal(ask.textContent, "Solicitar cambio");
+  await ask.listeners.click[0]();
+  const tabs = page.run("window.tabs");
+  assert.equal(urls.at(-1), `/api/request?date=${isoDate(back(10))}`);
+  assert.deepEqual(
+    [tabs[0].url, tabs[0].target, tabs[0].opener, tabs[0].location, tabs[0].closed],
+    ["", "_blank", null, "https://odoo.example/form", false],
+  );
+  const shortcut = page.document.getElementById("requestBtn");
+  assert.equal(shortcut.classList.contains("hidden"), false);
+  await shortcut.listeners.click[0]();
+  assert.equal(urls.at(-1), "/api/request");
+  assert.equal(page.run("window.tabs[1].location"), "https://odoo.example/form");
+  down = true;
+  await ask.listeners.click[0]();
+  assert.equal(page.run("window.tabs[2].closed"), true);
+  assert.deepEqual([ask.textContent, ask.title], ["No se pudo abrir", "sin categoría"]);
+  page.run("store.other = '9'; loadAndRender()");
+  await settle();
+  assert.equal(shortcut.classList.contains("hidden"), true);
+});
+
+test("someone's page shows the requests the viewer may approve, one line per day with its errors", async () => {
+  const week = teamPayload();
+  const urls = [];
+  let down = false;
+  const requests = [
+    {
+      id: 552,
+      from: new Date(2025, 2, 3, 8, 30).toISOString(),
+      to: new Date(2025, 2, 3, 17, 40).toISOString(),
+      status: "pending",
+      reason: "Salí a las 17:40",
+      can_approve: true,
+    },
+    {
+      id: 553,
+      from: new Date(2025, 2, 4, 9).toISOString(),
+      to: null,
+      status: "pending",
+      reason: "",
+      can_approve: true,
+    },
+  ];
+  const page = load({
+    path: "/empleado?id=3",
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.startsWith("/api/team")) {
+        if (down) throw new Error("sin red");
+        return { ok: true, status: 200, json: async () => week };
+      }
+      return { ok: true, status: 200, json: async () => payload([], { team: true, requests }) };
+    },
+  });
+  await page.run("loadAndRender()");
+  const box = page.document.getElementById("errorsBanner");
+  const lines = () => box.children[0].children[2].children;
+  assert.deepEqual([box.classList.contains("hidden"), box.classList.contains("requests")], [false, true]);
+  assert.equal(box.querySelectorAll("h2")[0].textContent, "2 solicitudes pendientes");
+  assert.deepEqual(
+    lines().map((li) => bannerLine(li.children[0])),
+    [
+      "Mar 4 mar 2025 · Solicitud pendiente 09:00",
+      "Lun 3 mar 2025 · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
+    ],
+  );
+  assert.deepEqual(
+    lines().map((li) => li.children[1].textContent),
+    ["Revisar", "Revisar"],
+  );
+  await lines()[1].children[1].listeners.click[0]();
+  await settle();
+  assert.ok(urls.includes("/api/team?week=2025-03-03"));
+  assert.equal(
+    page.document.getElementById("dayDialogBody").children.some((c) => c.className === "editor"),
+    false,
+  );
+  assert.equal(page.document.getElementById("dayDialog").open, true);
+  down = true;
+  await lines()[0].children[1].listeners.click[0]();
+  await settle();
+  assert.equal(lines()[0].children[1].textContent, "No se pudo abrir");
+  page.run(`store.data.requests = store.data.requests.slice(0, 1); store.data.sessions = [${JSON.stringify(session(new Date(2025, 2, 3, 9), null))}];
+    indexSessions(); renderErrors()`);
+  assert.equal(box.querySelectorAll("h2")[0].textContent, "⚠ 1 fichaje por corregir · 1 solicitud pendiente");
+  assert.equal(box.classList.contains("requests"), false);
+  assert.equal(
+    bannerLine(lines()[0].children[0]),
+    "Lun 3 mar 2025 · Sin cerrar entrada a las 09:00, sin salida · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
+  );
+  page.run("delete store.data.requests; store.data.sessions = []; indexSessions(); renderErrors()");
+  assert.equal(box.classList.contains("hidden"), true);
 });

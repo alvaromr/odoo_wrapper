@@ -1,36 +1,40 @@
-// The pages' suite as it grew, every page and area together; the harness and the shared fixtures are in
-// page.mjs, whose header says how the pages run here.
+// app.js, the dashboard page's entry script: how the page boots and wires its controls, the clock that keeps it
+// current, the polls and reloads that follow the tab, the day and the server, and the flows that cross several
+// modules. What each module draws has its own suite, named after it; the harness and the shared fixtures are in
+// page.mjs, whose header says how the pages run here. Each page runs on a clock the test sets where a figure a
+// minute off would be a flaky test.
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  answer,
   at,
-  bannerLine,
-  cellText,
+  click,
+  dashboard,
+  element,
   fakeAudio,
+  flashing,
+  heroOf,
   hover,
   IMPORT_RE,
   isoDate,
   JS_FILES,
   load,
-  memoryStorage,
+  lunchedAt,
+  mondayDone,
   payload,
-  RealDate,
   readModule,
-  rowName,
   SCHEDULE,
   session,
   settle,
   TUESDAY,
   teamFixes,
   teamPayload,
-  teamWeek,
-  texts,
-  UP_TO_DATE,
+  withAlarms,
   withData,
-  withFilters,
-  Y25,
 } from "./page.mjs";
+
+const WEDNESDAY = new Date(2026, 8, 16, 10, 0);
 
 test("every imported name is exported by its module", () => {
   for (const file of JS_FILES) {
@@ -53,286 +57,6 @@ test("every imported name is exported by its module", () => {
   }
 });
 
-test("byId returns the page's element and names the one it lacks", () => {
-  const page = load();
-  assert.equal(page.run("byId('hero') === document.getElementById('hero')"), true);
-  const real = page.document.getElementById;
-  page.document.getElementById = () => null;
-  assert.throws(() => page.run("byId('hero')"), /the page has no #hero/);
-  page.document.getElementById = real;
-});
-
-test("formats hours, deltas and clocks", () => {
-  const { run } = load();
-  assert.equal(run("fmtHM(1.5)"), "1h 30m");
-  assert.equal(run("fmtHM(-0.25)"), "−15m");
-  assert.equal(run("fmtHM(0)"), "0h");
-  assert.equal(run("fmtHM(2.05)"), "2h 3m");
-  assert.equal(run("fmtHM(18)"), "18h");
-  assert.equal(run("fmtDelta(0.5)"), "+30m");
-  assert.equal(run("fmtDelta(-0.5)"), "−30m");
-  assert.equal(run("fmtShort(0.5)"), "30m");
-  assert.equal(run("fmtShort(1.25)"), "1h 15m");
-  assert.equal(run("fmtShort(-1)"), "0m");
-  assert.equal(run("fmtClock(17.5)"), "17:30");
-  assert.equal(run("isoDay(new Date(2026, 0, 5))"), "2026-01-05");
-  run(SCHEDULE);
-  assert.equal(run("targetLabel({ target: 40 })"), "40h");
-  assert.equal(run("targetLabel({ target: 31.5 })"), "31h 30m");
-});
-
-test("the schedule sentence groups days by hours", () => {
-  const { run } = load();
-  assert.equal(run("scheduleSentence()"), "");
-  run(SCHEDULE);
-  assert.equal(run("scheduleSentence()"), "8h 30m de lunes a jueves, 6h los viernes");
-  run("store.expected = [8, 8, 0, 0, 0, 0, 0]");
-  assert.equal(run("scheduleSentence()"), "8h los lunes y martes");
-});
-
-test("lunch opens from 13:30 to 16:00 and only on days whose calendar has one", () => {
-  const { run } = withData([]);
-  run("store.lunchFrom = [14, 14, 14, 14, null, null, null]");
-  assert.equal(run("lunchOpen(new Date(2026, 8, 15, 13, 29))"), false);
-  assert.equal(run("lunchOpen(new Date(2026, 8, 15, 13, 30))"), true);
-  assert.equal(run("lunchOpen(new Date(2026, 8, 15, 15, 59))"), true);
-  assert.equal(run("lunchOpen(new Date(2026, 8, 15, 16, 0))"), false);
-  assert.equal(run("lunchOpen(new Date(2026, 8, 18, 14, 0))"), false);
-  assert.equal(run("lunchHours({ date: new Date(2026, 8, 14) })"), 0.5);
-  assert.equal(run("lunchHours({ date: new Date(2026, 8, 18) })"), 0);
-  assert.equal(run("lunchHours({ date: new Date(2026, 8, 14), vacation: true })"), 0);
-});
-
-test("the hero offers lunch inside its window until it is taken", async () => {
-  const two = new Date(2026, 8, 15, 14, 0);
-  class AtTwo extends RealDate {
-    constructor(...args) {
-      if (args.length) super(...args);
-      else super(two);
-    }
-    static now() {
-      return two.getTime();
-    }
-  }
-  const schedule = { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] };
-  const page = load({ data: payload([session(at(two, 9), null)], { schedule }), globals: { Date: AtTwo } });
-  await page.run("loadAndRender()");
-  const buttons = () =>
-    page.document
-      .getElementById("hero")
-      .querySelectorAll(".btn")
-      .map((b) => b.textContent);
-  assert.deepEqual(buttons(), ["Fichar salida", "Salir a comer", "Salir a descanso"]);
-  page.run("store.state.lunch_done = true; renderHero()");
-  assert.deepEqual(buttons(), ["Fichar salida", "Salir a descanso"]);
-});
-
-test("without a schedule nothing is expected and the page says so", async () => {
-  const today = new Date();
-  const page = load({ data: payload([session(at(today, 9), null)]) });
-  await page.run("loadAndRender()");
-  assert.equal(page.run("store.weekTarget"), 0);
-  assert.equal(page.run("buildWeek(0).target"), 0);
-  assert.equal(page.run("lunchOpen(new Date())"), false);
-  assert.match(page.document.getElementById("weeksHint").textContent, /^Odoo no devuelve horario/);
-});
-
-test("a day whose contract asked for other hours expects those", async () => {
-  const today = new Date();
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) - 7);
-  const iso = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const tuesday = new Date(monday);
-  tuesday.setDate(monday.getDate() + 1);
-  const page = load({
-    data: payload([], {
-      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
-      contract_hours: { [iso(monday)]: 0, [iso(tuesday)]: 5 },
-    }),
-  });
-  await page.run("loadAndRender()");
-  assert.deepEqual(page.run("buildWeek(1).days.map(d => d.expected)"), [0, 5, 8, 8, 8, 0, 0]);
-  assert.equal(page.run("buildWeek(1).target"), 29);
-  assert.equal(page.run("buildWeek(0).target"), 40);
-});
-
-test("the range selector counts months back from today, as weeks", () => {
-  const { run, document } = withData([]);
-  assert.deepEqual(
-    [1, 6, 12].map((m) => run(`weeksSince(${m})`)),
-    [6, 28, 53],
-  );
-  const seg = document.getElementById("rangeSeg");
-  const button = document.createElement("button");
-  button.dataset.months = "1";
-  seg.appendChild(button);
-  seg.listeners.click[0]({ target: { closest: () => button }, currentTarget: seg });
-  assert.equal(button.getAttribute("aria-pressed"), "true");
-});
-
-test("sessions are indexed per day with their break share", () => {
-  const monday = new Date(2026, 8, 14);
-  const { run } = withData([
-    session(at(monday, 9), at(monday, 11)),
-    session(at(monday, 11), at(monday, 11, 15), true),
-    session(at(TUESDAY, 9), null),
-  ]);
-  const week = run("buildWeek(0)");
-  assert.equal(week.days[0].hours, 2.25);
-  assert.equal(week.days[0].rest, 0.25);
-  assert.equal(week.days[0].sessions.length, 2);
-  assert.equal(week.days[1].hours, 1);
-  assert.equal(week.total, 3.25);
-  assert.equal(week.target, 40);
-  assert.equal(week.delta, 3.25 - 40);
-  assert.equal(week.current, true);
-  assert.equal(week.complete, false);
-  assert.equal(run("buildWeek(1)").complete, true);
-  assert.equal(run("buildWeeks(3).length"), 3);
-});
-
-test("absences and hour leaves lower the expected hours", () => {
-  const { run } = withData([]);
-  run(`store.absMap = new Map([["2026-09-14", "Festivo"]]);
-       store.leaveMap = new Map([["2026-09-15", [{ hours: 2.5, type: "Médico" }]]]);`);
-  const week = run("buildWeek(0)");
-  assert.equal(week.days[0].expected, 0);
-  assert.equal(week.days[0].auto, "Festivo");
-  assert.equal(week.days[1].expected, 6);
-  assert.equal(week.days[1].leaves[0].type, "Médico");
-  assert.equal(week.target, 40 - 8.5 - 2.5);
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: the string is code the page's context runs
-  run("store.absMap = new Map([0, 1, 2, 3, 4].map(i => [`2026-09-1${4 + i}`, 'Vacaciones']))");
-  assert.equal(run("buildWeek(0)").allVacation, true);
-});
-
-test("week labels span one or two months", () => {
-  const { run } = load();
-  assert.equal(
-    run(
-      `weekRangeLabel({ monday: new Date(${new Date().getFullYear()}, 8, 14), sunday: new Date(${new Date().getFullYear()}, 8, 20) })`,
-    ),
-    "14–20 sep",
-  );
-  const thisYear = new Date().getFullYear();
-  assert.equal(
-    run(`weekRangeLabel({ monday: new Date(${thisYear}, 8, 28), sunday: new Date(${thisYear}, 9, 4) })`),
-    "28 sep – 4 oct",
-  );
-  assert.equal(run("weekRangeLabel({ monday: new Date(2020, 8, 7), sunday: new Date(2020, 8, 13) })"), "7–13 sep 2020");
-  assert.equal(
-    run("weekRangeLabel({ monday: new Date(2019, 11, 30), sunday: new Date(2020, 0, 5) })"),
-    "30 dic 2019 – 5 ene 2020",
-  );
-  assert.equal(
-    run("weekRangeLabel({ monday: new Date(2020, 8, 28), sunday: new Date(2020, 9, 4) })"),
-    "28 sep – 4 oct 2020",
-  );
-});
-
-test("break spans sit where the break happened and gaps count only unlogged time", () => {
-  const { run } = load();
-  assert.deepEqual(
-    run("restSpans([{ hours: 2, rest: false }, { hours: 0.25, rest: true }, { hours: 1, rest: false }])"),
-    [{ from: 2, to: 2.25 }],
-  );
-  const monday = new Date(2026, 8, 14);
-  const gap = (leaves) =>
-    run(`unloggedGap([
-    { in: new Date(${at(monday, 9).getTime()}), out: new Date(${at(monday, 12).getTime()}) },
-    { in: new Date(${at(monday, 12, 30).getTime()}), out: null },
-  ], ${JSON.stringify(leaves)})`);
-  const leave = (h1, m1, h2, m2) => ({ from: at(monday, h1, m1).toISOString(), to: at(monday, h2, m2).toISOString() });
-  assert.equal(gap([]), 0.5);
-  assert.equal(gap([leave(11, 0, 12, 15)]), 0.25);
-  assert.equal(gap([leave(12, 0, 12, 30)]), 0);
-  assert.equal(gap([leave(15, 0, 16, 0)]), 0.5);
-});
-
-test("the last punch is the newest event and says whether it is open", () => {
-  const { run } = withData([session(at(TUESDAY, 9), at(TUESDAY, 12)), session(at(TUESDAY, 13), null, true)]);
-  const last = run("lastPunch()");
-  assert.equal(last.open, true);
-  assert.equal(last.rest, true);
-  assert.equal(new Date(last.at).getTime(), at(TUESDAY, 13).getTime());
-  assert.match(run("punchText(lastPunch())"), /^En descanso desde las 13:00 · llevas /);
-});
-
-test("the status line explains why it is or is not ringing", () => {
-  const { run } = withData([]);
-  const day = { expected: 8, hours: 1 };
-  assert.equal(run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`), "Sin fichaje abierto");
-  assert.equal(run("notifyStatus(null, { expected: 0 }, 0)"), "Hoy sin jornada prevista");
-  run("store.state = { ...store.state, lunch: new Date(Date.now() - 10 * 60000).toISOString() }");
-  assert.match(
-    run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`),
-    /^Comida hasta las \d\d:\d\d · toca la página para oírlo$/,
-  );
-  run("store.state = { ...store.state, lunch: new Date(Date.now() - 60 * 60000).toISOString() }");
-  assert.match(run(`notifyStatus(null, ${JSON.stringify(day)}, 7)`), /^Comida vencida/);
-  const open = { in: new Date(Date.now() - 5 * 60000).toISOString(), rest: true };
-  assert.match(run(`notifyStatus(${JSON.stringify(open)}, ${JSON.stringify(day)}, 7)`), /^Descanso hasta las/);
-  assert.match(run(`notifyStatus({ rest: false }, ${JSON.stringify(day)}, 7)`), /^Sonará al cumplir la jornada/);
-  assert.match(run(`notifyStatus({ rest: false }, ${JSON.stringify(day)}, 0)`), /^Avisando cada 2 min/);
-  run("store.state = { ...store.state, muted: true }");
-  assert.equal(run(`notifyStatus({ rest: false }, ${JSON.stringify(day)}, 0)`), "Silenciado hasta mañana");
-});
-
-function alarmsPage(sessions, state = {}) {
-  const page = load();
-  const data = payload(sessions, { state: { ...payload([]).state, ...state } });
-  page.run(
-    `store.data = ${JSON.stringify(data)}; store.state = store.data.state; store.expected = [8, 8, 8, 8, 8, 8, 8]; store.lunchFrom = Array(7).fill(13.5);`,
-  );
-  page.run("setClock(new Date()); indexSessions();");
-  return page;
-}
-
-test("the end-of-day alarm rings once the expected hours are met with a session open", () => {
-  const today = new Date();
-  const { run, document } = alarmsPage([session(at(today, 0), null)]);
-  assert.equal(run("NotifiedAt"), 0);
-  run("checkAlarms()");
-  assert.ok(run("NotifiedAt") > 0);
-  assert.ok(run("FlashTimer"));
-  run("checkAlarms()");
-  const first = run("NotifiedAt");
-  run("checkAlarms()");
-  assert.equal(run("NotifiedAt"), first);
-  run("store.state = { ...store.state, muted: true }; checkAlarms()");
-  assert.equal(run("FlashTimer"), null);
-  assert.equal(document.title, "Fichajes");
-});
-
-test("a short open session does not ring", () => {
-  const { run } = alarmsPage([session(new Date(Date.now() - 60000), null)]);
-  run("checkAlarms()");
-  assert.equal(run("NotifiedAt"), 0);
-  assert.equal(run("FlashTimer"), null);
-});
-
-test("lunch rings only after the lunch button, within the grace period", () => {
-  const { run } = alarmsPage([]);
-  run("checkAlarms()");
-  assert.equal(run("LastRing.lunch"), 0);
-  run("store.state = { ...store.state, lunch: new Date(Date.now() - 40 * 60000).toISOString() }; checkAlarms()");
-  assert.ok(run("LastRing.lunch") > 0);
-  run(
-    "LastRing.lunch = 0; store.state = { ...store.state, lunch: new Date(Date.now() - 4 * 3600000).toISOString() }; checkAlarms()",
-  );
-  assert.equal(run("LastRing.lunch"), 0);
-  assert.equal(run("FlashTimer"), null);
-});
-
-test("a break rings when it runs over its minutes", () => {
-  const { run } = alarmsPage([session(new Date(Date.now() - 20 * 60000), null, true)]);
-  run("checkAlarms()");
-  assert.ok(run("LastRing.rest") > 0);
-  const { run: quiet } = alarmsPage([session(new Date(Date.now() - 20 * 60000), null, true)], { break_minutes: 0 });
-  quiet("checkAlarms()");
-  assert.equal(quiet("LastRing.rest"), 0);
-});
-
 test("the page follows the day change before asking Odoo", async () => {
   const today = new Date();
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 18, 0);
@@ -345,114 +69,6 @@ test("the page follows the day change before asking Odoo", async () => {
   assert.equal(page.run("NotifiedAt"), 0);
   assert.equal(page.calls.fetch.length, before + 1);
   assert.equal(page.run("newDay()"), false);
-});
-
-test("loading renders the page from the server payload", async () => {
-  const today = new Date();
-  const data = payload([session(at(today, 9), null)], {
-    schedule: { hours: [7, 7, 7, 7, 7, 0, 0], lunch_from: [13, 13, 13, 13, null, null, null] },
-    absences: [{ date: "2026-09-14", type: "Festivo" }],
-    phone: { url: "https://10.0.0.2:8443/", name_url: "https://mac.local:8443/" },
-  });
-  const page = load({ data });
-  await page.run("loadAndRender()");
-  const { document, run } = page;
-  assert.equal(document.getElementById("title").textContent, "Ana");
-  assert.match(document.getElementById("subtitle").textContent, /^Odoo · actualizado el /);
-  assert.equal(document.getElementById("app").classList.contains("hidden"), false);
-  assert.equal(run("store.weekTarget"), 35);
-  assert.equal(run("lunchFrom(new Date(2026, 8, 14))"), 13);
-  assert.equal(run("lunchFrom(new Date(2026, 8, 18))"), null);
-  assert.match(document.getElementById("weeksHint").textContent, /jornada prevista en Odoo: 7h de lunes a viernes\./);
-  assert.deepEqual(run("[...store.absMap]"), [["2026-09-14", "Festivo"]]);
-  assert.ok(document.getElementById("hero").children.length > 0);
-  const phone = document.getElementById("phone");
-  assert.equal(phone.classList.contains("hidden"), false);
-  assert.equal(phone.querySelectorAll(".qr").length, 0);
-  const buttons = () => phone.querySelector(".seg").children;
-  assert.deepEqual(
-    buttons().map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
-    [
-      ["Por nombre", "true"],
-      ["Por IP", "false"],
-    ],
-  );
-  assert.equal(phone.querySelector(".url").textContent, "https://mac.local:8443/");
-  assert.equal(phone.querySelector(".btn").textContent, "Emparejar móvil");
-  buttons()[1].listeners.click[0]();
-  assert.deepEqual(
-    buttons().map((b) => b.getAttribute("aria-pressed")),
-    ["false", "true"],
-  );
-  assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/");
-});
-
-test("pairing shows a one-shot QR that expires", async () => {
-  const data = payload([], { phone: { url: "https://10.0.0.2:8443/", name_url: "https://mac.local:8443/" } });
-  const pairs = [];
-  let pairReply = {
-    ok: true,
-    status: 200,
-    json: async () => ({ url: "https://10.0.0.2:8443/pair?t=tok", qr: "<svg/>", expires_in: 120 }),
-  };
-  const page = load({
-    fetchImpl: async (url, opts) => {
-      if (url !== "/api/pair") return { ok: true, status: 200, json: async () => data };
-      pairs.push(JSON.parse(opts.body));
-      return pairReply;
-    },
-  });
-  await page.run("loadAndRender()");
-  const { document, run, calls } = page;
-  const phone = document.getElementById("phone");
-  const pairButton = () => phone.querySelector(".btn");
-  await pairButton().listeners.click[0]();
-  assert.deepEqual(pairs, [{ name: true }]);
-  assert.equal(phone.querySelectorAll(".qr").length, 1);
-  assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/pair?t=tok");
-  assert.match(phone.querySelector(".note").textContent, /caduca en 120 s/);
-  assert.equal(pairButton().textContent, "Cancelar");
-  assert.equal(calls.timers.at(-1)[1], 1000);
-  run("pairing.until = Date.now() - 1");
-  calls.timers.at(-1)[0]();
-  assert.equal(run("pairing"), null);
-  assert.equal(phone.querySelectorAll(".qr").length, 0);
-  assert.equal(pairButton().textContent, "Emparejar móvil");
-  await pairButton().listeners.click[0]();
-  assert.equal(pairButton().textContent, "Cancelar");
-  pairReply = { ok: false, status: 500, json: async () => ({ error: "caído" }) };
-  await pairButton().listeners.click[0]();
-  await settle();
-  assert.equal(pairButton().textContent, "Emparejar móvil");
-  assert.equal(phone.querySelectorAll(".qr").length, 0);
-  assert.deepEqual(pairs.at(-1), { revoke: true });
-  phone.querySelector(".seg").children[1].listeners.click[0]();
-  pairReply = { ok: false, status: 409, json: async () => ({ error: "sin --host" }) };
-  await pairButton().listeners.click[0]();
-  assert.deepEqual(pairs.at(-1), { name: false });
-  assert.match(phone.querySelector(".note").textContent, /No se pudo emparejar: sin --host/);
-});
-
-test("without the Descanso reason the page offers no break", async () => {
-  const today = new Date();
-  const schedule = { hours: [7, 7, 7, 7, 7, 7, 7], lunch_from: [13, 13, 13, 13, 13, 13, 13] };
-  const texts = async (breaks) => {
-    const page = load({ data: payload([session(at(today, 9), null)], { schedule, breaks }) });
-    await page.run("loadAndRender()");
-    const hero = page.document.getElementById("hero");
-    return hero.querySelectorAll(".btn").map((b) => b.textContent);
-  };
-  const withBreaks = await texts(true),
-    without = await texts(false);
-  assert.deepEqual(
-    withBreaks.filter((t) => t.includes("escanso")),
-    ["Salir a descanso"],
-  );
-  assert.deepEqual(
-    without.filter((t) => t.includes("escanso")),
-    [],
-  );
-  assert.ok(without.includes("Fichar salida"));
 });
 
 test("a failed first load keeps retrying once a minute", async () => {
@@ -479,863 +95,6 @@ test("a failed reload is retried once a minute, not every tick", () => {
   assert.equal(loads(), 2);
 });
 
-test("a session over the long limit is red, and one that ends the next day runs to midnight", async () => {
-  const today = new Date();
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7) - 7);
-  const tuesday = new Date(monday);
-  tuesday.setDate(monday.getDate() + 1);
-  const wednesday = new Date(monday);
-  wednesday.setDate(monday.getDate() + 2);
-  const page = load({
-    data: payload([session(at(monday, 9), at(monday, 14)), session(at(tuesday, 15), at(wednesday, 9))], {
-      long_hours: 12,
-      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
-    }),
-  });
-  await page.run("loadAndRender()");
-  const card = page.document.getElementById("weekCal");
-  const rows = () => card.querySelectorAll(".tl-row");
-  page.run("renderTimeline(document.getElementById('weekCal'), buildWeek(1))");
-  const tl = rows().slice(-7);
-  const dayRow = (date) => tl.find((r) => r.querySelectorAll(".dnum")[0]?.textContent === String(date.getDate()));
-  const tuesdayRow = dayRow(tuesday);
-  const block = tuesdayRow.querySelectorAll(".sess")[0];
-  assert.equal(block.classList.contains("long"), true);
-  assert.equal(block.textContent, "15:00 – 09:00 (+1)");
-  assert.match(block.style.width, /100%/);
-  assert.equal(tuesdayRow.querySelectorAll(".dvalue")[0].classList.contains("long"), true);
-  assert.deepEqual(hover(page, block).slice(-2), [
-    "Termina al día siguiente",
-    "Jornada muy larga: 18h en el día, más de 12h, casi siempre una salida sin fichar",
-  ]);
-  assert.equal(dayRow(monday).querySelectorAll(".sess")[0].classList.contains("long"), false);
-  assert.equal(page.run("buildWeek(1).suspect"), true);
-  page.run("calView = 'objetivo'; calOffset = 1; renderCalendar()");
-  const bars = card.querySelectorAll(".dayrow").map((r) => r.querySelectorAll(".bar")[0]?.style.width);
-  assert.deepEqual(bars.slice(0, 2), ["50%", "100%"]);
-  assert.equal(page.run("buildWeek(0).suspect"), false);
-  page.run("renderTable(buildWeeks(2))");
-  const table = page.document.getElementById("tableView");
-  assert.ok(table.querySelectorAll("td.warn").some((td) => td.textContent === "fichaje por revisar"));
-});
-
-test("an attendance left open since an earlier day is not today's work", async () => {
-  const today = new Date();
-  const earlier = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 3, 8, 46);
-  const page = load({
-    data: payload([{ in: earlier.toISOString(), out: null, hours: null, rest: false, reason: "Normal" }], {
-      long_hours: 12,
-      schedule: { hours: [8, 8, 8, 8, 8, 8, 8], lunch_from: [null, null, null, null, null, null, null] },
-    }),
-  });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const texts = (node) => [
-    node.textContent,
-    ...(node.children || []).filter((c) => typeof c !== "string").flatMap(texts),
-  ];
-  assert.ok(!texts(hero).some((t) => /^Salida estimada/.test(t)));
-  assert.ok(texts(hero).some((t) => / · hay una entrada anterior sin cerrar$/.test(t)));
-  const line = hero.querySelectorAll(".lastpunch")[0];
-  assert.equal(line.classList.contains("stale"), true);
-  assert.match(line.children[1].textContent, /^Entrada del \d+ \w+ a las 08:46 sin cerrar · hace /);
-  page.run("renderTable(buildWeeks(2))");
-  const table = page.document.getElementById("tableView");
-  assert.ok(table.querySelectorAll("td.warn").some((td) => td.textContent === "fichaje por revisar"));
-});
-
-test("the banner lists this person's punch errors and opens their week", async () => {
-  const today = new Date();
-  const back = (n) => {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
-    return d;
-  };
-  const page = load({
-    data: payload(
-      [
-        session(at(back(200), 9), at(back(199), 9)),
-        session(at(back(10), 16), at(back(9), 8, 30)),
-        session(at(back(3), 9), null),
-        session(at(back(1), 9), at(back(1), 17)),
-        session(at(back(20), 6), at(back(20), 10)),
-      ],
-      {
-        long_hours: 12,
-        weeks: 40,
-        contract_hours: { [isoDate(back(5))]: 7.5 },
-        schedule: { hours: [0, 0, 0, 0, 0, 0, 0], lunch_from: [null, null, null, null, null, null, null] },
-      },
-    ),
-  });
-  await page.run("loadAndRender()");
-  const box = page.document.getElementById("errorsBanner");
-  assert.equal(box.classList.contains("hidden"), false);
-  const details = box.children[0];
-  assert.equal(details.tagName, "DETAILS");
-  assert.equal(details.open, false);
-  assert.equal(details.children[0].children[0].textContent, "⚠ 4 fichajes por corregir");
-  details.open = true;
-  details.listeners.toggle[0]();
-  page.run("renderErrors()");
-  assert.equal(box.children[0].open, true);
-  const items = box.children[0].children[2].children.map((li) => li.children[0]);
-  assert.deepEqual(
-    items.map((i) => i.children[2].textContent),
-    ["Sin cerrar", "Sin fichar", "Jornada de 16h 30m", "Jornada de 24h"],
-  );
-  assert.match(bannerLine(items[1]), / · Sin fichar con jornada prevista de 7h 30m$/);
-  assert.match(bannerLine(items[0]), / · Sin cerrar entrada a las 09:00, sin salida$/);
-  items[1].listeners.click[0]();
-  const values = page.document
-    .getElementById("weekCal")
-    .querySelectorAll(".dvalue")
-    .filter((v) => v.textContent === "sin fichar");
-  assert.equal(values.length, 1);
-  assert.equal(values[0].classList.contains("long"), true);
-  items[2].listeners.click[0]();
-  assert.equal(page.run("weekOffsetOf(new Date())"), 0);
-  assert.equal(page.run("calOffset"), page.run(`weekOffsetOf(new Date(${back(10).getTime()}))`));
-  assert.ok(page.run("calOffset") >= 1);
-  page.run("renderKpis(buildWeeks(40))");
-  const [averageTile, balanceTile, usualTile] = page.document.getElementById("kpis").children;
-  assert.deepEqual(
-    usualTile.children.map((c) => c.textContent),
-    ["Horario habitual", "07:30 – 13:30", "entrada y salida medias · 2 días"],
-  );
-  for (const tile of [averageTile, balanceTile]) {
-    assert.equal(tile.children[1].className, "value num warn");
-    assert.match(
-      tile.children.at(-1).textContent,
-      /^⚠ No fiable: \d+ semanas? con fichajes incorrectos \(jornadas muy largas, entradas sin cerrar o días sin fichar\)$/,
-    );
-  }
-  const stale = page.run(`(() => { const w = buildWeek(weekOffsetOf(new Date(${back(3).getTime()})));
-    const d = w.days.find(d => d.sessions.some(unclosed)); return [d.hours, w.openDays, w.error, dayError(d), dayValue(d).textContent]; })()`);
-  assert.deepEqual(stale, [0, 1, true, true, "sin cerrar"]);
-  page.run("store.weekTarget = 40; renderOverview(buildWeeks(40))");
-  const has = (node, c) => (node.getAttribute("class") || "").split(" ").includes(c);
-  const cols = page.document
-    .getElementById("overviewChart")
-    .children[0].children.filter((g) => g.tagName === "G" && has(g, "col"));
-  const errors = cols.filter((g) => has(g, "error"));
-  assert.ok(errors.length >= 2);
-  assert.ok(errors.every((g) => g.children.filter((c) => has(c, "err-mark")).length === 1));
-  assert.ok(cols.filter((g) => !has(g, "error")).every((g) => g.children.every((c) => !has(c, "err-mark"))));
-  assert.ok(errors.some((g) => hover(page, g).some((t) => /sin fichar$/.test(t))));
-  assert.ok(errors.some((g) => hover(page, g).includes("Incluye una jornada muy larga: suma no fiable")));
-  assert.ok(errors.some((g) => hover(page, g).includes("1 día con una entrada sin cerrar")));
-  page.run("calOffset = 0");
-  const oldest = cols[0];
-  oldest.listeners.click[0]();
-  assert.equal(page.run("calOffset"), 39);
-  cols.at(-2).listeners.keydown[0]({ key: "Enter" });
-  assert.equal(page.run("calOffset"), 1);
-  cols.at(-2).listeners.keydown[0]({ key: "Tab" });
-  assert.equal(page.run("calOffset"), 1);
-  page.run(
-    "const ws = buildWeeks(40); Object.defineProperty(ws[0], 'total', { value: 230 }); ws[0].suspect = true; renderOverview(ws)",
-  );
-  const chart = page.document.getElementById("overviewChart").children[0];
-  const ticks = chart.children.filter((c) => has(c, "ticklabel")).map((t) => Number(t.textContent));
-  assert.equal(Math.max(...ticks), 40);
-  const tallest = chart.children
-    .filter((g) => g.tagName === "G" && has(g, "col"))[0]
-    .children.find((c) => has(c, "bar"));
-  assert.match(tallest.getAttribute("d"), / L [\d.]+ 14 Q /);
-  page.run("store.data.sessions = []; store.contractHours = new Map(); indexSessions(); renderErrors()");
-  assert.equal(box.classList.contains("hidden"), true);
-});
-
-test("a week holding a too long session never claims its target reached", async () => {
-  const today = new Date();
-  const page = load({
-    data: payload([session(at(today, 0), at(today, 12, 30))], {
-      long_hours: 12,
-      schedule: { hours: [1, 1, 1, 1, 1, 1, 1], lunch_from: [null, null, null, null, null, null, null] },
-    }),
-  });
-  await page.run("loadAndRender()");
-  const texts = (node) => [
-    node.textContent,
-    ...(node.children || []).filter((c) => typeof c !== "string").flatMap(texts),
-  ];
-  assert.ok(texts(page.document.getElementById("hero")).some((t) => /hay un fichaje por revisar$/.test(t)));
-  assert.ok(!texts(page.document.getElementById("hero")).some((t) => /objetivo alcanzado$/.test(t)));
-  const badge = page.document.getElementById("weekCal").querySelectorAll(".badge")[0];
-  assert.equal(badge.textContent, "⚠ en curso · fichaje por revisar");
-  assert.equal(badge.classList.contains("warn"), true);
-  const cal = page.document.getElementById("weekCal");
-  assert.equal(cal.querySelectorAll(".total")[0].classList.contains("long"), true);
-  assert.equal(cal.querySelectorAll(".total-warn")[0].textContent, "⚠ incluye una jornada muy larga");
-  cal.querySelectorAll(".seg")[0].children[1].listeners.click[0]();
-  assert.equal(cal.querySelectorAll(".bar")[0].classList.contains("long"), true);
-});
-
-test("the week card switches between the timeline and the hours per day", async () => {
-  const today = new Date();
-  const page = load({
-    data: payload([session(at(today, 9), at(today, 12))], {
-      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] },
-    }),
-  });
-  await page.run("loadAndRender()");
-  const card = page.document.getElementById("weekCal");
-  const buttons = card.querySelectorAll(".seg")[0].children;
-  assert.deepEqual(
-    buttons.map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
-    [
-      ["Horario", "true"],
-      ["Objetivo", "false"],
-    ],
-  );
-  assert.ok(card.querySelectorAll(".tl-row").length >= 5);
-  assert.equal(card.querySelectorAll(".exp-tick").length, 0);
-  buttons[1].listeners.click[0]();
-  assert.ok(card.querySelectorAll(".exp-tick").length >= 5);
-  assert.equal(card.querySelectorAll(".tl-row").length, 0);
-  assert.equal(card.querySelectorAll(".seg")[0].children[1].getAttribute("aria-pressed"), "true");
-});
-
-test("the hero is three blocks", async () => {
-  const today = new Date();
-  const page = load({
-    data: payload([session(at(today, 9), null)], {
-      schedule: { hours: [8, 8, 8, 8, 8, 0, 0], lunch_from: [13, 13, 13, 13, 13, null, null] },
-    }),
-  });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  assert.deepEqual(
-    hero.children.map((c) => c.className),
-    ["main", "meter-box", "actions"],
-  );
-  assert.equal(hero.querySelectorAll(".meter-caption").length, 2);
-});
-
-test("without phone access the block says why and how to fix it instead of offering to pair", async () => {
-  const page = load({ data: payload([], { phone: { off: "Falta openssl. Instálalo." } }) });
-  await page.run("loadAndRender()");
-  const phone = page.document.getElementById("phone");
-  assert.equal(phone.classList.contains("hidden"), false);
-  const [title, what, why] = phone.children[0].children.map((c) => c.textContent);
-  assert.equal(title, "Abrir en el móvil");
-  assert.match(what, /^Este panel también se puede usar desde el móvil.*Ahora no está disponible\.$/);
-  assert.equal(why, "Falta openssl. Instálalo.");
-  assert.equal(phone.querySelectorAll(".btn").length, 0);
-});
-
-test("the week's meter has one section per day that expects hours, as wide as those hours", async () => {
-  const today = new Date();
-  const page = load({
-    data: payload([session(at(today, 9), null)], {
-      schedule: { hours: [8.5, 8.5, 8.5, 8.5, 6, 0, 0], lunch_from: [14, 14, 14, 14, null, null, null] },
-    }),
-  });
-  await page.run("loadAndRender()");
-  const sections = page.document.getElementById("hero").querySelectorAll(".scale")[0].children;
-  assert.deepEqual(
-    sections.map((s) => s.style["--hours"]),
-    ["8.5", "8.5", "8.5", "8.5", "6"],
-  );
-});
-
-test("a punch that succeeds but fails to reload says so and leaves the button disabled", async () => {
-  const today = new Date();
-  let punchedOnce = false;
-  const fetchImpl = async (url, opts) => {
-    if (opts && opts.method === "POST") {
-      punchedOnce = true;
-      return { ok: true, status: 200, json: async () => ({}) };
-    }
-    if (punchedOnce) throw new Error("caído");
-    return { ok: true, status: 200, json: async () => payload([session(at(today, 9), null)]) };
-  };
-  const page = load({ fetchImpl });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  const errBox = hero.querySelector(".err");
-  assert.equal(errBox.textContent, "Fichado, pero no se pudo recargar: caído");
-  assert.equal(button.disabled, true);
-});
-
-test("a punch that itself fails restores the button and shows the plain error", async () => {
-  const today = new Date();
-  const fetchImpl = async (url, opts) => {
-    if (opts && opts.method === "POST") throw new Error("sin conexión");
-    return { ok: true, status: 200, json: async () => payload([session(at(today, 9), null)]) };
-  };
-  const page = load({ fetchImpl });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  const errBox = hero.querySelector(".err");
-  assert.equal(errBox.textContent, "Error: sin conexión");
-  assert.equal(button.disabled, false);
-  assert.equal(button.textContent, "Fichar salida");
-});
-
-test("the login page asks only for what Odoo still needs, and for the code when Odoo wants one", async () => {
-  const open = async (cfg, answers = []) => {
-    const posts = [];
-    const page = load({
-      entry: "login.js",
-      path: "/login",
-      fetchImpl: async (url, opts) => {
-        if (url === "/api/config") return { ok: true, status: 200, json: async () => cfg };
-        posts.push(JSON.parse(opts.body));
-        const next = answers.shift();
-        if (next instanceof Error) throw next;
-        return { ok: next.status === 200, status: next.status, json: async () => next.body };
-      },
-    });
-    const field = (id) => page.document.getElementById(id);
-    const focused = [];
-    for (const id of ["url", "user", "pass", "code"]) field(id).focus = () => focused.push(id);
-    await settle();
-    return { page, field, focused, posts, submit: () => field("login").listeners.submit[0]({ preventDefault() {} }) };
-  };
-
-  const known = await open({ configured: true, local: true, user: "ana", url: "u", db: "d" }, [
-    { status: 401, body: { error: "Falta el código", totp: true } },
-    { status: 401, body: { error: "Usuario o contraseña incorrectos" } },
-    { status: 500, body: {} },
-    new Error("sin red"),
-    { status: 200, body: { ok: true } },
-  ]);
-  assert.match(known.field("clock").textContent, /^\d\d:\d\d$/);
-  assert.ok(known.page.calls.timers.some(([, ms]) => ms === 10000));
-  assert.deepEqual([known.field("user").value, known.focused], ["ana", ["pass"]]);
-  known.field("pass").type = "password";
-  known.field("eye").listeners.click[0]();
-  assert.deepEqual(
-    [
-      known.field("pass").type,
-      known.field("eye").getAttribute("aria-label"),
-      known.field("eye-slash").classList.contains("hidden"),
-    ],
-    ["text", "Ocultar contraseña", false],
-  );
-  known.field("eye").listeners.click[0]();
-  assert.deepEqual(
-    [known.field("pass").type, known.field("eye-slash").classList.contains("hidden")],
-    ["password", true],
-  );
-  known.field("pass").value = "secreta";
-  await known.submit();
-  assert.deepEqual(
-    [known.field("code").hidden, known.field("code").required, known.field("submit").disabled],
-    [false, true, false],
-  );
-  assert.match(known.field("hint").textContent, /^Introduce el código/);
-  known.field("code").value = "123456";
-  for (const said of ["Usuario o contraseña incorrectos", "HTTP 500", "sin red"]) {
-    await known.submit();
-    assert.deepEqual([known.field("err").textContent, known.field("submit").disabled], [said, false]);
-  }
-  await known.submit();
-  assert.deepEqual(known.page.calls.replace, ["/"]);
-  assert.deepEqual(known.posts[1], { url: "", db: "", user: "ana", password: "secreta", code: "123456" });
-
-  const fresh = await open({ configured: false, local: true });
-  assert.deepEqual([fresh.field("url").hidden, fresh.field("db").required, fresh.focused], [false, true, ["url"]]);
-  const nameless = await open({ configured: true, local: true });
-  assert.deepEqual(nameless.focused, ["user"]);
-  const phone = await open({ configured: true, local: false });
-  assert.match(phone.field("hint").textContent, /^Aquí no se inicia sesión/);
-  assert.deepEqual(
-    ["user", "secret", "submit"].map((id) => phone.field(id).hidden),
-    [true, true, true],
-  );
-  assert.deepEqual(phone.focused, []);
-});
-
-test("a 401 sends the page to the login", async () => {
-  const page = load({ fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: "caducada" }) }) });
-  await new Promise((resolve) => setImmediate(resolve));
-  page.calls.replace.length = 0;
-  await assert.rejects(page.run("api('/api/data')"), /caducada/);
-  assert.deepEqual(page.calls.replace, ["/login"]);
-});
-
-test("the management view draws one row per person, sorted in Spanish, with its flags", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  const pick = withFilters(page);
-  await settle();
-  const doc = page.document;
-  assert.equal(doc.getElementById("weekLabel").textContent, `Semana del 3 mar al 9 mar${Y25}`);
-  assert.match(
-    doc.getElementById("criteria").textContent,
-    /^Bajo objetivo: una semana terminada con 1m o más por debajo .* más de 5h por encima .* más de 12h fichadas en un día\./,
-  );
-  assert.match(doc.getElementById("subtitle").textContent, /^4 personas · actualizado el 10 mar a las 09:05/);
-  assert.deepEqual(
-    doc.getElementById("filterSeg").children.map((b) => [b.textContent, b.getAttribute("aria-pressed")]),
-    [
-      ["Con incidencias (2)", "true"],
-      ["Bajo objetivo (1)", "false"],
-      ["Demasiadas horas (1)", "false"],
-      ["Con solicitudes (1)", "false"],
-      ["Todas (4)", "false"],
-    ],
-  );
-  pick("requests");
-  assert.deepEqual(doc.getElementById("grid").children[1].children.map(rowName), ["Álvaro"]);
-  pick("all");
-  const [thead, tbody] = doc.getElementById("grid").children;
-  assert.deepEqual(
-    thead.children[0].children.map((th) => th.textContent),
-    ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Semana"],
-  );
-  assert.deepEqual(tbody.children.map(rowName), ["Álvaro", "Ana", "Bruno", "Zoe"]);
-  assert.deepEqual(
-    tbody.children.map((tr) => tr.children[0].children[0].href),
-    ["/empleado?id=1", "/empleado?id=2", "/empleado?id=4", "/empleado?id=3"],
-  );
-  const bruno = tbody.children[2].children;
-  assert.equal(cellText(bruno[6]), "Sobran 6h 30m|46h 30m| de 40h");
-  page.run("team.data.employees.find(e => e.name === 'Bruno').suspect = true; render()");
-  const suspect = doc.getElementById("grid").children[1].children[2].children[6];
-  assert.equal(cellText(suspect), "Sobran 6h 30m|46h 30m| de 40h|⚠ incluye una jornada muy larga: suma no fiable");
-  assert.equal(suspect.classList.contains("bad"), true);
-  page.run("team.data.employees.find(e => e.name === 'Bruno').suspect = false; render()");
-  assert.equal(hover(page, bruno[6]).at(-1), "46h 30m de 40h previstas: sobran 6h 30m, más de 5h");
-  const alvaro = tbody.children[0].children;
-  assert.equal(alvaro[2].classList.contains("warn"), true);
-  assert.equal(alvaro[2].classList.contains("bad"), false);
-  assert.equal(cellText(alvaro[2]), "Sin fichar|Solicitud pendiente 09:00–17:40|Solicitud rechazada 09:00");
-  assert.deepEqual(
-    alvaro[2].children.slice(1).map((c) => c.className),
-    ["req pending", "req refused"],
-  );
-  assert.deepEqual(hover(page, alvaro[2]), [
-    `Mar 4 mar${Y25}`,
-    "Sin fichajes",
-    "Jornada prevista de 8h sin fichajes ni ausencia",
-    "Solicitud pendiente 09:00–17:40",
-    "Olvidé fichar",
-    "Solicitud rechazada 09:00",
-  ]);
-  alvaro[2].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-  assert.deepEqual(
-    page.document
-      .getElementById("tip")
-      .children.filter((c) => /^Solicitud/.test(c.textContent))
-      .map((c) => c.className),
-    ["t-note pending", "t-note refused"],
-  );
-  alvaro[2].listeners.pointerleave[0]();
-  assert.equal(page.document.getElementById("tip").style.display, "none");
-  assert.deepEqual(hover(page, alvaro[6]), [
-    "Saldo de la semana, día a día",
-    "Ningún día cerrado con jornada prevista",
-    "32h de 40h previstas: faltan 8h",
-  ]);
-  const zoe = tbody.children[3].children;
-  assert.deepEqual(hover(page, zoe[1]), [`Lun 3 mar${Y25}`, "09:00–16:30 7h 30m", "Frente a 8h previstas −30m"]);
-  assert.deepEqual(hover(page, zoe[6]), [
-    "Saldo de la semana, día a día",
-    `Lun 3 mar${Y25} −30m`,
-    "Semana frente a 40h +0h",
-  ]);
-  assert.equal(cellText(alvaro[6]), "Faltan 8h|32h| de 40h");
-  assert.equal(alvaro[6].classList.contains("bad"), true);
-  const ana = tbody.children[1].children;
-  assert.equal(cellText(ana[4]), "Vacaciones");
-  assert.equal(cellText(ana[6]), "30h| sin horario");
-  assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
-  assert.match(
-    doc.getElementById("fixesNote").textContent,
-    /^Entradas sin cerrar, jornadas de más de 12h y días con jornada prevista sin fichar/,
-  );
-  const fixes = doc.getElementById("fixes").children[0].children;
-  assert.deepEqual(
-    fixes.slice(0, 2).map((c) => c.textContent),
-    ["Persona", "Pendiente"],
-  );
-  const cells = fixes.slice(3);
-  assert.deepEqual(
-    cells.filter((c) => c.tagName === "A").map((a) => [a.textContent, a.href]),
-    [
-      ["Zoe", "/empleado?id=3"],
-      ["Bruno", "/empleado?id=4"],
-    ],
-  );
-  assert.deepEqual(
-    cells[1].children.map((c) => [c.textContent, c.className]),
-    [
-      ["Abierta desde el 20 feb 2025 08:00", "chip warn"],
-      ["1 jornada muy larga · 20h", "chip"],
-      ["1 sin fichar", "chip"],
-    ],
-  );
-  assert.deepEqual(
-    cells[4].children.map((c) => c.textContent),
-    ["1 sin fichar"],
-  );
-  const zoeMarks = cells[2].children.filter((c) => c.tagName === "G");
-  assert.deepEqual(
-    zoeMarks.map((g) => g.children[1].getAttribute("class")),
-    ["bar error", "bar error late", "bar missing"],
-  );
-  assert.deepEqual(hover(page, zoeMarks[0]), [
-    "Zoe · Jue 20 feb 2025",
-    "Sin cerrar",
-    "08:00–abierto abierta",
-    "Entrada a las 08:00 sin salida",
-  ]);
-  assert.deepEqual(hover(page, zoeMarks[2]).slice(1), [
-    "Sin fichar",
-    "Jornada prevista de 8h sin fichajes ni ausencia",
-  ]);
-  assert.deepEqual(hover(page, zoeMarks[1]).slice(1), [
-    "Jornada muy larga",
-    "08:00–04:00 20h",
-    "20h fichadas en el día, más de 12h",
-  ]);
-  zoeMarks[1].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-  assert.equal(doc.getElementById("tip").children[2].classList.contains("warn"), true);
-  zoeMarks[1].listeners.pointerleave[0]();
-  const brunoMarks = cells[5].children.filter((c) => c.tagName === "G");
-  assert.deepEqual(
-    brunoMarks.map((g) => g.children[1].getAttribute("class")),
-    ["bar missing"],
-  );
-  assert.ok(fixes[2].children.filter((c) => c.tagName === "TEXT").length >= 6);
-  const lines = (strip) => strip.children.filter((c) => c.tagName === "LINE").map((l) => l.getAttribute("class"));
-  assert.ok(lines(cells[2]).filter((c) => c === "day").length > 70);
-  assert.ok(lines(cells[2]).includes("monday"));
-  const width = () => Number(cells[2].getAttribute("width"));
-  const strip = () => doc.getElementById("fixes").children[0].children.slice(3)[2];
-  const before = Number(strip().getAttribute("width"));
-  assert.equal(before, Math.round(page.run("fixSpan(fixRows(team.fixes)).days") * 10));
-  doc.getElementById("zoomIn").listeners.click[0]();
-  assert.equal(Number(strip().getAttribute("width")), Math.round(page.run("fixSpan(fixRows(team.fixes)).days") * 15));
-  for (let k = 0; k < 20; k++) doc.getElementById("zoomIn").listeners.click[0]();
-  assert.equal(page.run("team.fixDay"), 96);
-  assert.equal(doc.getElementById("zoomIn").disabled, true);
-  for (let k = 0; k < 20; k++) doc.getElementById("zoomOut").listeners.click[0]();
-  assert.equal(page.run("team.fixDay"), 2);
-  assert.equal(doc.getElementById("zoomOut").disabled, true);
-  assert.ok(width() > 0);
-  assert.deepEqual(
-    [1, 2, 7, 14].map(String),
-    [40, 20, 6, 3].map((px) => String(page.run(`tickStep(${px})`))),
-  );
-  const now = new Date(2025, 5, 30, 12);
-  const span =
-    page.run(`(() => { const s = fixSpan([{ items: [{ date: "2025-06-20", sessions: [{ in: new Date(2025, 5, 20, 16).toISOString() }] }] }],
-    new Date(${now.getTime()})); return [s.from.getDate(), s.from.getHours(), Math.round(s.days * 10) / 10]; })()`);
-  assert.deepEqual(span, [13, 0, 17.5]);
-  const old = page.run(
-    `fixSpan([{ items: [{ date: "2020-01-01", sessions: [] }] }], new Date(${now.getTime()})).from.getFullYear()`,
-  );
-  assert.equal(old, 2019);
-  assert.equal(page.run(`fixSpan([], new Date(${now.getTime()})).days`), 7.5);
-  const closed = page.run(`(() => { const s = fixSpan([{ items: [
-    { date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(), out: new Date(2025, 5, 2, 21).toISOString() }] },
-    { date: "2025-06-04", sessions: [] }] }], new Date(${now.getTime()}));
-    return [s.from.getDate(), s.to.getDate(), s.to.getHours(), s.days]; })()`);
-  assert.deepEqual(closed, [26, 12, 0, 17]);
-  const midnightEnd =
-    page.run(`fixSpan([{ items: [{ date: "2025-06-02", sessions: [{ in: new Date(2025, 5, 2, 18).toISOString(),
-    out: new Date(2025, 5, 3).toISOString() }] }] }], new Date(${now.getTime()})).days`);
-  assert.equal(midnightEnd, 15);
-  page.run("team.fixes = null; renderFixes()");
-  assert.match(doc.getElementById("fixesNote").textContent, /^Buscando fichajes por corregir/);
-  doc.getElementById("zoomIn").listeners.click[0]();
-  page.run(`team.data = ${JSON.stringify(teamPayload())}; render()`);
-  assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), false);
-});
-
-test("the filters keep incidents, under or over target, or everyone, and say when nobody is left", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  const pick = withFilters(page);
-  await settle();
-  const rows = () => page.document.getElementById("grid").children[1].children;
-  assert.deepEqual(rows().map(rowName), ["Álvaro", "Bruno"]);
-  pick("under");
-  assert.deepEqual(rows().map(rowName), ["Álvaro"]);
-  pick("over");
-  assert.deepEqual(rows().map(rowName), ["Bruno"]);
-  pick("all");
-  assert.deepEqual(rows().map(rowName), ["Álvaro", "Ana", "Bruno", "Zoe"]);
-  page.run(
-    "team.data.employees.find(e => e.name === 'Zoe').days[5].sessions = team.data.employees[0].days[0].sessions.concat([{ in: '2025-03-08T09:00:00', out: '2025-03-08T10:00:00', hours: 1, rest: false }]); render()",
-  );
-  const head = () => page.document.getElementById("grid").children[0].children[0].children.map((th) => th.textContent);
-  assert.deepEqual(head(), ["Persona", "Lun 3", "Mar 4", "Mié 5", "Jue 6", "Vie 7", "Sáb 8", "Semana"]);
-  assert.equal(rows()[0].children.length, 8);
-  pick("over");
-  assert.equal(head().includes("Sáb 8"), false);
-  page.run("team.data.employees = team.data.employees.filter(e => e.name === 'Zoe'); render()");
-  assert.equal(page.document.getElementById("openCard").classList.contains("hidden"), false);
-  page.run("team.fixes = { ...team.fixes, employees: [] }; render()");
-  assert.equal(rows()[0].children[0].textContent, "Nadie con demasiadas horas esta semana");
-  assert.equal(rows()[0].children[0].colSpan, 7);
-  pick("issues");
-  assert.equal(rows()[0].children[0].textContent, "Nadie tiene incidencias esta semana");
-  assert.equal(page.document.getElementById("openCard").classList.contains("hidden"), true);
-  pick("all");
-  page.run("team.data.employees = []; render()");
-  assert.equal(rows()[0].children[0].textContent, "Nadie a la vista");
-  page.document.getElementById("filterSeg").listeners.click[0]({ target: { closest: () => null } });
-});
-
-test("a click on a day opens its details in a dialog that closes", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  await settle();
-  const alvaro = page.document.getElementById("grid").children[1].children[0].children;
-  alvaro[2].listeners.click[0]();
-  const dialog = page.document.getElementById("dayDialog");
-  assert.equal(dialog.open, true);
-  assert.equal(page.document.getElementById("dayDialogTitle").textContent, "Álvaro");
-  assert.deepEqual(texts(page.document.getElementById("dayDialogBody")).slice(0, 6), [
-    `Mar 4 mar${Y25}`,
-    "Sin fichajes",
-    "Jornada prevista de 8h sin fichajes ni ausencia",
-    "Solicitud pendiente 09:00–17:40",
-    "Olvidé fichar",
-    "Solicitud rechazada 09:00",
-  ]);
-  page.document.getElementById("dayDialogClose").listeners.click[0]();
-  assert.equal(dialog.open, false);
-  alvaro[3].listeners.keydown[0]({ key: "Enter" });
-  assert.equal(dialog.open, true);
-  assert.deepEqual(texts(page.document.getElementById("dayDialogBody")).slice(0, 1), [`Mié 5 mar${Y25}`]);
-  alvaro[3].listeners.keydown[0]({ key: "Tab" });
-  assert.equal(dialog.listeners.click, undefined);
-});
-
-test("a day with a punch error offers its owner's message, to send by Discord or to copy", async () => {
-  let clipboard = {
-    writeText: async (text) => {
-      copied.push(text);
-    },
-  };
-  const copied = [],
-    posts = [];
-  const data = teamPayload();
-  let answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
-  const page = load({
-    entry: "team.js",
-    globals: {
-      navigator: {
-        get clipboard() {
-          return clipboard;
-        },
-      },
-    },
-    fetchImpl: async (url, opts) => {
-      if (opts?.method === "POST") {
-        posts.push([url, JSON.parse(opts.body)]);
-        return answer;
-      }
-      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : data) };
-    },
-  });
-  await settle();
-  const doc = page.document;
-  const cell = (i) => doc.getElementById("grid").children[1].children[0].children[i];
-  const notice = () => doc.getElementById("dayDialogBody").children.find((c) => c.className === "notice");
-  const actions = () => notice().children[1].children;
-  const button = (label) => actions().find((b) => b.textContent === label);
-  const note = () => doc.getElementById("dayDialogNote").textContent;
-  const unfold = (label) => {
-    assert.deepEqual(
-      notice().children.map((c) => c.textContent),
-      [label],
-    );
-    notice().children[0].listeners.click[0]();
-  };
-  cell(3).listeners.click[0]();
-  assert.equal(notice(), undefined);
-  cell(2).listeners.click[0]();
-  unfold("Preparar aviso…");
-  const text = notice().children[0];
-  assert.equal(
-    text.value,
-    "Tienes un error en el fichaje del martes 4 de marzo: jornada prevista de 8h sin " +
-      "fichajes ni ausencia.\nPor favor, haz una solicitud de cambio de fichaje en Odoo.",
-  );
-  assert.deepEqual(
-    actions().map((b) => [b.textContent, b.className]),
-    [
-      ["Copiar", "btn small"],
-      ["Cancelar", "btn ghost small"],
-    ],
-  );
-  text.value = "Hola, revisa el martes";
-  button("Cancelar").listeners.click[0]();
-  unfold("Preparar aviso…");
-  assert.equal(notice().children[0].value, "Hola, revisa el martes");
-  await button("Copiar").listeners.click[0]();
-  assert.deepEqual([copied, note()], [["Hola, revisa el martes"], "Mensaje copiado."]);
-  clipboard = {
-    writeText: async () => {
-      throw new Error("denegado");
-    },
-  };
-  await button("Copiar").listeners.click[0]();
-  assert.equal(note(), "No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C.");
-  assert.equal(text.selected, true);
-  clipboard = undefined;
-  await button("Copiar").listeners.click[0]();
-  assert.equal(note(), "No se pudo copiar: el mensaje está seleccionado, cópialo con ⌘C o Ctrl+C.");
-
-  page.run("team.data.can_message = true");
-  cell(2).listeners.click[0]();
-  unfold("Preparar aviso…");
-  assert.deepEqual(
-    actions().map((b) => b.textContent),
-    ["Copiar", "Cancelar", "Sin Discord en su ficha de Odoo"],
-  );
-  page.run("team.data.employees.find(e => e.name === 'Álvaro').discord = '123456789012345678'");
-  cell(2).listeners.click[0]();
-  unfold("Avisar por Discord…");
-  assert.deepEqual(
-    actions().map((b) => [b.textContent, b.className]),
-    [
-      ["Enviar", "btn small"],
-      ["Copiar", "btn ghost small"],
-      ["Cancelar", "btn ghost small"],
-    ],
-  );
-  assert.equal(
-    button("Enviar").title,
-    "Al final se añade que es automático, que te escriba a ti y un botón para hacer la solicitud en Odoo",
-  );
-  notice().children[0].value = "Revisa el martes";
-  const send = button("Enviar");
-  await send.listeners.click[0]();
-  await send.listeners.click[0]();
-  await settle();
-  assert.deepEqual(posts, [["/api/team/discord", { employee: 1, date: "2025-03-04", text: "Revisa el martes" }]]);
-  assert.equal(note(), "Mensaje enviado a Álvaro por Discord.");
-  answer = { ok: false, status: 502, json: async () => ({ error: "Discord no responde" }) };
-  await send.listeners.click[0]();
-  await send.listeners.click[0]();
-  await settle();
-  assert.equal(note(), "No se pudo enviar: Discord no responde");
-});
-
-test("«Discord» says whether the bot has a token and keeps a new one without ever showing it", async () => {
-  const posts = [];
-  let answer = { ok: true, status: 200, json: async () => ({ bot: "Odoo" }) };
-  const page = load({
-    entry: "team.js",
-    fetchImpl: async (url, opts) => {
-      if (opts?.method === "POST") {
-        posts.push([url, JSON.parse(opts.body)]);
-        return answer;
-      }
-      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
-    },
-  });
-  await settle();
-  const doc = page.document;
-  const dialog = doc.getElementById("discordDialog");
-  const [, status, help, row, note] = dialog.children;
-  const [input, save] = row.children;
-  doc.getElementById("discordBtn").listeners.click[0]();
-  assert.equal(dialog.open, true);
-  assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
-  assert.match(help.textContent, /Restablecer token/);
-  assert.equal(input.type, "password");
-  input.value = "tok";
-  await save.listeners.click[0]();
-  assert.deepEqual(posts, [["/api/team/discord/token", { token: "tok" }]]);
-  assert.deepEqual([input.value, note.textContent], ["", "Guardado: el bot «Odoo» enviará los avisos."]);
-  assert.equal(status.textContent, "Hay un token guardado: los avisos de fichajes se envían por privado.");
-  assert.equal(page.run("team.data.can_message"), true);
-  answer = { ok: false, status: 400, json: async () => ({ error: "Discord no acepta el token del bot" }) };
-  await save.listeners.click[0]();
-  assert.deepEqual([note.textContent, save.disabled], ["No se guardó: Discord no acepta el token del bot", false]);
-  const [test, close] = dialog.children.at(-1).children;
-  answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
-  await test.listeners.click[0]();
-  assert.deepEqual(posts.at(-1), ["/api/team/discord/test", {}]);
-  assert.deepEqual(
-    [note.textContent, test.disabled],
-    ["Prueba enviada: mira tus mensajes directos de Discord.", false],
-  );
-  answer = { ok: false, status: 409, json: async () => ({ error: "No se encuentra tu ID de Discord" }) };
-  await test.listeners.click[0]();
-  assert.equal(note.textContent, "No se envió la prueba: No se encuentra tu ID de Discord");
-  input.value = "a medias";
-  close.listeners.click[0]();
-  assert.equal(dialog.open, false);
-  page.run("team.data = null");
-  doc.getElementById("discordBtn").listeners.click[0]();
-  assert.deepEqual([input.value, note.textContent], ["", ""]);
-  assert.equal(status.textContent, "Comprobando si hay un token guardado…");
-  answer = { ok: true, status: 200, json: async () => ({ bot: "Odoo" }) };
-  await save.listeners.click[0]();
-  assert.equal(status.textContent, "Comprobando si hay un token guardado…");
-  await page.run("load(null, true)");
-  assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
-  dialog.close();
-  page.run("team.data.can_message = true; refreshDiscord()");
-  assert.equal(status.textContent, "No hay token guardado: los avisos de fichajes solo se pueden copiar.");
-});
-
-test("today's open session reads as in progress, not as zero", async () => {
-  const data = teamPayload();
-  const today = new Date();
-  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
-  const day = (i) => {
-    const d = new Date(monday);
-    d.setDate(d.getDate() + i);
-    return d;
-  };
-  const isoOf = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  data.week = isoOf(monday);
-  const index = (today.getDay() + 6) % 7;
-  data.employees = [
-    {
-      id: 1,
-      name: "Ana",
-      hours: 0,
-      target: 8,
-      flags: [],
-      days: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
-        date: isoOf(day(i)),
-        hours: 0,
-        target: 8,
-        absence: null,
-        flags: [],
-        requests: [],
-        sessions:
-          i === index
-            ? [
-                {
-                  in: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 9).toISOString(),
-                  out: null,
-                  hours: null,
-                  rest: false,
-                },
-              ]
-            : [],
-      })),
-    },
-  ];
-  const page = load({ entry: "team.js", data });
-  const pick = withFilters(page);
-  await settle();
-  pick("all");
-  const cell = page.document.getElementById("grid").children[1].children[0].children[index + 1];
-  assert.equal(iso, data.employees[0].days[index].date);
-  assert.equal(cellText(cell), "0h| en curso");
-  assert.equal(cell.classList.contains("today"), true);
-  assert.deepEqual(hover(page, cell).slice(1), ["09:00–abierto en curso"]);
-});
-
 test("someone else's week is read only: their data, no punch buttons, no durations, no state polling", async () => {
   const today = new Date();
   const page = load({
@@ -1359,630 +118,6 @@ test("someone else's week is read only: their data, no punch buttons, no duratio
   assert.equal(page.calls.fetch.at(-1)[0], "/api/data?employee=9&fresh");
 });
 
-test("sessions read as times, and weeks move by seven days", () => {
-  const { run } = load({ entry: "team.js" });
-  assert.equal(run('shiftWeek("2025-03-03", -1)'), "2025-02-24");
-  assert.equal(run('shiftWeek("2025-03-24", 1)'), "2025-03-31");
-  const s = (a, b, extra) =>
-    JSON.stringify({
-      in: a.toISOString(),
-      out: b?.toISOString(),
-      hours: b ? (b - a) / 3.6e6 : null,
-      rest: false,
-      ...extra,
-    });
-  assert.equal(run(`sessionSpan(${s(new Date(2025, 2, 3, 9), new Date(2025, 2, 3, 13, 30))})`), "09:00–13:30");
-  assert.equal(
-    run(`sessionSpan(${s(new Date(2025, 2, 3, 13, 30), new Date(2025, 2, 3, 13, 45), { rest: true })})`),
-    "13:30–13:45 descanso",
-  );
-  assert.equal(run(`sessionSpan(${s(new Date(2025, 2, 3, 9), null)})`), "09:00–abierto");
-  const day = (flags, sessions, extra) =>
-    JSON.stringify({ date: "2025-03-03", hours: 14.5, target: 8, flags, sessions, ...extra });
-  const limits = JSON.stringify({ long_day: 12, under_margin: 1 / 60 });
-  assert.deepEqual(run(`whyDay("long", ${day(["long"], [])}, ${limits})`), ["14h 30m fichadas en el día, más de 12h"]);
-  assert.deepEqual(
-    run(`whyDay("open", ${day(["open"], [JSON.parse(s(new Date(2025, 2, 3, 9, 5), null))])}, ${limits})`),
-    ["Entrada a las 09:05 sin salida"],
-  );
-});
-
-test("week buttons ask the server for the week they point at", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  await settle();
-  const click = async (id) => {
-    const button = page.document.getElementById(id);
-    await button.listeners.click[0]({ currentTarget: button });
-    assert.equal(button.disabled, false);
-  };
-  await click("prevWeek");
-  await click("nextWeek");
-  await click("refreshBtn");
-  await click("thisWeek");
-  assert.deepEqual(
-    page.calls.fetch.map(([url]) => url),
-    [
-      "/api/team",
-      "/api/team?fixes",
-      "/api/team?week=2025-02-24",
-      "/api/team?week=2025-02-24",
-      "/api/team?week=2025-02-24",
-      "/api/team?week=2025-03-10",
-      "/api/team?week=2025-02-24",
-      "/api/team?week=2025-03-03&fresh",
-      "/api/team?fixes&fresh",
-      "/api/team?week=2025-02-24",
-      "/api/team",
-      "/api/team?week=2025-02-24",
-    ],
-  );
-  page.run("team.data = null");
-  withFilters(page)("all");
-});
-
-test("the loading bar runs while a load is in flight, and stops even when it fails", async () => {
-  let finish;
-  const page = load({
-    entry: "team.js",
-    fetchImpl: (url) =>
-      url.includes("week=")
-        ? Promise.resolve({ ok: true, status: 200, json: async () => teamPayload() })
-        : new Promise((resolve) => {
-            finish = resolve;
-          }),
-  });
-  const bar = page.document.getElementById("loadbar");
-  assert.equal(bar.classList.contains("on"), true);
-  finish({ ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) });
-  await settle();
-  assert.equal(bar.classList.contains("on"), false);
-});
-
-const monthPayload = () => {
-  const p = teamPayload();
-  p.start = "2025-03-01";
-  p.stop = "2025-04-01";
-  const later = (iso) => {
-    const [y, m, d] = iso.split("-").map(Number);
-    const t = new Date(y, m - 1, d + 7);
-    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-  };
-  for (const e of p.employees) {
-    e.days = e.days.concat(teamWeek().map((d) => ({ ...d, date: later(d.date) })));
-    e.balance = e.target == null ? null : e.hours - e.target;
-    e.due = e.target;
-    e.weeks = [
-      { monday: "2025-03-03", hours: e.hours, target: e.target, balance: e.balance, due: e.target, flags: e.flags },
-      {
-        monday: "2025-03-10",
-        hours: 40,
-        target: e.target == null ? null : 40,
-        balance: e.target == null ? null : 0,
-        due: e.target == null ? null : 40,
-        flags: [],
-      },
-    ];
-  }
-  return p;
-};
-const withViews = (page) => {
-  const seg = page.document.getElementById("viewSeg");
-  for (const key of ["week", "month", "year"]) {
-    const button = page.document.createElement("button");
-    button.dataset.view = key;
-    seg.appendChild(button);
-  }
-  return (key) =>
-    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.view === key) } });
-};
-
-test("the month view shows each week whole, how many days carry a flag, and the month's own balance", async () => {
-  const page = load({ entry: "team.js", data: monthPayload() });
-  const view = withViews(page);
-  const pick = withFilters(page);
-  await settle();
-  view("week");
-  view("month");
-  await settle();
-  const doc = page.document;
-  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-03");
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?month=2025-02");
-  assert.equal(doc.getElementById("weekLabel").textContent, "Marzo de 2025");
-  assert.deepEqual(
-    doc.getElementById("viewSeg").children.map((b) => b.getAttribute("aria-pressed")),
-    ["false", "true", "false"],
-  );
-  pick("all");
-  const [thead, tbody] = doc.getElementById("grid").children;
-  assert.deepEqual(
-    thead.children[0].children.map((th) => th.textContent),
-    ["Persona", "3 mar – 9 mar", "10 mar – 16 mar", "Mes"],
-  );
-  const alvaro = tbody.children[0].children;
-  assert.equal(cellText(alvaro[1]), "Faltan 8h|32h| de 40h|1 día con errores de fichaje");
-  assert.equal(alvaro[1].classList.contains("bad"), true);
-  assert.equal(alvaro[2].classList.contains("bad"), false);
-  assert.equal(cellText(alvaro[3]), "Faltan 8h|32h| de 40h");
-  assert.equal(alvaro[3].classList.contains("bad"), true);
-  assert.equal(tbody.children[3].children[3].classList.contains("bad"), false);
-  assert.deepEqual(hover(page, alvaro[3]), [
-    "Saldo de cada semana, entera",
-    "3 mar – 9 mar −8h",
-    "10 mar – 16 mar +0h",
-    "Solo los días del mes −8h",
-  ]);
-  page.run(
-    'team.data = { ...team.data, stop: "2999-01-01", employees: team.data.employees.map(e => ({ ...e, due: 24 })) }; render()',
-  );
-  assert.equal(
-    cellText(doc.getElementById("grid").children[1].children[0].children[3]),
-    "Faltan 8h hasta ayer|16h| de 24h",
-  );
-  assert.deepEqual(
-    [
-      "{ flags: [], balance: -2, weeks: [] }",
-      "{ flags: [], balance: -2, flagged_days: 1, weeks: [] }",
-      "{ flags: [], balance: 1, weeks: [{ flags: ['under'] }] }",
-      "{ flags: [], balance: -2, flagged_days: 1, weeks: [{ flags: ['under'] }] }",
-    ].map((e) => page.run(`Filters.under.keep(${e})`)),
-    [true, false, false, true],
-  );
-  assert.deepEqual(
-    [
-      "{ flags: [], balance: 6, weeks: [{ flags: ['over'] }] }",
-      "{ flags: [], balance: 2, weeks: [{ flags: ['over'] }] }",
-    ].map((e) => page.run(`Filters.over.keep(${e})`)),
-    [true, false],
-  );
-  assert.deepEqual(["gapText(0)", "gapText(0.001)", "gapText(1.5)", "gapText(-0.25)"].map(page.run), [
-    "Al día",
-    "Al día",
-    "Sobran 1h 30m",
-    "Faltan 15m",
-  ]);
-  assert.equal(cellText(tbody.children[1].children[3]), "30h| sin horario");
-  page.run("team.data = { ...team.data, employees: [] }; team.filter = 'issues'; render()");
-  assert.equal(
-    doc.getElementById("grid").children[1].children[0].children[0].textContent,
-    "Nadie tiene incidencias este mes",
-  );
-  page.run(`team.data = ${JSON.stringify(monthPayload())}; team.filter = 'all'; render()`);
-  const again = doc.getElementById("grid").children[1].children[0].children;
-  again[2].listeners.keydown[0]({ key: "Tab" });
-  again[2].listeners.keydown[0]({ key: "Enter" });
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?week=2025-03-10");
-  assert.deepEqual([page.run("team.search"), doc.getElementById("search").value], ["Álvaro", "Álvaro"]);
-  await settle();
-  assert.equal(page.run("team.view"), "week");
-  view("month");
-  await settle();
-  const cells = doc.getElementById("grid").children[1].children[0].children;
-  cells[1].listeners.click[0]();
-  await settle();
-  assert.equal(page.run("team.view"), "week");
-  view("week");
-});
-
-test("in the month view the arrows and «Hoy» move by months", async () => {
-  const page = load({ entry: "team.js", data: monthPayload() });
-  const view = withViews(page);
-  await settle();
-  view("month");
-  await settle();
-  const click = async (id) => {
-    const button = page.document.getElementById(id);
-    await button.listeners.click[0]({ currentTarget: button });
-  };
-  await click("prevWeek");
-  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-02");
-  await click("nextWeek");
-  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?month=2025-04");
-  await click("refreshBtn");
-  assert.equal(page.calls.fetch.at(-3)[0], "/api/team?month=2025-03&fresh");
-  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?fixes&fresh");
-  await click("thisWeek");
-  const now = new Date();
-  assert.equal(
-    page.calls.fetch.at(-2)[0],
-    `/api/team?month=${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
-  );
-  assert.equal(page.run('shiftMonth("2025-12", 1)'), "2026-01");
-  assert.equal(page.run('shiftMonth("2025-01", -1)'), "2024-12");
-});
-
-const yearPayload = (year = 2025) => {
-  const months = (changes) =>
-    Array.from({ length: 12 }, (_, i) => ({
-      month: `${year}-${String(i + 1).padStart(2, "0")}`,
-      hours: 140,
-      target: 140,
-      balance: 0,
-      due: 140,
-      under: 0,
-      over: 0,
-      flagged_days: 0,
-      ...changes[i],
-    }));
-  return {
-    year: 2025,
-    week: "2024-12-30",
-    start: "2025-01-01",
-    stop: "2026-01-01",
-    generated_at: new Date(2026, 0, 2).toISOString(),
-    limits: { long_day: 12, under_margin: 1 / 60, over_margin: 5 },
-    open: [],
-    employees: [
-      {
-        id: 1,
-        name: "Álvaro",
-        hours: 1600,
-        target: 1700,
-        balance: -100,
-        due: 1700,
-        flags: ["under"],
-        months: months({
-          2: { under: 1, flagged_days: 2 },
-          4: { over: 2, balance: 12.5 },
-          6: { hours: 137, under: 1, balance: -3 },
-        }),
-      },
-      {
-        id: 2,
-        name: "Ana",
-        hours: 900,
-        target: null,
-        balance: null,
-        due: null,
-        flags: [],
-        months: months({}).map((m) => ({ ...m, target: null, balance: null, due: null })),
-      },
-    ],
-  };
-};
-
-const byPeriod = (urls) => async (url) => {
-  if (url === "/api/update") return { ok: true, status: 200, json: async () => UP_TO_DATE };
-  urls.push(url);
-  const data = url.includes("fixes")
-    ? teamFixes()
-    : url.includes("year=")
-      ? yearPayload()
-      : url.includes("month=")
-        ? monthPayload()
-        : teamPayload();
-  return { ok: true, status: 200, json: async () => data };
-};
-
-test("the year view shows each month against its target, its weeks off target and its flagged days", async () => {
-  const urls = [];
-  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
-  page.calls.fetch = { at: (i) => [urls.at(i)] };
-  const view = withViews(page);
-  const pick = withFilters(page);
-  await settle();
-  view("year");
-  await settle();
-  const doc = page.document;
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?year=2025");
-  assert.equal(doc.getElementById("weekLabel").textContent, "2025");
-  pick("all");
-  const [thead, tbody] = doc.getElementById("grid").children;
-  assert.deepEqual(
-    thead.children[0].children.map((th) => th.textContent),
-    ["Persona", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic", "Año"],
-  );
-  const alvaro = tbody.children[0].children;
-  assert.equal(cellText(alvaro[3]), "Al día|140h| de 140h|1 semana bajo objetivo|2 días con errores de fichaje");
-  assert.deepEqual(
-    [alvaro[3].classList.contains("bad"), alvaro[3].classList.contains("warn"), alvaro[3].children[3].className],
-    [false, true, "meta block"],
-  );
-  assert.equal(cellText(alvaro[7]), "Faltan 3h|137h| de 140h|1 semana bajo objetivo");
-  assert.deepEqual([alvaro[7].classList.contains("bad"), alvaro[7].children[3].className], [true, "flag"]);
-  assert.equal(cellText(alvaro[5]), "Sobran 12h 30m|140h| de 140h|2 semanas con demasiadas horas");
-  assert.equal(alvaro[1].classList.contains("bad"), false);
-  assert.equal(cellText(alvaro[13]), "Faltan 100h|1600h| de 1700h");
-  assert.equal(alvaro[13].classList.contains("bad"), true);
-  assert.equal(tbody.children[1].children[13].classList.contains("bad"), false);
-  const ana = tbody.children[1].children;
-  assert.equal(cellText(ana[1]), "140h| sin horario");
-  assert.equal(cellText(ana[13]), "900h| sin horario");
-  pick("issues");
-  assert.deepEqual(doc.getElementById("grid").children[1].children.map(rowName), ["Álvaro"]);
-  const made = "{ flags: ['under'], balance: -1, flagged_days: 1, months: [{ balance: 0 }, { balance: -2 }] }";
-  assert.deepEqual(
-    [made, made.replace("-1", "5"), made.replace("-2", "3")].map((e) => page.run(`Filters.under.keep(${e})`)),
-    [true, false, false],
-  );
-  assert.equal(
-    page.run(
-      "Filters.under.keep({ flags: [], balance: -5, flagged_days: 2, months: [{ balance: -5, flagged_days: 2 }] })",
-    ),
-    false,
-  );
-  page.run("team.data = { ...team.data, employees: [] }; render()");
-  assert.equal(
-    doc.getElementById("grid").children[1].children[0].children[0].textContent,
-    "Nadie tiene incidencias este año",
-  );
-  const now = new Date();
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  page.run(
-    `team.year = "${now.getFullYear()}"; team.data = ${JSON.stringify(yearPayload(now.getFullYear()))}; render()`,
-  );
-  const cells = doc.getElementById("grid").children[1].children[0].children;
-  const index = now.getMonth() + 1;
-  assert.equal(cells[index].classList.contains("today"), true);
-  assert.match(cellText(cells[index]), /Al día hasta ayer/);
-  assert.equal(cellText(cells[13]), "Faltan 100h hasta ayer|1600h| de 1700h");
-  if (index < 12) {
-    assert.equal(cells[index + 1].classList.contains("future"), true);
-    assert.equal(cells[index + 1].children.length, 0);
-  }
-  page.run(`team.year = "2025"; team.data = ${JSON.stringify(yearPayload())}; render()`);
-  const again = doc.getElementById("grid").children[1].children[0].children;
-  again[3].listeners.keydown[0]({ key: "Tab" });
-  again[3].listeners.keydown[0]({ key: "Enter" });
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?month=2025-03");
-  assert.equal(page.run("team.search"), "Álvaro");
-  await settle();
-  view("year");
-  await settle();
-  doc.getElementById("grid").children[1].children[0].children[3].listeners.click[0]();
-  await settle();
-  assert.equal(page.run("team.view"), "month");
-  assert.ok(thisMonth);
-});
-
-test("in the year view the arrows and «Hoy» move by years, with no background prefetch", async () => {
-  const urls = [];
-  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
-  page.calls.fetch = { at: (i) => [urls.at(i)] };
-  const view = withViews(page);
-  await settle();
-  view("year");
-  await settle();
-  const click = async (id) => {
-    const button = page.document.getElementById(id);
-    await button.listeners.click[0]({ currentTarget: button });
-  };
-  await click("prevWeek");
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?year=2024");
-  await click("nextWeek");
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?year=2026");
-  await click("refreshBtn");
-  assert.equal(page.calls.fetch.at(-2)[0], "/api/team?year=2025&fresh");
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/team?fixes&fresh");
-  await click("thisWeek");
-  assert.equal(page.calls.fetch.at(-1)[0], `/api/team?year=${new Date().getFullYear()}`);
-  page.run(`team.year = "${new Date().getFullYear()}"`);
-  view("week");
-  const today = new Date();
-  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  assert.equal(page.calls.fetch.at(-1)[0], `/api/team?week=${iso}`);
-});
-
-const withDisplay = (page) => {
-  const seg = page.document.getElementById("displaySeg");
-  for (const key of ["table", "charts"]) {
-    const button = page.document.createElement("button");
-    button.dataset.display = key;
-    seg.appendChild(button);
-  }
-  return (key) =>
-    seg.listeners.click[0]({ target: { closest: () => seg.children.find((b) => b.dataset.display === key) } });
-};
-const svgTexts = (node) =>
-  (node.children || []).flatMap((c) =>
-    typeof c === "string" ? [] : [...(c.tagName === "TEXT" ? [c.textContent] : []), ...svgTexts(c)],
-  );
-
-test("the charts tab shows each person's balance and incidents per period, in every view", async () => {
-  const urls = [];
-  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls) });
-  const display = withDisplay(page);
-  const view = withViews(page);
-  const pick = withFilters(page);
-  await settle();
-  pick("all");
-  page.run(
-    "team.data.employees.forEach((e, i) => { e.balance = [-8, 0.5, null, 6.5][i]; e.flagged_days = i === 3 ? 2 : 0; })",
-  );
-  display("charts");
-  const doc = page.document;
-  assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), true);
-  assert.equal(doc.getElementById("charts").classList.contains("hidden"), false);
-  const [people, timeline] = doc.getElementById("charts").children;
-  assert.deepEqual(
-    page.run(`divergingBars([{ label: "a", value: -4, rows: [] }, { label: "b", value: 40, suspect: true, rows: [] }], String)
-    .children.filter(c => c.tagName === "G").map(g => g.children[2].getAttribute("width"))`),
-    ["355", "355"],
-  );
-  const bars = people.children.at(-2);
-  assert.deepEqual(svgTexts(bars), ["Zoe", "−8h", "Álvaro", "+30m", "Bruno", "⚠ +6h 30m"]);
-  assert.equal(
-    people.children.at(-1).textContent,
-    "⚠ Saldo no fiable: incluye errores de fichaje, que se corrigen antes de juzgar sus horas.",
-  );
-  assert.deepEqual(svgTexts(timeline.children.at(-1)).map(String), ["0", "1", "Lun", "1", "Mar", "Mié", "Jue", "Vie"]);
-  const marks = bars.children.filter((c) => c.tagName === "G");
-  assert.equal(marks.length, 3);
-  assert.equal(marks[0].children[2].getAttribute("class"), "bar short");
-  assert.equal(marks[1].children[2].getAttribute("class"), "bar surplus");
-  assert.equal(marks[2].children[2].getAttribute("class"), "bar error");
-  marks[0].listeners.click[0]();
-  marks[1].listeners.keydown[0]({ key: "Enter" });
-  marks[1].listeners.keydown[0]({ key: "Tab" });
-  assert.deepEqual(page.calls.assigned, ["/empleado?id=3", "/empleado?id=1"]);
-  assert.deepEqual(hover(page, marks[0]), ["Zoe", "Fichadas 40h", "Previstas 40h", "Saldo Faltan 8h"]);
-  page.run(
-    'team.data = { ...team.data, stop: "2999-01-01" }; team.data.employees.forEach(e => { e.due = 32; }); render()',
-  );
-  const runningBars = doc
-    .getElementById("charts")
-    .children[0].children.at(-2)
-    .children.filter((c) => c.tagName === "G");
-  assert.deepEqual(hover(page, runningBars[0]), ["Zoe", "Fichadas 24h", "Previstas 32h", "Saldo Faltan 8h"]);
-  page.run('team.data = { ...team.data, stop: "2025-03-10" }; render()');
-  const columns = timeline.children.at(-1).children.filter((c) => c.tagName === "G");
-  assert.equal(columns.length, 5);
-  assert.deepEqual(hover(page, columns[1]), [`Mar 4 mar${Y25}`, "Personas con errores de fichaje 1", "Álvaro"]);
-  display("table");
-  assert.equal(doc.getElementById("gridCard").classList.contains("hidden"), false);
-  display("charts");
-  view("month");
-  await settle();
-  const month = doc.getElementById("charts").children;
-  assert.equal(month[1].children[2].className, "legend-row");
-  const weeks = month[1].children.at(-1).children.filter((c) => c.tagName === "G");
-  assert.equal(weeks.length, 2);
-  assert.deepEqual(hover(page, weeks[0]), [
-    "3 mar – 9 mar",
-    "Bajo objetivo 1",
-    "Álvaro",
-    "Demasiadas horas 1",
-    "Bruno",
-  ]);
-  weeks[0].listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-  const tipKids = page.document.getElementById("tip").children;
-  assert.deepEqual(
-    tipKids.map((c) => c.className),
-    ["t-title", "t-row", "t-note t-name", "t-sep", "t-row", "t-note t-name"],
-  );
-  assert.deepEqual(
-    tipKids.filter((c) => c.className === "t-row").map((r) => r.children[0].children[0].className),
-    ["swatch short", "swatch over"],
-  );
-  weeks[0].listeners.pointerleave[0]();
-  view("year");
-  await settle();
-  const year = doc.getElementById("charts").children;
-  assert.equal(year[1].children.at(-1).children.filter((c) => c.tagName === "G").length, 12);
-  page.run(
-    "team.data = { ...team.data, employees: team.data.employees.map(e => ({ ...e, balance: null })) }; render()",
-  );
-  assert.equal(doc.getElementById("charts").children[0].children.at(-1).textContent, "Nadie con jornada prevista");
-  doc.getElementById("displaySeg").listeners.click[0]({ target: { closest: () => null } });
-  doc.getElementById("charts").replaceChildren();
-  page.calls.window.resize[0]();
-  assert.equal(doc.getElementById("charts").children.length, 2);
-  page.run("team.data = null");
-  page.calls.window.resize[0]();
-  display("table");
-});
-
-test("the fixes card filters its own rows by kind, counting each kind's people", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  const doc = page.document;
-  const seg = doc.getElementById("fixKinds");
-  for (const kind of ["open", "long", "empty"]) {
-    const button = doc.createElement("button");
-    button.dataset.kind = kind;
-    seg.appendChild(button);
-  }
-  await settle();
-  const toggles = seg.children;
-  const toggle = (kind) =>
-    seg.listeners.click[0]({ target: { closest: () => toggles.find((b) => b.dataset.kind === kind) } });
-  const fixed = () =>
-    doc
-      .getElementById("fixes")
-      .children[0].children.filter((c) => c.tagName === "A")
-      .map((a) => a.textContent);
-  assert.deepEqual(
-    toggles.map((b) => b.textContent),
-    ["Sin cerrar (1)", "Jornada muy larga (1)", "Sin fichar (2)"],
-  );
-  assert.deepEqual(fixed(), ["Zoe", "Bruno"]);
-  toggle("open");
-  toggle("long");
-  assert.deepEqual(fixed(), ["Bruno", "Zoe"]);
-  assert.deepEqual(
-    toggles.map((b) => b.getAttribute("aria-pressed")),
-    ["false", "false", "true"],
-  );
-  assert.equal(toggles[0].textContent, "Sin cerrar (1)");
-  assert.match(page.calls.hash, /k=empty$/);
-  toggle("empty");
-  assert.deepEqual(fixed(), []);
-  assert.match(doc.getElementById("fixesNote").textContent, /Nadie con los tipos elegidos\.$/);
-  assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
-  toggle("long");
-  const chips = doc.getElementById("fixes").children[0].children[4];
-  assert.deepEqual(
-    chips.children.map((c) => c.textContent),
-    ["1 jornada muy larga · 20h"],
-  );
-  const wide = doc.getElementById("wideBtn");
-  wide.listeners.click[0]({ currentTarget: wide });
-  assert.equal(doc.getElementById("openCard").classList.contains("wide"), true);
-  assert.deepEqual([wide.getAttribute("aria-pressed"), wide.title], ["true", "Volver al ancho normal"]);
-  wide.listeners.click[0]({ currentTarget: wide });
-  assert.deepEqual(
-    [wide.getAttribute("aria-pressed"), wide.getAttribute("aria-label")],
-    ["false", "Ampliar a todo el ancho"],
-  );
-  doc.getElementById("fixKinds").listeners.click[0]({ target: { closest: () => null } });
-  page.run("team.fixes = null");
-  toggle("open");
-});
-
-test("the management page keeps its view in the URL and in the session, and restores it", async () => {
-  const urls = [];
-  const store = new Map();
-  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
-  const page = load({
-    entry: "team.js",
-    fetchImpl: byPeriod(urls),
-    path: "/gestion#v=month&p=2025-03&f=all&d=charts&k=open,bogus,off&q=zo",
-    storage,
-  });
-  await settle();
-  assert.equal(urls[0], "/api/team?month=2025-03");
-  assert.deepEqual(page.run("[team.view, team.filter, team.display, team.search]"), ["month", "all", "charts", "zo"]);
-  assert.deepEqual(page.run("[...team.fixKinds]"), ["open"]);
-  assert.equal(page.calls.hash, "#v=month&p=2025-03&f=all&d=charts&k=open&q=zo");
-  assert.equal(store.get("gestion"), "#v=month&p=2025-03&f=all&d=charts&k=open&q=zo");
-  const again = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion", storage });
-  assert.equal(again.run("team.view"), "month");
-  const bogus = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion#v=nope&f=nope&d=nope" });
-  assert.deepEqual(bogus.run("[team.view, team.filter, team.display, team.search]"), ["week", "issues", "table", ""]);
-  const broken = {
-    getItem: () => {
-      throw new Error("bloqueado");
-    },
-    setItem: () => {
-      throw new Error("bloqueado");
-    },
-  };
-  const blocked = load({ entry: "team.js", fetchImpl: byPeriod([]), path: "/gestion", storage: broken });
-  await settle();
-  assert.equal(blocked.run("team.view"), "week");
-});
-
-test("each step into a period is a history entry, and going back reloads the one before", async () => {
-  const urls = [];
-  const page = load({ entry: "team.js", fetchImpl: byPeriod(urls), path: "/gestion#v=year&p=2025&f=all&d=table" });
-  await settle();
-  assert.equal(urls[0], "/api/team?year=2025");
-  page.document.getElementById("grid").children[1].children[0].children[3].listeners.click[0]();
-  await settle();
-  assert.equal(page.calls.pushed.length, 1);
-  assert.match(page.calls.pushed[0], /^#v=month&p=2025-03&f=all&d=table&k=.*&q=%C3%81lvaro$/);
-  page.document
-    .getElementById("prevWeek")
-    .listeners.click[0]({ currentTarget: page.document.getElementById("prevWeek") });
-  await settle();
-  assert.ok(urls.includes("/api/team?month=2025-02"));
-  assert.equal(page.calls.pushed.length, 2);
-  page.run('location.hash = "#v=year&p=2025&f=all&d=table"');
-  page.calls.window.popstate[0]();
-  await settle();
-  assert.equal(urls.at(-1), "/api/team?year=2025");
-  assert.deepEqual(page.run("[team.view, team.search, document.getElementById('search').value]"), ["year", "", ""]);
-  assert.equal(page.calls.pushed.length, 2);
-});
-
 test("the mouse's back and forward buttons walk the history on both pages", async () => {
   for (const [entry, data] of [
     ["team.js", teamPayload()],
@@ -2002,168 +137,6 @@ test("the mouse's back and forward buttons walk the history on both pages", asyn
       ],
     );
   }
-});
-
-test("the table shows even when the list of fixes fails, which says why", async () => {
-  const page = load({
-    entry: "team.js",
-    fetchImpl: async (url) =>
-      url.includes("fixes")
-        ? { ok: false, status: 502, json: async () => ({ error: "Odoo no responde" }) }
-        : { ok: true, status: 200, json: async () => teamPayload() },
-  });
-  await settle();
-  assert.equal(page.document.getElementById("gridCard").classList.contains("hidden"), false);
-  assert.equal(
-    page.document.getElementById("fixesNote").textContent,
-    "No se pudieron cargar los fichajes por corregir: Odoo no responde",
-  );
-});
-
-test("a refused or failed load says why", async () => {
-  const page = load({
-    entry: "team.js",
-    fetchImpl: async () => ({
-      ok: false,
-      status: 403,
-      json: async () => ({ error: "Tu usuario de Odoo no ve fichajes de otras personas" }),
-    }),
-  });
-  await settle();
-  const msg = page.document.getElementById("loadmsg");
-  assert.equal(msg.textContent, "Error cargando datos de Odoo: Tu usuario de Odoo no ve fichajes de otras personas");
-  assert.equal(msg.classList.contains("hidden"), false);
-});
-
-test("logout goes to the login page, or says it failed and stays usable", async () => {
-  let ok = true;
-  const page = load({
-    entry: "team.js",
-    fetchImpl: async (url) =>
-      url === "/api/logout"
-        ? { ok, status: ok ? 200 : 502, json: async () => (ok ? { ok: true } : { error: "Odoo no responde" }) }
-        : { ok: true, status: 200, json: async () => teamPayload() },
-  });
-  const button = page.document.getElementById("logoutBtn");
-  await button.listeners.click[0]();
-  assert.deepEqual(page.calls.replace, ["/login"]);
-  ok = false;
-  await button.listeners.click[0]();
-  assert.equal(button.textContent, "Error al cerrar sesión");
-  assert.equal(button.title, "Odoo no responde");
-  assert.equal(button.disabled, false);
-  assert.deepEqual(page.calls.replace, ["/login"]);
-});
-
-test("the first touch unlocks the sound, and a lunch that ran out rings three beeps", async () => {
-  const audio = fakeAudio();
-  const page = load({ globals: { window: audio.window } });
-  const doc = page.document;
-  doc.listeners.pointerdown[0]();
-  await settle();
-  assert.equal(audio.made.length, 1);
-  assert.equal(audio.made[0].state, "running");
-  doc.listeners.keydown[0]();
-  assert.equal(audio.made.length, 1);
-  const lunch = new Date(Date.now() - 40 * 60000).toISOString();
-  page.run(
-    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
-  );
-  page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
-  assert.equal(audio.made[0].oscillators.length, 3);
-  assert.ok(audio.made[0].oscillators.every((o) => o.stopped));
-  assert.equal(page.run("document.title"), "Fichajes");
-  const flash = page.calls.timers.find(([, ms]) => ms === 900)[0];
-  flash();
-  assert.equal(page.run("document.title"), "🍽 Comida terminada");
-  flash();
-  assert.equal(page.run("document.title"), "Fichajes");
-  const refused = fakeAudio(true);
-  const blocked = load({ globals: { window: refused.window } });
-  blocked.document.listeners.pointerdown[0]();
-  await settle();
-  assert.equal(refused.made[0].state, "suspended");
-  page.run(
-    "store.notifyEl = document.createElement('div'); store.notifyArgs = [null, { expected: 8 }, 8]; refreshNotifyNote()",
-  );
-  assert.match(page.run("store.notifyEl.textContent"), /^Comida vencida a las \d\d:\d\d$/);
-});
-
-test("a browser that grants the sound with no gesture rings without a touch", () => {
-  const audio = fakeAudio(false, "running");
-  const page = load({ globals: { window: audio.window } });
-  const lunch = new Date(Date.now() - 40 * 60000).toISOString();
-  page.run(
-    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
-  );
-  page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
-  assert.equal(audio.made[0].oscillators.length, 3);
-  assert.match(page.run("notifyStatus(null, { expected: 8 }, 8)"), /^Comida vencida a las \d\d:\d\d$/);
-});
-
-test("a changed setting is saved, and rolled back when the server refuses it", async () => {
-  const posts = [];
-  let reply = { ok: true, status: 200, json: async () => ({ ...payload([]).state, lunch_minutes: 45 }) };
-  const page = load({
-    fetchImpl: async (url, opts) => {
-      if (url === "/api/state" && opts?.method === "POST") {
-        posts.push(JSON.parse(opts.body));
-        return reply;
-      }
-      return { ok: true, status: 200, json: async () => payload([]) };
-    },
-  });
-  await page.run("loadAndRender()");
-  await page.run("saveState({ lunch_minutes: 45 })");
-  assert.deepEqual(posts, [{ lunch_minutes: 45 }]);
-  assert.equal(page.run("store.state.lunch_minutes"), 45);
-  reply = { ok: false, status: 500, json: async () => ({}) };
-  await page.run("saveState({ lunch_minutes: 60 })");
-  assert.equal(page.run("store.state.lunch_minutes"), 45);
-  reply = Promise.reject(new Error("sin red"));
-  reply.catch(() => {});
-  await page.run("saveState({ lunch_minutes: 70 })");
-  assert.equal(page.run("store.state.lunch_minutes"), 45);
-  assert.deepEqual(page.calls.warnings, [
-    "[odoo] saving the shared state failed: Error: HTTP 500",
-    "[odoo] saving the shared state failed: Error: sin red",
-  ]);
-});
-
-test("the state poll repaints only on a change, and reloads after a punch elsewhere", async () => {
-  let state = payload([]).state;
-  let fail = false;
-  const loads = [];
-  const page = load({
-    fetchImpl: async (url) => {
-      if (url === "/api/state") {
-        if (fail) throw new Error("sin red");
-        return { ok: state !== null, status: state ? 200 : 500, json: async () => state };
-      }
-      loads.push(url);
-      return { ok: true, status: 200, json: async () => payload([]) };
-    },
-  });
-  await page.run("loadAndRender()");
-  const before = loads.length;
-  await page.run("refreshState()");
-  assert.equal(loads.length, before);
-  state = { ...state, lunch: new Date().toISOString() };
-  page.run("LastRing.lunch = 5");
-  await page.run("refreshState()");
-  assert.equal(page.run("store.state.lunch"), state.lunch);
-  assert.equal(page.run("LastRing.lunch"), 0);
-  state = { ...state, muted: true };
-  await page.run("refreshState()");
-  assert.equal(page.run("store.state.muted"), true);
-  state = { ...state, punched_at: "2026-09-25T10:00:00" };
-  await page.run("refreshState()");
-  assert.equal(loads.length, before + 1);
-  state = null;
-  await page.run("refreshState()");
-  fail = true;
-  await page.run("refreshState()");
-  assert.equal(loads.length, before + 1);
 });
 
 test("the tab coming back, the source poll, the views and «Actualizar» drive the dashboard", async () => {
@@ -2237,371 +210,6 @@ test("the tab coming back, the source poll, the views and «Actualizar» drive t
   await refresh.listeners.click[0]({ target });
   assert.equal(target.disabled, false);
   assert.ok(fetched.includes("/api/data?fresh"));
-});
-
-test("an armed punch button disarms by itself after four seconds", async () => {
-  const today = new Date();
-  const schedule = { hours: [7, 7, 7, 7, 7, 7, 7], lunch_from: [13, 13, 13, 13, 13, 13, 13] };
-  const page = load({ data: payload([session(at(today, 9), null)], { schedule }) });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  button.classList.add("pulse");
-  await button.listeners.click[0]();
-  assert.equal(button.textContent, "¿Confirmar?");
-  const [disarm, ms] = page.calls.timeouts.at(-1);
-  assert.equal(ms, 4000);
-  disarm();
-  assert.equal(button.textContent, "Fichar salida");
-  assert.deepEqual(
-    ["arm", "pulse"].map((c) => button.classList.contains(c)),
-    [false, true],
-  );
-});
-
-test("the gear opens the settings, each saved on change and explained in its tooltip", async () => {
-  const posts = [];
-  const data = payload([session(at(new Date(), 9), null)]);
-  const page = load({
-    fetchImpl: async (url, opts) => {
-      if (url !== "/api/state") return { ok: true, status: 200, json: async () => data };
-      posts.push(JSON.parse(opts.body));
-      return { ok: true, status: 200, json: async () => ({ ...page.run("store.state"), ...posts.at(-1) }) };
-    },
-  });
-  await page.run("loadAndRender()");
-  const doc = page.document,
-    dialog = doc.getElementById("settingsDialog"),
-    tip = doc.getElementById("tip");
-  doc
-    .getElementById("hero")
-    .querySelectorAll(".icon-btn")
-    .find((b) => b.title === "Ajustes")
-    .listeners.click[0]();
-  assert.equal(dialog.open, true);
-  assert.ok(dialog.children.includes(tip));
-  const rows = dialog.querySelectorAll(".setting");
-  assert.deepEqual(
-    rows.map((r) => r.children[0].textContent),
-    ["Comida", "Descanso", "Botón «Salir a comer»", "Tema", "Actualizaciones"],
-  );
-  rows[2].listeners.pointerenter[0]({ clientX: 0, clientY: 0 });
-  assert.match(tip.children[0].textContent, /^Horas entre las que aparece el botón/);
-
-  const minutes = dialog.querySelectorAll(".lunch-input")[0];
-  for (const value of ["999", "abc"]) {
-    minutes.value = value;
-    await minutes.listeners.change[0]();
-  }
-  assert.equal(minutes.value, "0");
-  const [from, to] = dialog.querySelectorAll(".clock-input");
-  assert.deepEqual([from.value, to.value], ["13:30", "16:00"]);
-  from.value = "13:05";
-  await from.listeners.change[0]();
-  assert.deepEqual(posts, [{ lunch_minutes: 240 }, { lunch_minutes: 0 }, { lunch_button_from: 785 }]);
-  to.value = "12:00";
-  await to.listeners.change[0]();
-  assert.match(doc.getElementById("settingsNote").textContent, /^No se ha guardado/);
-  to.value = "";
-  await to.listeners.change[0]();
-  assert.deepEqual([to.value, doc.getElementById("settingsNote").textContent, posts.length], ["16:00", "", 3]);
-
-  dialog
-    .querySelectorAll(".btn")
-    .find((b) => b.textContent === "Cerrar")
-    .listeners.click[0]();
-  dialog.listeners.close[0]();
-  assert.equal(dialog.open, false);
-  assert.ok(doc.body.children.includes(tip));
-  page.run("store.data.breaks = false; openSettings()");
-  assert.equal(dialog.querySelectorAll(".setting").length, 4);
-});
-
-test("«Tema» keeps this browser's theme, and says so when the browser will not keep it", () => {
-  const items = { theme: "dark" };
-  const page = load({ local: memoryStorage(items) });
-  const doc = page.document;
-  assert.equal(doc.documentElement.dataset.theme, "dark");
-  page.run("store.data = { breaks: false }; openSettings()");
-  const seg = doc.getElementById("settingsDialog").querySelectorAll(".seg")[0];
-  const pressed = () => seg.children.map((b) => b.getAttribute("aria-pressed"));
-  assert.deepEqual(
-    seg.children.map((b) => b.textContent),
-    ["Sistema", "Claro", "Oscuro"],
-  );
-  assert.deepEqual(pressed(), ["false", "false", "true"]);
-  seg.children[1].listeners.click[0]();
-  assert.deepEqual(
-    [doc.documentElement.dataset.theme, items.theme, pressed()],
-    ["light", "light", ["false", "true", "false"]],
-  );
-  assert.equal(doc.getElementById("settingsNote").textContent, "");
-  seg.children[0].listeners.click[0]();
-  assert.deepEqual([doc.documentElement.dataset.theme, items.theme], ["", ""]);
-
-  const blocked = {
-    getItem: () => {
-      throw new Error("bloqueado");
-    },
-    setItem: () => {
-      throw new Error("bloqueado");
-    },
-  };
-  const locked = load({ local: blocked });
-  assert.equal(locked.document.documentElement.dataset.theme, undefined);
-  locked.run("store.data = { breaks: false }; openSettings()");
-  const dark = locked.document.getElementById("settingsDialog").querySelectorAll(".seg")[0].children[2];
-  dark.listeners.click[0]();
-  assert.equal(locked.document.documentElement.dataset.theme, "dark");
-  assert.match(locked.document.getElementById("settingsNote").textContent, /^Este navegador no deja guardar el tema/);
-});
-
-test("a newer version shows the banner on both pages, and «Actualizaciones» checks now and says the answer", async () => {
-  const newer = {
-    available: true,
-    current: "1.0.0",
-    latest: "1.1.0",
-    url: "https://github.com/r/releases/tag/v1.1.0",
-    error: "",
-  };
-  let answer = newer;
-  const urls = [];
-  const fetchImpl = async (url) => {
-    urls.push(url);
-    if (url.startsWith("/api/update")) {
-      if (answer instanceof Error) throw answer;
-      const body = answer;
-      return { ok: !body.refused, status: body.refused ? 401 : 200, json: async () => body };
-    }
-    return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
-  };
-  for (const [entry, path] of [
-    ["app.js", "/"],
-    ["team.js", "/gestion"],
-  ]) {
-    const page = load({ entry, path, fetchImpl });
-    await settle();
-    const banner = page.document.getElementById("updateBanner");
-    assert.equal(banner.classList.contains("hidden"), false, entry);
-    assert.deepEqual(
-      banner.children.map((c) => c.tagName),
-      ["P", "P", "P"],
-    );
-    assert.deepEqual(
-      banner.querySelectorAll("code").map((c) => c.textContent),
-      ["uv tool upgrade odoo-wrapper", "claude plugin update odoo@odoo-wrapper"],
-    );
-    assert.equal(banner.children[0].children[0].textContent, "Hay una versión nueva, la 1.1.0");
-    assert.equal(banner.children[0].children[1], " (tienes la 1.0.0). ");
-    const notes = banner.querySelectorAll("a")[0];
-    assert.deepEqual(
-      [notes.textContent, notes.href, notes.target, notes.rel],
-      ["Novedades", newer.url, "_blank", "noopener"],
-    );
-    assert.ok(
-      page.calls.timers.some(([, ms]) => ms === 3600000),
-      entry,
-    );
-  }
-
-  const page = load({ fetchImpl });
-  await settle();
-  const doc = page.document,
-    banner = doc.getElementById("updateBanner"),
-    note = doc.getElementById("settingsNote");
-  const poll = page.calls.timers.find(([, ms]) => ms === 3600000)[0];
-  answer = { refused: true, error: "no autorizado" };
-  await poll();
-  await settle();
-  assert.equal(banner.classList.contains("hidden"), false);
-  answer = new Error("sin red");
-  await poll();
-  await settle();
-  assert.equal(banner.classList.contains("hidden"), false);
-
-  page.run("openSettings()");
-  const check = doc
-    .getElementById("settingsDialog")
-    .querySelectorAll(".btn")
-    .find((b) => b.textContent === "Buscar ahora");
-  const cases = [
-    [UP_TO_DATE, "Tienes la última versión, la 1.1.0.", true],
-    [newer, "Hay una versión nueva: el aviso de arriba dice cómo instalarla.", false],
-    [
-      { ...UP_TO_DATE, latest: null, url: null, error: "No se pudo consultar GitHub: HTTP Error 403" },
-      "No se pudo consultar GitHub: HTTP Error 403",
-      true,
-    ],
-    [new Error("sin red"), "No se pudo buscar actualizaciones: sin red", true],
-  ];
-  for (const [next, text, hidden] of cases) {
-    answer = next;
-    await check.listeners.click[0]();
-    assert.deepEqual([note.textContent, banner.classList.contains("hidden"), check.disabled], [text, hidden, false]);
-  }
-  assert.equal(urls.filter((u) => u === "/api/update?fresh").length, 4);
-});
-
-test("on the machine itself «Actualizar ahora» installs after a second click, waits for the restart and reloads", async () => {
-  const newer = {
-    available: true,
-    current: "1.0.0",
-    latest: "1.1.0",
-    url: "https://github.com/r/releases/tag/v1.1.0",
-    error: "",
-    local: true,
-    how: "auto",
-  };
-  const state = { answer: newer, install: { ok: true, status: 200, body: { ok: true } }, down: false };
-  const posts = [];
-  const page = load({
-    fetchImpl: async (url, opts) => {
-      if (url === "/api/update" && opts?.method === "POST") {
-        posts.push(url);
-        const { ok, status, body } = state.install;
-        return { ok, status, json: async () => body };
-      }
-      if (url.startsWith("/api/update")) {
-        if (state.down) throw new Error("reiniciando");
-        return { ok: true, status: 200, json: async () => state.answer };
-      }
-      return { ok: true, status: 200, json: async () => payload([]) };
-    },
-  });
-  await settle();
-  const doc = page.document,
-    banner = doc.getElementById("updateBanner");
-  const button = () => banner.querySelectorAll("button")[0];
-  const note = () => banner.querySelectorAll("span")[0];
-  const waits = () => (page.calls.timeouts || []).filter(([, ms]) => ms === 2000);
-  const drive = async (steps = 3) => {
-    for (let done = 0; done < steps; done++) {
-      await settle();
-      const pending = waits().splice(0);
-      page.calls.timeouts = (page.calls.timeouts || []).filter(([, ms]) => ms !== 2000);
-      if (!pending.length) return;
-      for (const [fn] of pending) fn();
-    }
-  };
-  assert.equal(
-    banner.querySelectorAll("code").some((c) => c.textContent === "uv tool upgrade odoo-wrapper"),
-    false,
-  );
-  assert.deepEqual(
-    banner.children.map((c) => c.className || c.tagName),
-    ["P", "update-actions"],
-  );
-  assert.equal(banner.querySelectorAll("code").length, 0);
-  assert.deepEqual(banner.children.at(-1).children, [button(), note()]);
-  assert.equal(button().textContent, "Actualizar ahora");
-
-  button().listeners.click[0]();
-  assert.equal(button().textContent, "¿Instalar la 1.1.0?");
-  page.calls.timeouts.find(([, ms]) => ms === 4000)[0]();
-  assert.equal(button().textContent, "Actualizar ahora");
-  assert.equal(posts.length, 0);
-
-  state.install = { ok: false, status: 502, body: { error: "uv no pudo instalarla: boom" } };
-  button().listeners.click[0]();
-  await button().listeners.click[0]();
-  assert.deepEqual(
-    [note().textContent, button().disabled, button().textContent],
-    ["No se pudo actualizar: uv no pudo instalarla: boom", false, "Actualizar ahora"],
-  );
-
-  state.install = { ok: true, status: 200, body: { ok: true } };
-  state.down = true;
-  button().listeners.click[0]();
-  const installing = button().listeners.click[0]();
-  await settle();
-  assert.deepEqual(
-    [button().disabled, button().textContent, note().textContent],
-    [true, "Instalando…", "Instalada: reiniciando el panel…"],
-  );
-  const kept = button();
-  page.run("showUpdate({ available: false })");
-  assert.equal(banner.classList.contains("hidden"), false);
-  await drive();
-  state.down = false;
-  await drive();
-  assert.equal(page.calls.reload, 0);
-  state.answer = { ...newer, current: "1.1.0", available: false };
-  await drive();
-  await installing;
-  assert.equal(page.calls.reload, 1);
-  assert.equal(button(), kept);
-
-  state.answer = newer;
-  const stuck = load({
-    fetchImpl: async (url, opts) => ({
-      ok: true,
-      status: 200,
-      json: async () => (opts?.method === "POST" ? { ok: true } : url.startsWith("/api/update") ? newer : payload([])),
-    }),
-  });
-  await settle();
-  const stuckBanner = stuck.document.getElementById("updateBanner");
-  const stuckButton = stuckBanner.querySelectorAll("button")[0];
-  stuckButton.listeners.click[0]();
-  const pending = stuckButton.listeners.click[0]();
-  for (let i = 0; i < 100; i++) {
-    await settle();
-    const timers = (stuck.calls.timeouts || []).filter(([, ms]) => ms === 2000);
-    stuck.calls.timeouts = [];
-    for (const [fn] of timers) fn();
-  }
-  await pending;
-  assert.match(stuckBanner.querySelectorAll("span")[0].textContent, /el panel no ha vuelto en tres minutos/);
-  assert.equal(stuck.calls.reload, 0);
-
-  let restartedYet = false;
-  const partial = load({
-    fetchImpl: async (url, opts) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        opts?.method === "POST"
-          ? { ok: true, skills: "marketplace not found" }
-          : url.startsWith("/api/update")
-            ? restartedYet
-              ? { ...newer, current: "1.2.0" }
-              : { ...newer, latest: "1.2.0" }
-            : payload([]),
-    }),
-  });
-  await settle();
-  const partialBanner = partial.document.getElementById("updateBanner");
-  const partialButton = partialBanner.querySelectorAll("button")[0];
-  partialButton.listeners.click[0]();
-  const partialRun = partialButton.listeners.click[0]();
-  await settle();
-  restartedYet = true;
-  for (const [fn] of partial.calls.timeouts.filter(([, ms]) => ms === 2000)) fn();
-  await partialRun;
-  const said = partialBanner.querySelectorAll("span")[0];
-  assert.deepEqual([partial.calls.reload, partialButton.textContent, partialButton.disabled], [0, "Instalada", true]);
-  assert.equal(
-    said.children[0],
-    "La 1.2.0 ya funciona, pero las skills de Claude Code no se han actualizado " + "(marketplace not found). Ejecuta ",
-  );
-  assert.equal(said.children[1].textContent, "claude plugin update odoo@odoo-wrapper");
-
-  const texts = (how) => {
-    const other = load({
-      fetchImpl: async (url) => ({
-        ok: true,
-        status: 200,
-        json: async () => (url.startsWith("/api/update") ? { ...newer, how } : payload([])),
-      }),
-    });
-    return settle().then(() =>
-      other.document
-        .getElementById("updateBanner")
-        .children.map((p) => p.children.filter((c) => typeof c === "string").join("")),
-    );
-  };
-  assert.equal((await texts("git"))[1], "Es la instalación de desarrollo: tráela con git.");
-  assert.match((await texts("manual"))[1], /^No encuentro uv en este ordenador\. Para instalarla, ejecuta/);
 });
 
 test("a full fortnight draws every part of the dashboard: break, lunch, leave, holidays and progress", async () => {
@@ -2739,174 +347,6 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   assert.equal(hover(page, cols[3]).at(-1), "Para el objetivo 29h 45m");
 });
 
-test("the usual hours get one tile per length of day when the days worked had more than one", () => {
-  const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
-  const page = withData([
-    on(7, 9, 0, 18, 0),
-    on(8, 9, 30, 18, 30),
-    on(11, 8, 0, 14, 0),
-    on(12, 10, 30, 12, 30),
-    session(at(TUESDAY, 9), null),
-  ]);
-  const usual = (contracts) => {
-    page.run(`store.contractHours = new Map(${JSON.stringify(contracts)}); renderKpis(buildWeeks(2))`);
-    return page.document
-      .getElementById("kpis")
-      .children.slice(2)
-      .map((tile) => tile.children.map((c) => c.textContent));
-  };
-  assert.deepEqual(usual([["2026-09-15", 7]]), [
-    ["Horario habitual · jornada de 8h 30m", "09:15 – 18:15", "entrada y salida medias · 2 días"],
-    ["Horario habitual · jornada de 6h", "08:00 – 14:00", "entrada y salida medias · 1 día"],
-  ]);
-  assert.deepEqual(usual([["2026-09-11", 8.5]]), [
-    ["Horario habitual", "09:12 – 15:45", "entrada y salida medias · 5 días"],
-  ]);
-});
-
-test("the gap between two sessions is drawn only where no hour leave covers it", () => {
-  const on = (day, h1, m1, h2, m2) => session(new Date(2026, 8, day, h1, m1), new Date(2026, 8, day, h2, m2));
-  const leave = (day, h1, m1, h2, m2) => [
-    `2026-09-0${day}`,
-    [
-      {
-        type: "Médico",
-        hours: 1,
-        from: new Date(2026, 8, day, h1, m1).toISOString(),
-        to: new Date(2026, 8, day, h2, m2).toISOString(),
-      },
-    ],
-  ];
-  const page = withData([
-    on(7, 9, 30, 11, 25),
-    on(7, 12, 56, 16, 28),
-    on(8, 9, 0, 12, 0),
-    on(8, 14, 0, 17, 0),
-    on(9, 9, 0, 13, 0),
-    on(9, 14, 0, 18, 0),
-  ]);
-  page.run(
-    `store.leaveMap = new Map(${JSON.stringify([
-      leave(7, 11, 30, 12, 55),
-      leave(8, 12, 0, 13, 0),
-      leave(9, 18, 0, 19, 0),
-    ])}); renderTimeline(document.getElementById("weekCal"), buildWeek(1))`,
-  );
-  const gaps = page.document
-    .getElementById("weekCal")
-    .querySelectorAll(".tl-row")
-    .slice(0, 3)
-    .map((row) => row.querySelectorAll(".gap").map((g) => [g.textContent, g.style.left]));
-  assert.deepEqual(
-    gaps.map((day) => day.map(([text]) => text)),
-    [["5m"], ["1h"], ["1h"]],
-  );
-  assert.deepEqual(
-    gaps.map((day) => day[0][1]),
-    ["31.060606060606055%", "45.45454545454545%", "45.45454545454545%"],
-  );
-});
-
-test("the fixes strip pans by dragging, and a plain press or a name link is left alone", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  await settle();
-  const scroller = page.document.getElementById("fixes");
-  const on = (type) => scroller.listeners[type][0];
-  const target = (link) => ({ closest: () => (link ? {} : null) });
-  scroller.scrollLeft = 500;
-  on("pointermove")({ clientX: 10, clientY: 0 });
-  on("pointerdown")({ button: 2, target: target(false), clientX: 100, clientY: 0 });
-  on("pointerdown")({ button: 0, target: target(true), clientX: 100, clientY: 0 });
-  on("pointermove")({ clientX: 10, clientY: 0 });
-  assert.equal(scroller.scrollLeft, 500);
-  on("pointerdown")({ button: 0, target: target(false), clientX: 100, clientY: 0, pointerId: 1 });
-  on("pointermove")({ clientX: 102, clientY: 0 });
-  assert.deepEqual([scroller.scrollLeft, scroller.classList.contains("dragging")], [500, false]);
-  on("pointermove")({ clientX: 60, clientY: 0 });
-  on("pointermove")({ clientX: 40, clientY: 0 });
-  assert.deepEqual([scroller.scrollLeft, scroller.classList.contains("dragging")], [560, true]);
-  on("pointerup")();
-  assert.equal(scroller.classList.contains("dragging"), false);
-  on("pointermove")({ clientX: 0, clientY: 0 });
-  assert.equal(scroller.scrollLeft, 560);
-  scroller.listeners.pointercancel[0]();
-});
-
-test("the table pans by dragging, and a drag does not open the cell it ends on", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  withFilters(page)("all");
-  await settle();
-  const doc = page.document;
-  const scroller = doc.getElementById("gridScroll");
-  const on = (type) => scroller.listeners[type][0];
-  const cell = doc.getElementById("grid").children[1].children[0].children[1];
-  scroller.scrollLeft = 200;
-  scroller.scrollTop = 100;
-  on("pointerdown")({ button: 0, pointerType: "touch", target: { closest: () => null }, clientX: 300, clientY: 0 });
-  on("pointermove")({ clientX: 250, clientY: 0 });
-  assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [200, 100]);
-  on("pointerdown")({
-    button: 0,
-    pointerType: "mouse",
-    target: { closest: () => null },
-    clientX: 300,
-    clientY: 300,
-    pointerId: 1,
-  });
-  on("pointermove")({ clientX: 302, clientY: 298 });
-  assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [200, 100]);
-  on("pointermove")({ clientX: 250, clientY: 260 });
-  on("pointerup")();
-  assert.deepEqual([scroller.scrollLeft, scroller.scrollTop], [250, 140]);
-  cell.listeners.click[0]();
-  assert.equal(doc.getElementById("dayDialog").open, false);
-  cell.listeners.click[0]();
-  assert.equal(doc.getElementById("dayDialog").open, true);
-});
-
-test("a tooltip also opens on keyboard focus and closes on blur", () => {
-  const page = load({ entry: "team.js" });
-  const node = page.document.createElement("div");
-  page.run("attachTip").call(null, node, (tip) => tip.appendChild(page.run("el('div', 't-title', 'Hola')")));
-  node.listeners.focus[0]();
-  const tip = page.document.getElementById("tip");
-  node.listeners.pointermove[0]({ clientX: 40, clientY: 50 });
-  assert.deepEqual([tip.style.left, tip.style.top], ["54px", "64px"]);
-  assert.equal(tip.style.display, "block");
-  assert.equal(tip.children[0].textContent, "Hola");
-  node.listeners.blur[0]();
-  assert.equal(tip.style.display, "none");
-});
-
-test("a punch that goes through reloads and checks the alarms", async () => {
-  const today = new Date();
-  let punched = false;
-  const page = load({
-    fetchImpl: async (url, opts) => {
-      if (opts?.method === "POST") {
-        punched = true;
-        return { ok: true, status: 200, json: async () => ({}) };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => payload(punched ? [session(at(today, 9), at(today, 10))] : [session(at(today, 9), null)]),
-      };
-    },
-  });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  assert.equal(punched, true);
-  assert.deepEqual(
-    hero.querySelectorAll(".btn").map((b) => b.textContent),
-    ["Fichar entrada"],
-  );
-  assert.equal(hero.querySelector(".err").textContent, "");
-});
-
 test("failed reloads from a returning tab, a new day or a prefetch leave the page alone and only log", async () => {
   let down = false;
   const page = load({
@@ -2938,146 +378,6 @@ test("failed reloads from a returning tab, a new day or a prefetch leave the pag
   assert.ok(urls.some((url) => url.startsWith("/api/team?week=")));
   assert.equal(team.document.getElementById("gridCard").classList.contains("hidden"), false);
   assert.ok(team.calls.warnings.includes("[odoo] the prefetch failed: Error: sin red"));
-});
-
-test("the dashboard's texts in their other cases", () => {
-  const monday = new Date(2026, 8, 14),
-    last = new Date(2026, 8, 7);
-  const on = (base, days, h, m = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, h, m);
-  const page = withData([
-    session(on(last, 0, 20), on(last, 2, 8)),
-    session(on(last, 3, 21), on(last, 4, 1)),
-    session(on(monday, 0, 8), on(monday, 0, 16, 30)),
-    session(on(monday, 1, 8), on(monday, 1, 8, 15), true),
-    session(on(monday, 1, 8, 15), null),
-  ]);
-  const text = (code) => page.run(code);
-  const past = new Date(TUESDAY.getTime() - 3600e3).getTime();
-  assert.match(
-    text(`punchText({ at: new Date(${past}), out: new Date(), rest: true })`),
-    /^Fin del descanso a las 09:00 · hace /,
-  );
-  assert.match(
-    text(`punchText({ at: new Date(${past}), out: null, rest: true, open: true })`),
-    /^En descanso desde las 09:00 · llevas /,
-  );
-  const headline = (code) => text(`heroHeadline(${code}).children.map(c => c.textContent)`);
-  assert.deepEqual(
-    headline(`{ expected: 0, vacation: true, auto: "Festivo", leaves: [], hours: 0 }, 0, 0, null, 0`).slice(0, 3),
-    ["Hoy", "Sin jornada", "Festivo"],
-  );
-  assert.deepEqual(headline(`{ expected: 8, hours: 8, leaves: [] }, 0, 0, null, 0`).slice(0, 3), [
-    "Hoy",
-    "Jornada cumplida",
-    "justo en las 8h previstas",
-  ]);
-
-  page.run("renderHero()");
-  const hero = page.document.getElementById("hero");
-  assert.ok(hero.querySelectorAll(".note").some((n) => n.textContent === "Descanso de hoy: 15m ausente"));
-  page.run(`store.absMap = new Map([["2026-09-15", "Festivo"]]); renderHero()`);
-  assert.ok(hero.querySelectorAll(".note").some((n) => /^Mar 15 sep · Festivo · /.test(n.textContent)));
-  assert.equal(
-    hero
-      .querySelectorAll(".btn")
-      .find((b) => b.textContent === "Fichar salida")
-      .classList.contains("pulse"),
-    false,
-  );
-  page.run(`store.absMap = new Map(); store.expected = [0.5, 0.25, 0, 0, 0, 0, 0]; renderHero()`);
-  assert.ok(
-    hero.querySelectorAll(".meter-caption").some((c) => /· objetivo alcanzado$/.test(c.children[0].textContent)),
-  );
-  page.run(SCHEDULE);
-
-  page.run("renderKpis([])");
-  assert.equal(page.document.getElementById("kpis").children.length, 0);
-  const tile = (delta) =>
-    text(`(() => { renderKpis([{ complete: true, target: 8, total: 8 + ${delta}, delta: ${delta}, error: false, days: [] }]);
-    return document.getElementById("kpis").children[1].children[1].className; })()`);
-  assert.deepEqual([tile(0), tile(-2), tile(2)], ["value num", "value num down", "value num"]);
-
-  page.run(`(() => { const ws = buildWeeks(3); Object.assign(ws[0], { missedDays: 2, openDays: 2, delta: -3 });
-    Object.assign(ws[1], { suspect: true, delta: -1 }); Object.assign(ws[2], { delta: -2, complete: true });
-    window.ws = ws; })()`);
-  const host = page.document.getElementById("overviewChart");
-  Object.assign(host, { scrollWidth: 1000, scrollLeft: 100, clientWidth: 200 });
-  page.run("store.weekTarget = 40; rangeShort = true; renderOverview(window.ws)");
-  assert.equal(host.scrollLeft, 100);
-  const cols = host.children[0].children.filter((g) => g.tagName === "G");
-  const first = hover(page, cols[0]);
-  assert.ok(["2 días sin fichar", "2 días con una entrada sin cerrar"].every((t) => first.includes(t)));
-  assert.equal(first.at(-1), "Bajo objetivo −3h");
-  const tone = (col) => {
-    col.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
-    const color = page.document.getElementById("tip").querySelectorAll(".v").at(-1).className;
-    col.listeners.pointerleave[0]();
-    return color;
-  };
-  assert.deepEqual(cols.slice(0, 3).map(tone), ["v warn", "v warn", "v down"]);
-  page.run("rangeShort = false; renderOverview(window.ws)");
-  const madeUp = host.children[0].children.filter((g) => g.tagName === "G")[2];
-  assert.equal(tone(madeUp), "v");
-
-  const card = page.document.getElementById("weekCal");
-  page.run("calOffset = 0; calView = 'objetivo'; renderCalendar()");
-  const today = card.querySelectorAll(".dayrow")[1];
-  const tip = hover(page, today);
-  assert.equal(tip[0], "Mar 15 sep · hoy");
-  assert.ok(tip.includes("08:15 – … 1h 45m en curso"));
-  assert.ok(tip.includes("08:00 – 08:15 · descanso 15m"));
-  page.run(`store.absMap = new Map([["2026-09-14", "Festivo"]]); calView = 'horario'; renderCalendar()`);
-  const rows = card.querySelectorAll(".tl-row");
-  assert.deepEqual(
-    rows.slice(0, 2).map((r) => ["today", "vac"].filter((c) => r.classList.contains(c))),
-    [["vac"], ["today"]],
-  );
-  const open = rows[1].querySelectorAll(".sess").find((s) => !s.classList.contains("rest"));
-  assert.deepEqual(hover(page, open).slice(0, 2), ["Mar 15 sep · 08:15 – en curso", "Trabajo 1h 45m"]);
-  page.run("store.absMap = new Map(); calOffset = 1; renderCalendar()");
-  const long = card.querySelectorAll(".tl-row")[0].querySelectorAll(".sess")[0];
-  assert.ok(hover(page, long).includes("Termina 2 días después"));
-  page.run("renderErrors()");
-  const banner = page.document.getElementById("errorsBanner");
-  const items = banner.children[0].children[2].children.map((li) => bannerLine(li.children[0]));
-  assert.ok(items.includes("Lun 7 sep 2026 · Jornada de 36h"));
-  page.run(
-    `store.data.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`,
-  );
-  assert.equal(banner.classList.contains("hidden"), true);
-  page.run(SCHEDULE);
-  page.run(
-    `store.data.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"]
-      .map((v) => {
-        const [d, h1, m1, h2, m2] = v.split(",").map(Number);
-        return JSON.stringify(session(on(last, d, h1, m1), on(last, d, h2, m2)));
-      })
-      .join(",")}]; indexSessions(); calOffset = 1; rangeShort = true; renderCalendar(); renderTable(buildWeeks(2))`,
-  );
-  assert.equal(card.querySelectorAll(".badge")[0].textContent, "▼ −1h vs 40h");
-  const downs = () =>
-    page.document
-      .getElementById("tableView")
-      .querySelectorAll("td")
-      .filter((td) => td.classList.contains("down"));
-  assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge down", 1]);
-  page.run("rangeShort = false; renderCalendar(); renderTable(buildWeeks(2))");
-  assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge flat", 0]);
-  page.run(
-    `store.data.sessions.at(-1).out = "${on(last, 4, 14).toISOString()}"; store.data.sessions.at(-1).hours = 6; indexSessions(); renderCalendar()`,
-  );
-  assert.equal(card.querySelectorAll(".badge")[0].textContent, "+0h vs 40h");
-  page.run("setRangeMonths(1); renderAll(); setRangeMonths(0); renderAll()");
-  page.run(`store.since = "2026-09-14"`);
-  assert.deepEqual(page.run("buildWeek(1).days.map(d => d.expected)"), [0, 0, 0, 0, 0, 0, 0]);
-  assert.equal(page.run("buildWeek(0).target"), 40);
-  page.run(`store.since = ""`);
-  page.run(`store.data.sessions = [${JSON.stringify(session(on(last, 0, 8), on(last, 0, 9)))}, ${JSON.stringify(session(on(last, 0, 10), on(last, 0, 23)))}];
-    store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`);
-  assert.equal(
-    bannerLine(banner.children[0].children[2].children[0].children[0]),
-    "Lun 7 sep 2026 · Jornada de 14h en 2 sesiones",
-  );
 });
 
 test("the alarms, the loader and the tooltip in their other cases", async () => {
@@ -3146,623 +446,337 @@ test("the alarms, the loader and the tooltip in their other cases", async () => 
   assert.equal(tip.style.display, "none");
 });
 
-test("the management cells, charts and controls in their other cases", async () => {
-  const page = load({ entry: "team.js", data: teamPayload() });
-  await settle();
-  const doc = page.document;
-  const probe = (code) => {
-    page.run(`document.getElementById("probe").replaceChildren(${code})`);
-    return doc.getElementById("probe").children[0];
-  };
-  const limits = "{ long_day: 12, under_margin: 1 / 60, over_margin: 5 }";
-  const day = (date, extra = "") =>
-    `{ date: "${date}", hours: 0, target: 8, absence: null, sessions: [], flags: [], requests: [] ${extra} }`;
-  assert.equal(probe(`dayCell({}, ${day("2099-01-01")}, "2026-01-01", ${limits})`).classList.contains("future"), true);
-  const days = ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06", "2026-03-07", "2026-03-08"];
-  const week = `{ monday: "2026-03-02", hours: 0, target: null, balance: null, flags: [] }`;
-  const employee = `{ id: 1, name: "Ana", weeks: [${week}], days: [${days.map((d, i) => day(d, i < 2 ? ', flags: ["empty"]' : "")).join(",")}] }`;
-  const cell = probe(`weekCell(${employee}, 0, "2026-03-04", ${limits})`);
-  assert.equal(cell.classList.contains("today"), true);
-  assert.ok(cell.children.some((c) => c.textContent === "2 días con errores de fichaje"));
-  assert.deepEqual(hover(page, cell), ["Saldo de la semana, día a día", "Ningún día cerrado con jornada prevista"]);
-  const month = probe(
-    `monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-05-01")`,
-  );
-  assert.deepEqual(hover(page, month).slice(-1), ["Solo los días del mes −10h"]);
-  const running = probe(
-    `monthCell({ hours: 10, target: 20, balance: -10, weeks: [] }, { stop: "2026-04-01", limits: ${limits} }, "2026-03-15")`,
-  );
-  assert.deepEqual(hover(page, running).slice(-1), ["Días del mes hasta ayer −10h"]);
-  const yearMonth = (m, year = -5) =>
-    probe(
-      `yearMonthCell({ balance: ${year} }, { month: "2026-01", hours: 1, target: 1, under: 0, over: 0, flagged_days: 0, ${m} }, "2026-06-01", ${limits})`,
-    );
-  assert.equal(yearMonth("balance: -2").classList.contains("bad"), true);
-  assert.equal(yearMonth("balance: -2", 3).classList.contains("bad"), false);
-  assert.equal(yearMonth("balance: -2, flagged_days: 1").classList.contains("bad"), false);
-  const over = yearMonth("balance: 6, over: 1", 6);
-  assert.deepEqual([over.classList.contains("bad"), over.children.at(-1).className], [true, "flag"]);
-  assert.equal(yearMonth("balance: 6, over: 1", 2).children.at(-1).className, "meta block");
-  assert.deepEqual(
-    ["bad", "warn"].map((c) => yearMonth("balance: 0").classList.contains(c)),
-    [false, false],
-  );
-  assert.equal(yearMonth("balance: 0, flagged_days: 2").classList.contains("warn"), true);
-  assert.equal(page.run(`team.year = "2020"; Views.year.anchor()`), "2020-01-01");
-  assert.equal(page.run(`team.year = thisDay().slice(0, 4); Views.year.anchor()`), page.run("thisDay()"));
-  assert.match(page.run(`team.week = null; team.view = "week"; stateHash()`), /^#v=week&p=&/);
-  page.run(`team.fixes = { ...team.fixes, employees: [{ id: 5, name: "Uno", items: [
-    { date: "2025-03-04", kind: "long", hours: 13, target: 8, sessions: [{ in: "2025-03-04T08:00:00", out: "2025-03-04T21:00:00", hours: 13 }] }] }] }; renderFixes()`);
-  const chips = () =>
-    doc
-      .getElementById("fixes")
-      .children[0].children.flatMap((c) => c.children || [])
-      .map((k) => k.textContent);
-  assert.ok(chips().includes("1 jornada muy larga · 13h"));
-  page.run(
-    "team.fixes.employees[0].items.push({ ...team.fixes.employees[0].items[0], date: '2025-03-05' }); renderFixes()",
-  );
-  assert.ok(chips().includes("2 jornadas muy largas · 26h"));
-  page.run(`team.view = "month"; periods({ employees: [] }, [], "2026-01-01")`);
-  page.run(`team.view = "week"; renderCharts({ ...team.data, stop: "2000-01-01" }, team.data.employees, "2026-01-01")`);
-  assert.doesNotMatch(doc.getElementById("charts").children[0].children[1].textContent, /hasta ayer/);
-  page.run(`renderCharts({ ...team.data, stop: "2999-01-01" }, team.data.employees, "2026-01-01")`);
-  assert.match(doc.getElementById("charts").children[0].children[1].textContent, /hasta ayer: hoy aún no cuenta/);
-  const columns = probe(
-    `groupedColumns([{ label: "L", values: { a: 1 } }], [{ key: "a", label: "Serie", cls: "error" }])`,
-  );
-  assert.deepEqual(
-    hover(
-      page,
-      columns.children.find((c) => c.tagName === "G"),
-    ),
-    ["L", "Serie 1"],
-  );
-  const views = doc.getElementById("viewSeg");
-  page.run("team.data = null");
-  const monthButton = doc.createElement("button");
-  monthButton.dataset.view = "month";
-  views.listeners.click[0]({ target: { closest: () => monthButton } });
-  await settle();
-  assert.equal(page.run("team.view"), "month");
-  const scroller = doc.getElementById("fixes");
-  const captured = [];
-  scroller.setPointerCapture = (id) => captured.push(id);
-  scroller.listeners.pointerdown[0]({
-    button: 0,
-    target: { closest: () => null },
-    clientX: 5,
-    clientY: 0,
-    pointerId: 7,
-  });
-  assert.deepEqual(captured, []);
-  scroller.listeners.pointermove[0]({ clientX: 50, clientY: 0 });
-  assert.deepEqual(captured, [7]);
-  scroller.listeners.pointerup[0]();
-});
-
-test("the name search ignores case and accents, reaches every list and is kept in the URL", async () => {
-  const data = teamPayload();
-  const page = load({ entry: "team.js", data, path: "/gestion#f=all&q=ZO" });
-  const pick = withFilters(page);
-  await settle();
-  const doc = page.document;
-  const names = () => doc.getElementById("grid").children[1].children.map(rowName);
-  const fixed = () =>
-    doc
-      .getElementById("fixes")
-      .children[0].children.filter((c) => c.tagName === "A")
-      .map((a) => a.textContent);
-  assert.equal(doc.getElementById("search").value, "ZO");
-  assert.deepEqual(names(), ["Zoe"]);
-  assert.deepEqual(fixed(), ["Zoe"]);
-  const search = doc.getElementById("search");
-  search.listeners.input[0]({ target: { value: "BRÚNO" } });
-  assert.deepEqual([names(), fixed()], [["Bruno"], ["Bruno"]]);
-  search.listeners.input[0]({ target: { value: "alvaro" } });
-  assert.deepEqual(names(), ["Álvaro"]);
-  assert.match(page.calls.hash, /q=alvaro/);
-  search.listeners.input[0]({ target: { value: "  nadie  " } });
-  assert.equal(names()[0], "Nadie cuyo nombre contenga «nadie»");
-  assert.deepEqual(fixed(), []);
-  assert.match(
-    doc.getElementById("fixesNote").textContent,
-    /Nadie cuyo nombre contenga «nadie» con los tipos elegidos\.$/,
-  );
-  assert.equal(doc.getElementById("openCard").classList.contains("hidden"), false);
-  search.listeners.input[0]({ target: { value: "" } });
-  assert.deepEqual(names(), ["Álvaro", "Ana", "Bruno", "Zoe"]);
-  pick("issues");
-  page.run("team.data = null");
-  search.listeners.input[0]({ target: { value: "zo" } });
-  assert.deepEqual([page.run("team.search"), fixed()], ["zo", ["Zoe"]]);
-  page.run("team.fixes = null");
-  search.listeners.input[0]({ target: { value: "" } });
-});
-
-test("the day dialog corrects punches and approves a request, with a second click each", async () => {
-  const data = {
-    ...teamPayload(),
-    can_edit: true,
-    reasons: [
-      { id: 5, name: "Normal" },
-      { id: 3, name: "Descanso" },
-    ],
-  };
-  const alvaro = data.employees.find((e) => e.name === "Álvaro");
-  const at = (d, h, m = 0) => new Date(2025, 2, d, h, m).toISOString();
-  alvaro.days[0] = {
-    ...alvaro.days[0],
-    hours: 23.6,
-    flags: ["long"],
-    sessions: [
-      { id: 11, in: at(3, 8, 36), out: at(3, 15, 45), hours: 7.15 },
-      { id: 12, in: at(3, 16, 7), out: at(4, 8, 34), hours: 16.45, reason: "Normal", reason_id: 5 },
-      { id: 13, in: at(3, 16, 50), out: at(3, 17), hours: 0.17, rest: true, reason: "Descanso", reason_id: 3 },
-    ],
-    requests: [
-      {
-        id: 552,
-        from: at(3, 8, 30),
-        to: at(3, 17, 40),
-        status: "pending",
-        reason: "Salí a las 17:40",
-        can_approve: true,
-      },
-    ],
-  };
-  const posts = [];
-  let answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: at(4, 8, 34) }) };
-  let refused = null;
-  const overlap = { ok: false, status: 409, json: async () => ({ error: "se solapa" }) };
-  const page = load({
-    entry: "team.js",
-    fetchImpl: async (url, opts) => {
-      if (opts?.method === "POST") {
-        posts.push([url, JSON.parse(opts.body)]);
-        return url === refused ? overlap : answer;
-      }
-      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : data) };
-    },
-  });
-  await settle();
-  const doc = page.document;
-  const cell = () => doc.getElementById("grid").children[1].children[0].children[1];
-  cell().listeners.click[0]();
-  const body = doc.getElementById("dayDialogBody");
-  const note = () => doc.getElementById("dayDialogNote").textContent;
-  const editor = () => body.children[1];
-  const rows = () => editor().children.filter((c) => c.className.startsWith("edit-row"));
-  const inputs = (i) => rows()[i].children.filter((c) => c.tagName === "INPUT");
-  const motive = (i) => rows()[i].children.find((c) => c.tagName === "SELECT");
-  const plus = (i) => rows()[i].children.at(-1);
-  const saveButton = () => editor().children.at(-1).children[0];
-  const twice = async (button) => {
-    await button.listeners.click[0]();
-    await button.listeners.click[0]();
-    await settle();
-  };
-  assert.deepEqual(
-    rows().map((r) => r.className),
-    ["edit-row", "edit-row warn", "edit-row"],
-  );
-  assert.deepEqual(
-    inputs(1).map((i) => i.value),
-    ["16:07", "08:34"],
-  );
-  assert.ok(rows()[1].children.some((c) => c.textContent === "salida el 4 mar 2025"));
-  assert.deepEqual(
-    [0, 1, 2].map((i) => motive(i).value),
-    ["", "5", "3"],
-  );
-  assert.deepEqual(
-    motive(0).children.map((o) => [o.value, o.textContent]),
-    [
-      ["", "sin motivo"],
-      ["5", "Normal"],
-      ["3", "Descanso"],
-    ],
-  );
-  assert.deepEqual(
-    motive(1).children.map((o) => o.textContent),
-    ["Normal", "Descanso"],
-  );
-  assert.equal(motive(1).attrs["aria-label"], "Motivo");
-
-  assert.deepEqual([plus(0).textContent, plus(0).attrs["aria-label"]], ["+", "Añadir un fichaje debajo"]);
-  const save = saveButton();
-  await save.listeners.click[0]();
-  assert.equal(save.textContent, "¿Confirmar?");
-  page.calls.timeouts.at(-1)[0]();
-  assert.equal(save.textContent, "Guardar cambios");
-  await twice(save);
-  assert.equal(note(), "No hay cambios que guardar.");
-
-  inputs(1)[1].value = "17:40";
-  const close = doc.getElementById("dayDialogClose");
-  const held = [];
-  const cancel = (e) => {
-    let refused = false;
-    doc.getElementById("dayDialog").listeners.cancel[0]({
-      preventDefault: () => {
-        refused = true;
+test("the source poll runs only where the page is served from this machine", () => {
+  const where = (hostname) => {
+    const page = load({
+      globals: {
+        location: { hostname, protocol: "http:", pathname: "/", search: "", hash: "", replace() {}, reload() {} },
       },
     });
-    held.push([close.disabled, refused]);
+    return page.calls.timers.some(([, ms]) => ms === 2000);
   };
-  await saveButton().listeners.click[0]();
-  const saving = saveButton().listeners.click[0]();
-  cancel();
-  await saving;
+  assert.deepEqual(["localhost", "127.0.0.1", "[::1]", "::1", "192.168.1.5", "mac.local"].map(where), [
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+  ]);
+});
+
+const later = (page, ms) => page.Clock.set(new Date(page.Clock.now() + ms));
+const freshData = (page) => page.run(`store.loadedAt = ${page.Clock.now()}; store.triedAt = ${page.Clock.now()}`);
+const dataLoads = (page) => page.sent.filter((r) => r.url.startsWith("/api/data")).length;
+const marks = (page) => {
+  page.run("LastRing.lunch = 5; LastRing.rest = 6; NotifiedAt = 7; store.byDay = new Map()");
+  page.run(`flashTitle("x")`);
+  page.document.getElementById("hero").replaceChildren("marca");
+  page.document.getElementById("overviewTitle").textContent = "marca";
+};
+const redrawn = (page) => ({
+  alarms: page.run("[LastRing.lunch, LastRing.rest, NotifiedAt]"),
+  flashing: flashing(page),
+  indexed: page.run("store.byDay.size") > 0,
+  hero: page.document.getElementById("hero").children[0] !== "marca",
+  all: page.document.getElementById("overviewTitle").textContent !== "marca",
+});
+const REDRAWN_ON_A_NEW_DAY = { alarms: [0, 0, 0], flashing: false, indexed: true, hero: true, all: true };
+
+test("a new day resets the alarms, repaints from the local clock and reloads", async () => {
+  const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+  marks(page);
+  page.Clock.set(WEDNESDAY);
+  page.document.listeners.visibilitychange[0]();
+  assert.deepEqual(redrawn(page), REDRAWN_ON_A_NEW_DAY);
+  assert.equal(page.run("store.today.getDate()"), 16);
+  assert.equal(dataLoads(page), 2);
   await settle();
-  cancel();
-  assert.deepEqual(held, [
-    [true, true],
-    [false, false],
-  ]);
-  assert.deepEqual(posts.at(-1), [
-    "/api/team/attendance",
-    { id: 12, check_in: at(3, 16, 7), check_out: at(3, 17, 40) },
-  ]);
+  const ticking = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+  marks(ticking);
+  ticking.Clock.set(WEDNESDAY);
+  clockTick(ticking)();
+  assert.deepEqual(redrawn(ticking), REDRAWN_ON_A_NEW_DAY);
   assert.equal(
-    note(),
-    "Guardado. La salida original, 4 mar 2025 a las 08:34, era probablemente la entrada de ese día: añádela allí.",
-  );
-  assert.equal(doc.getElementById("dayDialog").open, true);
-
-  answer = { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
-  motive(2).value = "5";
-  await twice(saveButton());
-  assert.deepEqual(posts.at(-1), [
-    "/api/team/attendance",
-    { id: 13, check_in: at(3, 16, 50), check_out: at(3, 17), reason: 5 },
-  ]);
-  plus(0).listeners.click[0]();
-  await twice(saveButton());
-  assert.equal(note(), "No hay cambios que guardar.");
-  const fresh = 1;
-  assert.deepEqual(
-    rows().map((r) => r.className),
-    ["edit-row", "edit-row", "edit-row warn", "edit-row"],
-  );
-  assert.deepEqual([inputs(fresh).map((i) => i.value), motive(fresh).value], [["", ""], "5"]);
-  assert.deepEqual(
-    rows()
-      [fresh].children.filter((c) => c.tagName === "BUTTON")
-      .map((b) => b.textContent),
-    ["+"],
-  );
-  inputs(fresh)[0].value = "08:34";
-  await twice(saveButton());
-  assert.match(note(), /cada fichaje necesita entrada y salida$/);
-  inputs(fresh)[1].value = "15:00";
-  inputs(0)[0].value = "08:40";
-  await twice(saveButton());
-  assert.deepEqual(posts.slice(-2), [
-    ["/api/team/attendance", { id: 11, check_in: at(3, 8, 40), check_out: at(3, 15, 45) }],
-    ["/api/team/attendance", { employee: 1, check_in: at(3, 8, 34), check_out: at(3, 15), reason: 5 }],
-  ]);
-  assert.equal(note(), "Guardado.");
-
-  const cross = (i) => rows()[i].children.at(-2);
-  assert.deepEqual(
-    [cross(1).textContent, cross(1).title, cross(1).attrs["aria-pressed"]],
-    ["✕", "Eliminar este fichaje", "false"],
-  );
-  cross(1).listeners.click[0]();
-  assert.deepEqual(
-    [
-      rows()[1].className,
-      inputs(1).map((i) => i.disabled),
-      motive(1).disabled,
-      cross(1).attrs["aria-label"],
-      cross(1).attrs["aria-pressed"],
-    ],
-    ["edit-row warn gone", [true, true], true, "No eliminar este fichaje", "true"],
-  );
-  cross(1).listeners.click[0]();
-  assert.deepEqual(
-    [rows()[1].className, inputs(1).map((i) => i.disabled), cross(1).title],
-    ["edit-row warn", [false, false], "Eliminar este fichaje"],
-  );
-  await twice(saveButton());
-  assert.equal(note(), "No hay cambios que guardar.");
-  inputs(0)[1].value = "17:00";
-  inputs(1)[1].value = "";
-  cross(1).listeners.click[0]();
-  await twice(saveButton());
-  assert.deepEqual(posts.slice(-2), [
-    ["/api/team/delete", { id: 12, gone: true }],
-    ["/api/team/attendance", { id: 11, check_in: at(3, 8, 36), check_out: at(3, 17) }],
-  ]);
-  assert.equal(note(), "Guardado.");
-
-  refused = "/api/team/attendance";
-  inputs(0)[1].value = "17:00";
-  await twice(saveButton());
-  assert.equal(note(), "No se pudo guardar: se solapa");
-  assert.equal(inputs(0)[1].value, "17:00");
-  cross(1).listeners.click[0]();
-  await twice(saveButton());
-  assert.equal(note(), "Guardado solo en parte; no se pudo el resto: se solapa.");
-  assert.deepEqual([rows()[1].className, inputs(0)[1].value], ["edit-row warn", "15:45"]);
-  refused = null;
-
-  const approve = () => body.children.find((c) => c.textContent === "Aprobar solicitud");
-  await twice(approve());
-  assert.deepEqual(posts.at(-1), ["/api/team/approve", { id: 552 }]);
-  assert.equal(note(), "Solicitud aprobada.");
-  answer = { ok: false, status: 409, json: async () => ({ error: "no eres aprobador" }) };
-  await twice(approve());
-  assert.equal(note(), "No se pudo aprobar: no eres aprobador");
-
-  const blame = page.run(`toBlame([{ in: "${at(3, 8, 36)}", out: "${at(3, 15, 45)}", hours: 7.15 },
-    { in: "${at(3, 16, 7)}", out: "${at(4, 8, 34)}", hours: 16.45 }], team.fixes.limits).map(s => s.hours)`);
-  assert.deepEqual(blame, [16.45]);
-  const adding =
-    page.run(`toBlame([{ in: "${at(3, 8)}", out: "${at(3, 14)}", hours: 6 }, { in: "${at(3, 12)}", out: "${at(3, 19)}", hours: 7 }],
-    team.fixes.limits).length`);
-  assert.equal(adding, 2);
-  const open = `{ s: { id: 9, in: "${at(3, 9)}", out: null }, start: { value: "09:00" }, end: { value: VALUE } }`;
-  assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '""')}])`), []);
-  assert.deepEqual(page.run(`punchChanges("2025-03-03", [${open.replace("VALUE", '"14:00"')}])`), [
-    { id: 9, check_in: at(3, 9), check_out: at(3, 14) },
-  ]);
-  const other = page.run(
-    `(f => [f.value, f.children.map(o => o.textContent)])(reasonField({ reason: "Felt Sick", reason_id: 8 }, team.data.reasons))`,
-  );
-  assert.deepEqual(other, ["8", ["Felt Sick", "Normal", "Descanso"]]);
-  const plain =
-    page.run(`punchEditor({ id: 1 }, { date: "2025-03-03", sessions: [{ id: 13, in: "${at(3, 16, 50)}", out: "${at(3, 17)}", rest: true }] },
-    team.data.limits, []).children[0].children.at(-3).textContent`);
-  assert.equal(plain, "descanso");
-  const empty = page.run(
-    `punchEditor({ id: 1 }, { date: "2025-03-04", sessions: [] }, team.data.limits, []).children.map(c => c.className)`,
-  );
-  assert.deepEqual(empty, ["edit-row", "edit-actions"]);
-  answer = { ok: true, status: 200, json: async () => ({ ok: true }) };
-  data.employees = data.employees.filter((e) => e !== alvaro);
-  inputs(0)[0].value = "08:45";
-  await twice(saveButton());
-  assert.equal(note(), "Guardado.");
-});
-
-test("a mark in the fixes strip opens its day to correct it, unless it ends a drag", async () => {
-  const urls = [];
-  let down = false;
-  const page = load({
-    entry: "team.js",
-    fetchImpl: async (url) => {
-      urls.push(url);
-      if (down && url.includes("week=")) throw new Error("sin red");
-      return { ok: true, status: 200, json: async () => (url.includes("fixes") ? teamFixes() : teamPayload()) };
-    },
-  });
-  await settle();
-  const doc = page.document;
-  const dialog = doc.getElementById("dayDialog");
-  const zoe = doc.getElementById("fixes").children[0].children.slice(3)[2];
-  const marks = zoe.children.filter((c) => c.tagName === "G");
-  const scroller = doc.getElementById("fixes");
-  const on = (type) => scroller.listeners[type][0];
-  on("pointerdown")({ button: 0, target: { closest: () => null }, clientX: 100, clientY: 0 });
-  on("pointermove")({ clientX: 40, clientY: 0 });
-  on("pointerup")();
-  await marks[0].listeners.click[0]();
-  assert.equal(dialog.open, false);
-  on("pointerdown")({ button: 0, target: { closest: () => null }, clientX: 100, clientY: 0 });
-  on("pointerup")();
-  page.run(`team.fixes.employees[0].items[0].date = "2025-03-03"; renderFixes()`);
-  const first = doc
-    .getElementById("fixes")
-    .children[0].children.slice(3)[2]
-    .children.filter((c) => c.tagName === "G")[0];
-  await first.listeners.click[0]();
-  await settle();
-  assert.ok(urls.includes("/api/team?week=2025-03-03"));
-  assert.equal(dialog.open, true);
-  assert.equal(doc.getElementById("dayDialogTitle").textContent, "Zoe");
-  dialog.close();
-  first.listeners.keydown[0]({ key: "Tab" });
-  down = true;
-  first.listeners.keydown[0]({ key: "Enter" });
-  await settle();
-  assert.equal(dialog.open, false);
-  assert.equal(doc.getElementById("fixesNote").textContent, "No se pudo abrir ese día: sin red");
-});
-
-test("the personal page's punches to fix open the correcting dialog when the session may", async () => {
-  const today = new Date();
-  const back = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
-  const errors = [session(at(back(10), 16), at(back(9), 8, 30))];
-  const week = { ...teamPayload(), can_edit: true };
-  const day = isoDate(back(10));
-  week.employees[0] = { ...week.employees[0], id: 9, days: [{ ...week.employees[0].days[0], date: day }] };
-  const urls = [];
-  let down = false;
-  const page = load({
-    path: "/empleado?id=9",
-    fetchImpl: async (url) => {
-      urls.push(url);
-      if (url === "/api/team/attendance") {
-        down = true;
-        return { ok: true, status: 200, json: async () => ({ ok: true, lost_entry: null }) };
-      }
-      if (url.startsWith("/api/team")) {
-        if (down) throw new Error("sin red");
-        return { ok: true, status: 200, json: async () => week };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => payload(errors, { team: true, can_edit: true, employee_id: 3 }),
-      };
-    },
-  });
-  await page.run("loadAndRender()");
-  const doc = page.document;
-  const items = () => doc.getElementById("errorsBanner").children[0].children[2].children;
-  const fix = items()[0].children[1];
-  assert.equal(fix.textContent, "Corregir");
-  await fix.listeners.click[0]();
-  await settle();
-  assert.ok(urls.includes(`/api/team?week=${day}`));
-  const dialog = doc.getElementById("dayDialog");
-  assert.equal(dialog.open, true);
-  assert.equal(doc.getElementById("dayDialogTitle").textContent, "Zoe");
-  const editor = doc.getElementById("dayDialogBody").children[1];
-  editor.children
-    .find((c) => c.className === "edit-row")
-    .children.at(-1)
-    .listeners.click[0]();
-  const added = editor.children
-    .filter((c) => c.className === "edit-row")
-    .at(-1)
-    .children.filter((c) => c.tagName === "INPUT");
-  [added[0].value, added[1].value] = ["09:00", "10:00"];
-  const save = editor.children.find((c) => c.className === "edit-actions").children[0];
-  const loads = urls.filter((u) => u.startsWith("/api/data")).length;
-  await save.listeners.click[0]();
-  await save.listeners.click[0]();
-  await settle();
-  assert.equal(urls.filter((u) => u.startsWith("/api/data")).length, loads + 1);
-  assert.equal(doc.getElementById("dayDialogNote").textContent, "Guardado.");
-  down = false;
-  doc.getElementById("dayDialogClose").listeners.click[0]();
-  assert.equal(dialog.open, false);
-  down = true;
-  await fix.listeners.click[0]();
-  await settle();
-  assert.deepEqual([fix.textContent, fix.title], ["No se pudo abrir", "sin red"]);
-  page.run("store.data.can_edit = false; renderErrors()");
-  assert.equal(items()[0].children.length, 1);
-  page.run("store.other = null; renderErrors()");
-  assert.equal(items()[0].children[1].textContent, "Solicitar cambio");
-  page.run("store.data.can_edit = true; renderErrors()");
-  assert.deepEqual(
-    items()[0]
-      .children.slice(1)
-      .map((b) => b.textContent),
-    ["Corregir", "Solicitar cambio"],
-  );
-  down = false;
-  await items()[0].children[1].listeners.click[0]();
-  await settle();
-  assert.ok(urls.at(-1).startsWith("/api/team?week="));
-});
-
-test("your own punches to fix open Odoo's change request form, and the header an empty one", async () => {
-  const today = new Date();
-  const back = (n) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
-  const urls = [];
-  let down = false;
-  const page = load({
-    fetchImpl: async (url) => {
-      urls.push(url);
-      if (url.startsWith("/api/request")) {
-        if (down) return { ok: false, status: 409, json: async () => ({ error: "sin categoría" }) };
-        return { ok: true, status: 200, json: async () => ({ url: "https://odoo.example/form" }) };
-      }
-      return { ok: true, status: 200, json: async () => payload([session(at(back(10), 16), at(back(9), 8, 30))]) };
-    },
-  });
-  page.run(
-    "window.tabs = []; window.open = (url, target) => { const tab = { url, target, opener: window, " +
-      "closed: false, close() { this.closed = true; } }; window.tabs.push(tab); return tab; }",
-  );
-  await page.run("loadAndRender()");
-  const ask = page.document.getElementById("errorsBanner").children[0].children[2].children[0].children[1];
-  assert.equal(ask.textContent, "Solicitar cambio");
-  await ask.listeners.click[0]();
-  const tabs = page.run("window.tabs");
-  assert.equal(urls.at(-1), `/api/request?date=${isoDate(back(10))}`);
-  assert.deepEqual(
-    [tabs[0].url, tabs[0].target, tabs[0].opener, tabs[0].location, tabs[0].closed],
-    ["", "_blank", null, "https://odoo.example/form", false],
-  );
-  const shortcut = page.document.getElementById("requestBtn");
-  assert.equal(shortcut.classList.contains("hidden"), false);
-  await shortcut.listeners.click[0]();
-  assert.equal(urls.at(-1), "/api/request");
-  assert.equal(page.run("window.tabs[1].location"), "https://odoo.example/form");
-  down = true;
-  await ask.listeners.click[0]();
-  assert.equal(page.run("window.tabs[2].closed"), true);
-  assert.deepEqual([ask.textContent, ask.title], ["No se pudo abrir", "sin categoría"]);
-  page.run("store.other = '9'; loadAndRender()");
-  await settle();
-  assert.equal(shortcut.classList.contains("hidden"), true);
-});
-
-test("someone's page shows the requests the viewer may approve, one line per day with its errors", async () => {
-  const week = teamPayload();
-  const urls = [];
-  let down = false;
-  const requests = [
-    {
-      id: 552,
-      from: new Date(2025, 2, 3, 8, 30).toISOString(),
-      to: new Date(2025, 2, 3, 17, 40).toISOString(),
-      status: "pending",
-      reason: "Salí a las 17:40",
-      can_approve: true,
-    },
-    {
-      id: 553,
-      from: new Date(2025, 2, 4, 9).toISOString(),
-      to: null,
-      status: "pending",
-      reason: "",
-      can_approve: true,
-    },
-  ];
-  const page = load({
-    path: "/empleado?id=3",
-    fetchImpl: async (url) => {
-      urls.push(url);
-      if (url.startsWith("/api/team")) {
-        if (down) throw new Error("sin red");
-        return { ok: true, status: 200, json: async () => week };
-      }
-      return { ok: true, status: 200, json: async () => payload([], { team: true, requests }) };
-    },
-  });
-  await page.run("loadAndRender()");
-  const box = page.document.getElementById("errorsBanner");
-  const lines = () => box.children[0].children[2].children;
-  assert.deepEqual([box.classList.contains("hidden"), box.classList.contains("requests")], [false, true]);
-  assert.equal(box.querySelectorAll("h2")[0].textContent, "2 solicitudes pendientes");
-  assert.deepEqual(
-    lines().map((li) => bannerLine(li.children[0])),
-    [
-      "Mar 4 mar 2025 · Solicitud pendiente 09:00",
-      "Lun 3 mar 2025 · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
-    ],
-  );
-  assert.deepEqual(
-    lines().map((li) => li.children[1].textContent),
-    ["Revisar", "Revisar"],
-  );
-  await lines()[1].children[1].listeners.click[0]();
-  await settle();
-  assert.ok(urls.includes("/api/team?week=2025-03-03"));
-  assert.equal(
-    page.document.getElementById("dayDialogBody").children.some((c) => c.className === "editor"),
+    ticking.sent.some((r) => r.url === "/api/state"),
     false,
   );
-  assert.equal(page.document.getElementById("dayDialog").open, true);
-  down = true;
-  await lines()[0].children[1].listeners.click[0]();
+  const failing = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("sin red")) } });
+  failing.Clock.set(WEDNESDAY);
+  failing.document.listeners.visibilitychange[0]();
   await settle();
-  assert.equal(lines()[0].children[1].textContent, "No se pudo abrir");
-  page.run(`store.data.requests = store.data.requests.slice(0, 1); store.data.sessions = [${JSON.stringify(session(new Date(2025, 2, 3, 9), null))}];
-    indexSessions(); renderErrors()`);
-  assert.equal(box.querySelectorAll("h2")[0].textContent, "⚠ 1 fichaje por corregir · 1 solicitud pendiente");
-  assert.equal(box.classList.contains("requests"), false);
-  assert.equal(
-    bannerLine(lines()[0].children[0]),
-    "Lun 3 mar 2025 · Sin cerrar entrada a las 09:00, sin salida · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
+  assert.deepEqual(failing.calls.warnings, ["[odoo] the reload on a new day failed: Error: sin red"]);
+});
+
+test("coming back to the tab stops a blinking title and reloads stale data unless the page is busy", async () => {
+  const back = () => {
+    const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+    page.run(`flashTitle("x")`);
+    return page;
+  };
+  const hidden = back();
+  hidden.document.hidden = true;
+  later(hidden, 61000);
+  hidden.document.listeners.visibilitychange[0]();
+  assert.equal(flashing(hidden), true);
+  assert.equal(dataLoads(hidden), 1);
+
+  const stale = back();
+  later(stale, 61000);
+  stale.document.listeners.visibilitychange[0]();
+  assert.equal(flashing(stale), false);
+  assert.equal(dataLoads(stale), 2);
+
+  const fresh = back();
+  later(fresh, 30000);
+  fresh.document.listeners.visibilitychange[0]();
+  assert.equal(dataLoads(fresh), 1);
+
+  const busy = back();
+  later(busy, 61000);
+  busy.document.getElementById("tip").style.display = "block";
+  busy.document.listeners.visibilitychange[0]();
+  assert.equal(dataLoads(busy), 1);
+
+  const empty = back();
+  empty.run("store.data = null");
+  later(empty, 61000);
+  empty.document.listeners.visibilitychange[0]();
+  assert.equal(dataLoads(empty), 1);
+
+  const failing = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("sin red")) } });
+  later(failing, 61000);
+  failing.document.listeners.visibilitychange[0]();
+  await settle();
+  assert.deepEqual(failing.calls.warnings, ["[odoo] the reload on returning to the tab failed: Error: sin red"]);
+});
+
+const sourcePoll = (page) => page.calls.timers.find(([, ms]) => ms === 2000)[0];
+
+test("the source poll reloads the page when the version changes, and is skipped while busy", async () => {
+  let version = "a";
+  const page = dashboard({ answers: { "/api/version": () => answer({ version })() } });
+  await sourcePoll(page)();
+  assert.equal(page.run("SourceVersion"), "a");
+  await sourcePoll(page)();
+  assert.equal(page.calls.reload, 0);
+  version = "b";
+  page.document.getElementById("tip").style.display = "block";
+  await sourcePoll(page)();
+  assert.equal(page.calls.reload, 0);
+  assert.equal(page.sent.filter((r) => r.url === "/api/version").length, 2);
+  page.document.getElementById("tip").style.display = "none";
+  await sourcePoll(page)();
+  assert.equal(page.calls.reload, 1);
+});
+
+test("a source poll that fails is logged", async () => {
+  const page = dashboard({ answers: { "/api/version": () => Promise.reject(new Error("sin red")) } });
+  await sourcePoll(page)();
+  assert.deepEqual(page.calls.warnings, ["[odoo] the source version poll failed: Error: sin red"]);
+});
+
+const clockTick = (page) => page.calls.timers.find(([, ms]) => ms === 20000)[0];
+
+test("the clock reloads a page that has no data, when it is time and the tab is visible", () => {
+  const empty = () => {
+    const page = dashboard();
+    page.run("store.data = null");
+    return page;
+  };
+  const visible = empty();
+  later(visible, 61000);
+  clockTick(visible)();
+  assert.equal(dataLoads(visible), 2);
+  const hidden = empty();
+  hidden.document.visibilityState = "hidden";
+  later(hidden, 61000);
+  clockTick(hidden)();
+  assert.equal(dataLoads(hidden), 1);
+  const early = empty();
+  later(early, 30000);
+  clockTick(early)();
+  assert.equal(dataLoads(early), 1);
+});
+
+test("the clock reloads stale data when visible and idle, and otherwise only polls the shared state", async () => {
+  const run = async (setup) => {
+    const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+    later(page, 61000);
+    setup?.(page);
+    clockTick(page)();
+    await settle();
+    return { loads: dataLoads(page), polls: page.sent.filter((r) => r.url === "/api/state").length };
+  };
+  assert.deepEqual(await run(), { loads: 2, polls: 0 });
+  assert.deepEqual(await run((p) => (p.document.visibilityState = "hidden")), { loads: 1, polls: 1 });
+  assert.deepEqual(await run((p) => (p.document.getElementById("tip").style.display = "block")), {
+    loads: 1,
+    polls: 0,
+  });
+  assert.deepEqual(await run((p) => freshData(p)), { loads: 1, polls: 1 });
+  const failing = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("sin red")) } });
+  later(failing, 61000);
+  clockTick(failing)();
+  await settle();
+  assert.deepEqual(failing.calls.warnings, ["[odoo] the reload of stale data failed: Error: sin red"]);
+});
+
+test("the clock repaints the hero and the page while a session is open, unless the page is busy", () => {
+  const ticked = (setup) => {
+    const page = dashboard({ sessions: [session(at(TUESDAY, 8), at(TUESDAY, 8, 30)), session(at(TUESDAY, 9), null)] });
+    marks(page);
+    later(page, 30 * 60000);
+    freshData(page);
+    setup?.(page);
+    clockTick(page)();
+    return page;
+  };
+  const page = ticked();
+  assert.equal(page.run("store.now.getTime()"), TUESDAY.getTime() + 30 * 60000);
+  assert.deepEqual(redrawn(page), { ...REDRAWN_ON_A_NEW_DAY, alarms: [5, 6, 7], flashing: true });
+  const busy = ticked((p) => (p.document.getElementById("tip").style.display = "block"));
+  assert.equal(busy.run("store.now.getTime()"), TUESDAY.getTime());
+  assert.deepEqual(redrawn(busy), { alarms: [5, 6, 7], flashing: true, indexed: false, hero: false, all: false });
+});
+
+test("the clock only refreshes the last punch and the status line when nothing is open", () => {
+  const page = withAlarms({ sessions: [mondayDone, session(at(TUESDAY, 9), at(TUESDAY, 9, 30))] });
+  page.run(lunchedAt(new Date(TUESDAY.getTime() - 20 * 60000)));
+  heroOf(page);
+  const punch = () => page.run("store.punchEl.textContent");
+  const note = () => page.run("store.notifyEl.textContent");
+  assert.equal(punch(), "Última salida a las 09:30 · hace 30m");
+  assert.equal(note(), "Comida hasta las 10:10");
+  page.document.getElementById("hero").children.push("marca");
+  later(page, 30 * 60000);
+  freshData(page);
+  clockTick(page)();
+  assert.equal(punch(), "Última salida a las 09:30 · hace 1h");
+  assert.equal(note(), "Comida vencida a las 10:10");
+  assert.equal(page.document.getElementById("hero").children.at(-1), "marca");
+  assert.equal(page.run("store.now.getTime()"), TUESDAY.getTime());
+  const none = dashboard({ sessions: [] });
+  heroOf(none);
+  later(none, 30 * 60000);
+  freshData(none);
+  clockTick(none)();
+});
+
+test("the clock is a timer every twenty seconds", () => {
+  const page = dashboard();
+  assert.equal(page.calls.timers.filter(([, ms]) => ms === 20000).length, 1);
+});
+
+const segment = (page, id, buttons) => {
+  const seg = page.document.getElementById(id);
+  const made = buttons.map((dataset) => Object.assign(element("button"), { dataset }));
+  const span = element("span");
+  seg.children = [...made, span];
+  return { made, span };
+};
+const closestTo = (button, selectors) => ({
+  closest: (selector) => {
+    selectors.push(selector);
+    return button;
+  },
+});
+
+test("the range buttons set the months shown, mark the one pressed and redraw", () => {
+  const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+  const { made, span } = segment(page, "rangeSeg", [{ months: "3" }, { months: "all" }]);
+  const selectors = [];
+  page.document.getElementById("overviewTitle").textContent = "marca";
+  click(page, "rangeSeg", closestTo(made[0], selectors));
+  assert.equal(page.run("rangeMonths"), 3);
+  assert.deepEqual(
+    made.map((b) => b.attrs["aria-pressed"]),
+    ["true", "false"],
   );
-  page.run("delete store.data.requests; store.data.sessions = []; indexSessions(); renderErrors()");
-  assert.equal(box.classList.contains("hidden"), true);
+  assert.equal(span.attrs["aria-pressed"], undefined);
+  assert.notEqual(page.document.getElementById("overviewTitle").textContent, "marca");
+  click(page, "rangeSeg", closestTo(made[1], selectors));
+  assert.equal(page.run("rangeMonths"), 0);
+  assert.deepEqual(
+    made.map((b) => b.attrs["aria-pressed"]),
+    ["false", "true"],
+  );
+  assert.deepEqual(selectors, ["button", "button"]);
+  page.document.getElementById("overviewTitle").textContent = "marca";
+  click(page, "rangeSeg", closestTo(null, selectors));
+  assert.equal(page.run("rangeMonths"), 0);
+  assert.equal(page.document.getElementById("overviewTitle").textContent, "marca");
+});
+
+test("the view buttons show the charts or the table", () => {
+  const page = dashboard();
+  const { made, span } = segment(page, "viewSeg", [{ view: "charts" }, { view: "table" }]);
+  const selectors = [];
+  const hidden = (id) => page.document.getElementById(id).classList.contains("hidden");
+  click(page, "viewSeg", closestTo(made[1], selectors));
+  assert.deepEqual([hidden("chartsView"), hidden("tableView")], [true, false]);
+  assert.deepEqual(
+    made.map((b) => b.attrs["aria-pressed"]),
+    ["false", "true"],
+  );
+  assert.equal(span.attrs["aria-pressed"], undefined);
+  click(page, "viewSeg", closestTo(made[0], selectors));
+  assert.deepEqual([hidden("chartsView"), hidden("tableView")], [false, true]);
+  assert.deepEqual(
+    made.map((b) => b.attrs["aria-pressed"]),
+    ["true", "false"],
+  );
+  assert.deepEqual(selectors, ["button", "button"]);
+  click(page, "viewSeg", closestTo(null, selectors));
+  assert.deepEqual([hidden("chartsView"), hidden("tableView")], [false, true]);
+});
+
+test("the refresh button reloads from Odoo and stays off meanwhile", async () => {
+  let release;
+  const page = dashboard({ answers: { "/api/data?fresh": () => new Promise((resolve) => (release = resolve)) } });
+  const button = page.document.getElementById("refreshBtn");
+  const pending = button.listeners.click[0]({ target: button });
+  assert.equal(button.disabled, true);
+  release(await answer(page.data)());
+  await pending;
+  assert.equal(button.disabled, false);
+  assert.equal(page.sent.at(-1).url, "/api/data?fresh");
+});
+
+test("the page wires its controls: log out, the mouse's back button, the update banner, the day dialog", async () => {
+  const opened = [];
+  const tab = { close() {} };
+  const page = dashboard({
+    answers: { "/api/request": answer({ url: "https://odoo.example/solicitud" }) },
+    globals: {
+      window: Object.assign(fakeAudio().window, {
+        open: (...args) => {
+          opened.push(args);
+          return tab;
+        },
+      }),
+    },
+  });
+  assert.equal(page.document.getElementById("logoutBtn").listeners.click.length, 1);
+  assert.equal(page.calls.window.mouseup.length, 1);
+  assert.equal(
+    page.sent.some((r) => r.url === "/api/update"),
+    true,
+  );
+  assert.equal(
+    page.calls.timers.some(([, ms]) => ms === 3600000),
+    true,
+  );
+  assert.equal(
+    page.document.body.children.some((c) => c._id === "dayDialog"),
+    true,
+  );
+  await page.run("Reload()");
+  assert.equal(page.sent.at(-1).url, "/api/data?fresh");
+  const request = page.document.getElementById("requestBtn");
+  await request.listeners.click[0]();
+  await settle();
+  assert.deepEqual(opened, [["", "_blank"]]);
+  assert.equal(page.sent.at(-1).url, "/api/request");
+  assert.equal(tab.location, "https://odoo.example/solicitud");
 });

@@ -13,9 +13,10 @@
 // it on the global object, which in a vm context is the sandbox, not node's.
 // The suites never reach the network: loading this file makes every socket connect throw, so a call left unmocked
 // fails its test instead of reaching a real server.
-// Below the harness are the fixtures more than one suite builds on: the personal payload and the management
-// view's week and fixes.
+// Below the harness are the fixtures more than one suite builds on: the personal payload, the management
+// view's week and fixes, and the helpers that open and drive its page.
 
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
@@ -551,4 +552,267 @@ export const hover = (page, node) => {
   );
   node.listeners.pointerleave[0]();
   return texts.filter(Boolean);
+};
+
+export const MONDAY = new Date(2026, 8, 14, 10, 0);
+export const HOUR = 3.6e6;
+
+export function clockAt(start) {
+  const clock = { now: start.getTime() };
+  class Frozen extends RealDate {
+    constructor(...args) {
+      if (args.length) super(...args);
+      else super(clock.now);
+    }
+    static now() {
+      return clock.now;
+    }
+  }
+  Frozen.set = (date) => {
+    clock.now = date.getTime();
+  };
+  return Frozen;
+}
+
+export function dump(node, depth = 0) {
+  const pad = "  ".repeat(depth);
+  if (typeof node === "string") return `${pad}${JSON.stringify(node)}`;
+  if (node.tagName === "SVG") return `${pad}svg paths=${node.children.length}`;
+  const own = [
+    ...Object.entries(node.attrs).map(([k, v]) => `${k}=${v}`),
+    ...Object.entries(node.style)
+      .filter(([, v]) => typeof v !== "function")
+      .map(([k, v]) => `${k}:${v}`),
+    ...(node.type ? [`type=${node.type}`] : []),
+    ...(node.title ? [`title=${node.title}`] : []),
+    ...(node.disabled ? ["disabled"] : []),
+  ];
+  if (node.tagName === "INPUT") {
+    own.push(`value=${node.value}`);
+    if (node.type === "number") own.push(`min=${node.min}`, `max=${node.max}`, `step=${node.step}`);
+  }
+  if (node.tabIndex !== undefined) own.push(`tabindex=${node.tabIndex}`);
+  const head =
+    node.tagName.toLowerCase() +
+    (node._id ? `#${node._id}` : "") +
+    (node.className ? `.${node.className.split(" ").join(".")}` : "") +
+    (node.textContent ? ` ${JSON.stringify(node.textContent)}` : "") +
+    (own.length ? ` [${own.join(" ")}]` : "");
+  return [`${pad}${head}`, ...node.children.map((c) => dump(c, depth + 1))].join("\n");
+}
+
+export const answer =
+  (body, status = 200) =>
+  async () => ({ ok: status < 400, status, json: async () => body });
+
+// The page with its payload already loaded on the clock `now`. Its first /api/data (the page's own load at
+// boot) never answers, so a test decides when data arrives; `answers` says what other paths answer.
+export function dashboard({
+  sessions = [],
+  extra = {},
+  now = TUESDAY,
+  schedule = SCHEDULE,
+  answers = {},
+  ...options
+} = {}) {
+  const Clock = clockAt(now);
+  const data = payload(sessions, { generated_at: now.toISOString(), ...extra });
+  const sent = [];
+  const shared = { ...data.state };
+  let booted = false;
+  const fetchImpl = async (url, opts) => {
+    const body = opts?.body ? JSON.parse(opts.body) : undefined;
+    sent.push({ url, method: opts?.method, headers: opts?.headers && { ...opts.headers }, body });
+    if (url === "/api/data" && !booted) {
+      booted = true;
+      return new Promise(() => {});
+    }
+    if (answers[url]) return answers[url](url, opts);
+    if (url === "/api/update") return answer(UP_TO_DATE)();
+    if (url.startsWith("/api/data")) return answer(data)();
+    if (url === "/api/state") return answer(Object.assign(shared, body))();
+    return answer({})();
+  };
+  const page = load({ fetchImpl, ...options, globals: { Date: Clock, ...options.globals } });
+  page.run(`store.data = ${JSON.stringify(data)}; store.state = store.data.state; ${schedule}`);
+  page.run(`setClock(new Date(${now.getTime()})); indexSessions();`);
+  return { ...page, Clock, data, sent };
+}
+
+export const built = (page, expression) => {
+  const probe = page.document.getElementById("probe");
+  page.run(`document.getElementById("probe").replaceChildren(${expression}); 0`);
+  return probe.children[0];
+};
+export const heroOf = (page) => {
+  page.run("renderHero()");
+  return page.document.getElementById("hero");
+};
+export const day = (page, changes = {}) => ({ ...page.run("buildWeek(0).days[1]"), ...changes });
+export const iso = (date) => date.toISOString();
+export const MIDNIGHT = new Date(2026, 8, 15, 0, 0);
+export const mondayDone = session(at(MONDAY, 9), at(MONDAY, 17, 30));
+export const now = (page) => page.Clock.now();
+export const click = (page, id, target) => {
+  const event = { target, currentTarget: page.document.getElementById(id) };
+  page.document.getElementById(id).listeners.click[0](event);
+  return event;
+};
+
+// An AudioContext that remembers every call, to compare the beep with its envelope.
+export function recordingAudio(state = "running") {
+  const made = [];
+  class AudioContext {
+    constructor() {
+      this.state = state;
+      this.currentTime = 100;
+      this.destination = { name: "speakers" };
+      this.oscillators = [];
+      this.gains = [];
+      this.resumed = 0;
+      made.push(this);
+    }
+    resume() {
+      this.resumed++;
+      this.state = "running";
+      return Promise.resolve();
+    }
+    createOscillator() {
+      const osc = {
+        frequency: {},
+        connect(to) {
+          osc.to = to;
+          return to;
+        },
+        start(when) {
+          osc.started = when;
+        },
+        stop(when) {
+          osc.stopped = when;
+        },
+      };
+      this.oscillators.push(osc);
+      return osc;
+    }
+    createGain() {
+      const calls = [];
+      const gain = {
+        calls,
+        gain: {
+          setValueAtTime: (value, when) => calls.push(["set", value, when]),
+          exponentialRampToValueAtTime: (value, when) => calls.push(["ramp", value, when]),
+        },
+        connect(to) {
+          gain.to = to;
+          return to;
+        },
+      };
+      this.gains.push(gain);
+      return gain;
+    }
+  }
+  return { made, window: { AudioContext } };
+}
+
+export const withAlarms = (options = {}) => {
+  const audio = recordingAudio(options.audio);
+  const page = dashboard({ ...options, globals: { window: audio.window, ...options.globals } });
+  return Object.assign(page, { audio: audio.made[0] });
+};
+export const beeps = (page) => page.audio.oscillators.length / 3;
+export const flashing = (page) => page.run("FlashTimer") !== null;
+export const lunchedAt = (when) => `store.state.lunch = ${JSON.stringify(when.toISOString())}`;
+
+export const rounded = (value) =>
+  /^-?\d+(\.\d+)?$/.test(value) ? String(Math.round(Number(value) * 100) / 100) : value;
+const PROPS = ["type", "title", "autocomplete", "rows", "href", "target", "rel", "value"];
+
+export function show(node, depth = 0) {
+  const pad = "  ".repeat(depth);
+  if (typeof node === "string") return [`${pad}"${node}"`];
+  let head = node.tagName.toLowerCase();
+  if (node.id) head += `#${node.id}`;
+  if (node.className) head += `.${node.className.replaceAll(" ", ".")}`;
+  for (const key of PROPS) if (node[key]) head += ` ${key}=${node[key]}`;
+  for (const [key, value] of Object.entries(node.attrs)) head += ` ${key}=${rounded(value)}`;
+  if (node.disabled) head += " disabled";
+  const text = node.textContent === "" || node.textContent == null ? "" : ` "${node.textContent}"`;
+  return [pad + head + text, ...node.children.flatMap((child) => show(child, depth + 1))];
+}
+
+export const showAll = (nodes) => nodes.flatMap((node) => show(node));
+export const teamPage = (options = {}) =>
+  load({ entry: "team.js", data: teamPayload(), storage: memoryStorage(), ...options });
+export const tipOf = (page) => page.document.getElementById("tip");
+
+export const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
+export const teamReply = (url) => reply(url.includes("fixes") ? teamFixes() : teamPayload());
+export const answering = (route) => async (url, opts) => (await route(url, opts)) ?? teamReply(url);
+
+export const LIMITS = { long_day: 12, under_margin: 1 / 60, over_margin: 5 };
+export const siteReply = (json, ok = true, status = 200) => ({ ok, status, json: async () => json });
+export const shift = (iso, days) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return isoDate(new Date(y, m - 1, d + days));
+};
+export const stamp = (iso, hour, minute = 0) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d, hour, minute).toISOString();
+};
+export const punch = (date, from, to) => ({
+  in: stamp(date, from),
+  out: to == null ? null : stamp(date, to),
+  hours: to == null ? null : to - from,
+  rest: false,
+});
+
+export function site({ data, fixes = teamFixes(), path = "/gestion#f=all", ...rest }) {
+  const urls = [];
+  const fetchImpl = async (url) => {
+    if (url === "/api/update") return siteReply(UP_TO_DATE);
+    urls.push(url);
+    if (url.includes("fixes")) return typeof fixes === "function" ? fixes(url) : siteReply(fixes);
+    return typeof data === "function" ? data(url) : siteReply(data);
+  };
+  const page = load({ entry: "team.js", fetchImpl, path, ...rest });
+  return { page, urls, doc: page.document };
+}
+
+export const segment = (page, id, attr, keys) => {
+  const seg = page.document.getElementById(id);
+  const stray = page.document.createElement("span");
+  stray.textContent = "x";
+  seg.appendChild(stray);
+  for (const key of keys) {
+    const button = page.document.createElement("button");
+    button.dataset[attr] = key;
+    seg.appendChild(button);
+  }
+  const click = (key) =>
+    seg.listeners.click[0]({
+      target: {
+        closest: (selector) => (selector === "button" ? seg.children.find((b) => b.dataset[attr] === key) : null),
+      },
+    });
+  return { seg, stray, click };
+};
+export const svgTexts = (node) =>
+  (node.children || []).flatMap((c) =>
+    typeof c === "string" ? [] : [...(c.tagName === "TEXT" ? [c.textContent] : []), ...svgTexts(c)],
+  );
+export const marksOf = (svg) => svg.children.filter((c) => c.tagName === "G");
+export const shape = (nodes) => nodes.map((n) => `${n.tagName} ${n.className}`.trim());
+export const tipClasses = (page, node) => {
+  node.listeners.pointerenter[0]({ clientX: 10, clientY: 10 });
+  const rows = page.document.getElementById("tip").children;
+  assert.ok(rows.every((c) => c.tagName === "DIV"));
+  const classes = rows.map((c) => c.className);
+  node.listeners.pointerleave[0]();
+  return classes;
+};
+export const drag = (scroller) => {
+  const on = (type) => scroller.listeners[type][0];
+  on("pointerdown")({ button: 0, target: { closest: () => null }, clientX: 100, clientY: 0 });
+  on("pointermove")({ clientX: 40, clientY: 0 });
+  on("pointerup")();
 };
