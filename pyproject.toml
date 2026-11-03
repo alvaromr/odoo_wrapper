@@ -1,6 +1,7 @@
 [build-system]
-# Exact, so every build of a commit is the same; 77 or later reads the license as an SPDX expression.
-requires = ["setuptools==84.2.1"]
+# Exact, so every build of a commit is the same; 77 or later reads the license as an SPDX expression. It builds the
+# package on the user's machine, with the user's Python, so it is the last release that runs on requires-python's.
+requires = ["setuptools==82.0.1"]
 build-backend = "setuptools.build_meta"
 
 [project]

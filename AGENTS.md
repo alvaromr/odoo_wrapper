@@ -146,9 +146,10 @@ claude plugin install odoo --marketplace <repo>     # reads .ai/skills in place,
 The README's steps again, with `--force` on uv's, go back to a user's install. Two checks need more than
 the editable install, before merging a change that could break them:
 
-- **The package as built** (`pyproject.toml`, a new file the package ships): `uv tool install --force
-  --reinstall <repo>` installs this copy as a user gets it. Without `--reinstall` uv reuses its cached build
-  of the folder and the old code stays. Go back to the editable install afterwards.
+- **The package as built** (`pyproject.toml`, a new file the package ships): the gate builds it and runs its
+  commands, but only their help. To use it, `uv tool install --force --reinstall <repo>` installs this copy as a
+  user gets it. Without `--reinstall` uv reuses its cached build of the folder and the old code stays. Go back to
+  the editable install afterwards.
 - **The install from GitHub** (`pyproject.toml`, `.claude-plugin/`): push a branch and install from it with
   the README's commands, `git+…@<branch>` for uv and `…odoo_wrapper.git#<branch>` for the plugin.
 
@@ -176,12 +177,14 @@ Start with the gate, one command that needs uv, pnpm and Node at the versions it
 `core.hooksPath` the first time it runs):
 
 ```bash
-python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages; its header lists each step
+python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages, the built package; its header lists each step
 python3 tests/fix.py                     # formats and applies the tools' safe fixes, then runs the gate
 ```
 
-Every tool the checks use is pinned to one exact version, in `tests/check.py` or `tests/mutate.py`, and
-setuptools in `pyproject.toml`; none of them reaches the users, whose install needs only uv and Python. The pins
+Every tool the checks use is pinned to one exact version, in `tests/check.py` or `tests/mutate.py`; none of them
+reaches the users, whose install needs only uv and Python. setuptools, pinned in `pyproject.toml`, does: it builds
+the package on the user's machine, with the user's Python, so it moves only as far as its last release that runs
+on the oldest Python the package supports. The pins
 move forward rather than freeze: when one is behind its latest stable release (the latest LTS for Node), move it
 in its own commit, once the release is a week old: read the changelog from the pinned version to the new one,
 note what changes here, ask the owner before a major jump, install it, and run the gate and both mutation
