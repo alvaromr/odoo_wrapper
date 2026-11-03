@@ -168,13 +168,21 @@ A tag is never moved or reused; a broken release is fixed by the next one.
 
 ## How to verify changes
 
-Start with the gate, one command that needs uv, pnpm and Node ≥ 22 and installs nothing in the repo but its own
-pre-commit hook (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
+Start with the gate, one command that needs uv, pnpm and Node at the versions it pins (`TOOLCHAIN` in
+`tests/check.py`) and installs nothing in the repo but its own pre-commit hook (`.githooks/`, set in git's
+`core.hooksPath` the first time it runs):
 
 ```bash
 python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages; its header lists each step
 python3 tests/fix.py                     # formats and applies the tools' safe fixes, then runs the gate
 ```
+
+Every tool the checks use is pinned to one exact version, in `tests/check.py` or `tests/mutate.py`, and
+setuptools in `pyproject.toml`; none of them reaches the users, whose install needs only uv and Python. The pins
+move forward rather than freeze: when one is behind its latest stable release (the latest LTS for Node), move it
+in its own commit, once the release is a week old: read the changelog from the pinned version to the new one,
+note what changes here, ask the owner before a major jump, install it, and run the gate and both mutation
+rounds.
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
 secret anywhere under the repo, a size cap for source files and every module named in the map above. Neither

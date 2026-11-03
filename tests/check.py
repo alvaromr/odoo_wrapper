@@ -6,8 +6,9 @@ package supports (MIN_PYTHON, read from .python-version, which pyproject.toml's 
 takes its target from requires-python itself), the same suite measuring every line and branch on COVERAGE_PYTHON
 (branches need 3.14), Biome over the page's JS and CSS and the JS tests (format, lint and import order, as
 biome.jsonc sets), TypeScript checking the page's JS against its JSDoc types in strict mode (tsconfig.json), and the
-page's suite with its coverage under Node NODE_MIN or newer. Every step runs even
-after one fails, so a single run lists everything to fix. The pre-commit hook (.githooks/pre-commit) runs it
+page's suite with its coverage. First it checks that node, pnpm and uv are the versions TOOLCHAIN pins, so every
+machine runs the gate the same way. Every step runs even after one fails, so a single run lists everything to fix.
+The pre-commit hook (.githooks/pre-commit) runs it
 before each commit, and the gate installs that hook itself (git's core.hooksPath) the first time it runs in a
 clone, so no clone goes without it.
 
@@ -18,6 +19,7 @@ library (AGENTS.md, rule 1). Mutation testing is not part of it: it takes minute
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -30,7 +32,8 @@ TYPESCRIPT = "typescript@5.9.3"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
     MIN_PYTHON = pinned.read().strip()
 COVERAGE_PYTHON = "3.14"
-NODE_MIN = 22
+TOOLCHAIN = {"node": "26.8.2", "pnpm": "12.4.2", "uv": "0.7.6"}
+VERSION = re.compile(r"\d+\.\d+\.\d+")
 NODE_COVERAGE = [
     "--experimental-test-coverage",
     "--test-coverage-include=src/**",
@@ -53,9 +56,25 @@ STEPS = [
 ]
 
 
-def node_major():
-    version = subprocess.run(["node", "--version"], capture_output=True, text=True, check=True).stdout
-    return int(version.strip().lstrip("v").split(".")[0])
+def installed(program):
+    try:
+        said = subprocess.run([program, "--version"], check=False, capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        return "not installed"
+    found = VERSION.search(said)
+    return found.group() if found else said.strip()
+
+
+def toolchain():
+    found = {program: installed(program) for program in TOOLCHAIN}
+    wrong = [
+        f"{program} is {found[program]}, pinned {pin}" for program, pin in TOOLCHAIN.items() if found[program] != pin
+    ]
+    if wrong:
+        print(f"FAIL toolchain: {'; '.join(wrong)} (AGENTS.md says how to move a pin)")
+        return False
+    print("ok   toolchain")
+    return True
 
 
 def run(name, command):
@@ -86,15 +105,7 @@ def main():
         install_hook()
     except OSError:
         print("FAIL hook: git is not installed")
-    try:
-        node = node_major()
-    except (OSError, subprocess.CalledProcessError, ValueError):
-        node = 0
-    steps = STEPS if node >= NODE_MIN else STEPS[:-1]
-    passed = [run(name, command) for name, command in steps]
-    if node < NODE_MIN:
-        print(f"FAIL page suite and coverage: needs Node {NODE_MIN} or newer")
-        passed.append(False)
+    passed = [toolchain(), *(run(name, command) for name, command in STEPS)]
     sys.exit(0 if all(passed) else 1)
 
 
