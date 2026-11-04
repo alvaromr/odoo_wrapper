@@ -9,8 +9,7 @@ Tooling to clock in/out of an Odoo ERP and to see your own weekly hours. Two ent
 one Python package, plus the agent skills that drive the CLI.
 
 ```
-bin/odoo             CLI: login / status / checkin / checkout / toggle / break / resume / history / notices /
-                     sheet
+bin/odoo             CLI: clocking, breaks, history and the warnings sheet; `odoo` with no arguments lists its commands
 bin/odoo-dashboard   web dashboard on http://localhost:8931/
 src/odoo_wrapper/
   client.py          Odoo client (web-session auth) and the connection config
@@ -74,7 +73,7 @@ Don't duplicate — each fact has one home:
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
 - **The skills** — only when an agent should reach for the CLI and what to confirm first; `odoo-notices` also
   carries `SETUP.md`, what a machine needs for `odoo notices` on each operating system.
-- **`README.md`** — human quickstart only, the install included.
+- **`README.md`** — human quickstart only, the install included, and what the phone mode cannot do.
 - **`docs/decisions/`** — each practice the repo departs from on purpose, why, and who approved it.
 - **`SECURITY.md`** — where to report a vulnerability: privately, through GitHub.
 - **`CHANGELOG.md`** — what each release changes for its users, in Spanish (Keep a Changelog).
@@ -153,9 +152,11 @@ The README's steps again, with `--force` on uv's, go back to a user's install. T
 the editable install, before merging a change that could break them:
 
 - **The package as built** (`pyproject.toml`, a new file the package ships): the gate builds it and runs its
-  commands, but only their help. To use it, `uv tool install --force --reinstall <repo>` installs this copy as a
-  user gets it. Without `--reinstall` uv reuses its cached build of the folder and the old code stays. Go back to
-  the editable install afterwards.
+  commands, but only their help. To use it, `uv build --out-dir <dir> <repo>` and then
+  `uv tool install --force --reinstall <dir>/odoo_wrapper-*.whl` install this copy as a user gets it: uv builds the
+  wheel from the sdist, as the gate does. Installed from the folder itself, setuptools builds in place through the
+  git-ignored `build/`, and a file deleted from `src/` still ships. Without `--reinstall` uv reuses its cached build
+  and the old code stays. Go back to the editable install afterwards.
 - **The install from GitHub** (`pyproject.toml`, `.claude-plugin/`): push a branch and install from it with
   the README's commands, `git+…@<branch>` for uv and `…odoo_wrapper.git#<branch>` for the plugin.
 
@@ -347,20 +348,15 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
 
 Don't re-investigate these from scratch:
 
-- **`<hostname>.local` resolves on some networks and not on others from an Android phone.** With Private DNS
-  active every lookup goes to the external resolver, which cannot know an mDNS name; on a network where it
-  is bypassed the name works. The Mac advertises the record correctly — verified with `dns-sd`. Hence the
-  choice when pairing: by IP always works, by name when the phone resolves it (and then survives network
-  changes).
-- **A self-signed certificate rules out installing the page as an app on Android.** Chromium only installs
-  a PWA from a secure origin without certificate errors; a page opened past the certificate warning does
-  not qualify, so «Añadir a pantalla de inicio» creates a browser shortcut, not a standalone app. Full
-  screen there would need a CA trusted by the phone. The manifest and metadata still serve Safari, which
-  does not check this.
-- **A sleeping machine is unreachable from the phone.** Waking on network access only works for advertised
-  Bonjour services, and the dashboard advertises none.
-- **A Wi-Fi with client isolation blocks phone→laptop regardless of the URL.** On an ordinary home or office
-  network the whole path works: pairing QR, a certificate per network, and data.
+- **The phone mode's limits, which README.md § Phone mode lists for users.** Why each holds:
+  - The name: with Private DNS active every lookup goes to the external resolver, which cannot know an mDNS name;
+    the Mac advertises the record correctly, verified with `dns-sd`.
+  - The app: Chromium only installs a PWA from a secure origin without certificate errors, and a page opened past
+    the certificate warning does not qualify; full screen there would need a CA trusted by the phone. The manifest
+    and metadata still serve Safari, which does not check this.
+  - Sleep: waking on network access only works for advertised Bonjour services, and the dashboard advertises none.
+  - Client isolation blocks phone→laptop whatever the URL; on an ordinary home or office network the whole path
+    works: pairing QR, a certificate per network, and data.
 - **Tailscale and any external service are out of scope.** The dashboard stays LAN-only; don't propose them.
   Reaching the dashboard is meant: the services it calls out to besides Odoo are Discord's API, to send the day
   dialog's notices from a bot (`discord.py`), and GitHub's, to ask whether a newer version is out
@@ -376,8 +372,6 @@ Don't re-investigate these from scratch:
   and `--autostart on` (the Run key, and the dashboard answering on 8931) work. Login, two-factor, punching,
   breaks, the phone mode with openssl, `odoo notices` and the management view are still unreported. The
   first report from Linux is the test.
-- **Installed by an agent in the Claude desktop app on Windows, nothing exists outside that app.** The app is
-  packaged (MSIX), and Windows redirects its writes to `AppData` and to the Run key into the app's private
-  space: uv's Python, the tool and the login entry all landed there, and nothing started at login. uv also
-  failed installing Python there («Missing expected target directory for Python minor version link»), from
-  the same cause. Not a fault of the code; the README says to install from a normal terminal.
+- **Installed by an agent in the Claude desktop app on Windows, nothing exists outside that app**, as README.md §
+  Getting started tells users. uv also failed installing Python there («Missing expected target directory for
+  Python minor version link»), from the same cause. Not a fault of the code.

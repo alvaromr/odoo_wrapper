@@ -13,20 +13,14 @@ runs the `gws` CLI).
 ```
 bin/odoo             clock in / status / history
 bin/odoo-dashboard   web dashboard at http://localhost:8931/
-src/odoo_wrapper/    client.py (Odoo client), cli.py (the commands), dashboard.py (entry point) and the
-                     server modules it wires: server.py, attendance.py, team.py, corrections.py, cache.py, state.py,
-                     lan.py, process.py, autostart.py, updates.py; the rules of the first three, pure, in
-                     attendance_rules.py,
-                     team_rules.py and corrections_rules.py; qr.py;
-                     sheets.py (Google Sheets for `odoo notices`); discord.py (the Discord bot's notices);
-                     static/ (pages, style.css and the page's scripts in js/)
+src/odoo_wrapper/    the Python package both run, and the pages; AGENTS.md maps each module
 .ai/skills/          the agent skills odoo-attendance and odoo-notices, as the Claude Code plugin `odoo`
 ```
 
 ## Features
 
-- **CLI**: `login`, `status`, `checkin`, `checkout`, `toggle`, `break`, `resume`, `history`, `notices`, `sheet`,
-  `discord` — see `odoo` with no arguments.
+- **CLI**: clocking, breaks, history, the warnings sheet and the Discord bot's token; `odoo` with no arguments
+  lists every command.
 - **Dashboard**: local web UI with the week's hours, live timeline and self-restart on source changes; it
   opens Odoo's change request form, filled for each punch to fix, beside the correction for whoever may also
   correct. Light or dark theme, and a banner when GitHub holds a newer release, which installs it.
@@ -84,12 +78,22 @@ With two-factor authentication enabled in Odoo, the login also asks for the code
 and then remembers the browser or machine as a trusted device for 90 days (a cookie in the browser,
 `~/.odoo_dashboard/cli_device` for the CLI), so the next login within that time needs no code.
 
-The phone mode needs the `openssl` command to create its certificate: macOS and Linux distributions have it,
-and on Windows Git for Windows ships it and is found automatically. Windows will ask once whether to let
-Python accept connections on the network — answer yes for the phone to reach it.
-
 The interface is in Spanish — both the CLI output and the dashboard — the working language of the team it was
 built for; code and documentation are in English.
+
+## Phone mode
+
+It needs the `openssl` command to create its certificate: macOS and Linux distributions have it, and on Windows
+Git for Windows ships it and is found automatically. Windows will ask once whether to let Python accept
+connections on the network — answer yes for the phone to reach it. What it cannot do:
+
+- **Reach a sleeping computer.** The phone finds the dashboard only while the computer is awake.
+- **Cross a Wi-Fi with client isolation**, common on guest networks: the phone cannot reach the computer there,
+  whatever the address. An ordinary home or office network works.
+- **Find the computer by name on every network.** An Android phone with Private DNS on resolves no
+  `<name>.local`; pairing by IP always works, and by name it also survives a change of network.
+- **Install as an app on Android.** With a self-signed certificate «Añadir a pantalla de inicio» adds a browser
+  shortcut, not a full-screen app. Safari on iPhone installs it.
 
 ## Skills
 
