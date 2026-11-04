@@ -8,7 +8,8 @@ must match; Ruff takes its target from requires-python itself) up to the one bef
 on COVERAGE_PYTHON measuring every line and branch (branches need 3.14), Biome over the page's JS and CSS and the JS
 tests (format, lint and import order, as biome.jsonc sets), TypeScript checking the page's JS against its JSDoc types
 in strict mode (tsconfig.json), the page's suite with its coverage, and a smoke test of the package as users get it:
-built by uv on the oldest and the newest Python, installed alone, and its two commands run. Every Python is uv's
+built by uv on the oldest and the newest Python, the wheel from the sdist so that nothing left in the git-ignored
+build/ reaches it, installed alone, and its two commands run. Every Python is uv's
 own, brought up to the latest patch the pinned uv knows before anything runs, since that is the patch users get;
 each Python step names it, so a difference between machines shows. A warning fails the Python suites and Biome as an
 error does, and so does one from node in the page's suite (tests/page.mjs). First it checks that node, pnpm and uv
@@ -157,7 +158,7 @@ def suites():
 def smoke(minor):
     on = f"on Python {patch(minor)}"
     with tempfile.TemporaryDirectory() as out:
-        if not run(f"package built {on}", ["uv", "build", *interpreter(minor), "--wheel", "--out-dir", out]):
+        if not run(f"package built {on}", ["uv", "build", *interpreter(minor), "--out-dir", out]):
             return False
         wheel = glob.glob(os.path.join(out, "*.whl"))[0]
         uvx = ["uvx", "--isolated", *interpreter(minor), "--from", wheel]
