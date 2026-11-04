@@ -7,7 +7,9 @@ import test from "node:test";
 import {
   at,
   bannerLine,
+  built,
   dashboard,
+  dump,
   hover,
   isoDate,
   load,
@@ -1770,4 +1772,27 @@ test("someone's page shows the requests the viewer may approve, one line per day
   );
   page.run("delete store.data.requests; store.data.sessions = []; indexSessions(); renderErrors()");
   assert.equal(box.classList.contains("hidden"), true);
+});
+
+test("break spans sit where the break happened", () => {
+  const { run } = load();
+  assert.deepEqual(
+    run("restSpans([{ hours: 2, rest: false }, { hours: 0.25, rest: true }, { hours: 1, rest: false }])"),
+    [{ from: 2, to: 2.25 }],
+  );
+});
+
+test("a break is drawn at its place in the bar, as a share of the total", () => {
+  const page = dashboard();
+  const bar = built(
+    page,
+    `fillBar(document.createElement("div"), [
+      { hours: 4, rest: false }, { hours: 2, rest: true }, { hours: 1, rest: false }, { hours: 1, rest: true },
+    ], 8)`,
+  );
+  assert.deepEqual(dump(bar).split("\n"), [
+    "div",
+    "  div.rest [left:50% width:25%]",
+    "  div.rest [left:87.5% width:12.5%]",
+  ]);
 });

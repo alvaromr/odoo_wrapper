@@ -293,3 +293,17 @@ test("loading renders the page from the server payload", async () => {
   );
   assert.equal(phone.querySelector(".url").textContent, "https://10.0.0.2:8443/");
 });
+
+test("the page is busy while a tooltip is open or a button is armed, and idle otherwise", () => {
+  const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+  assert.strictEqual(page.run("busy()"), false);
+  page.document.getElementById("tip").style.display = "block";
+  assert.strictEqual(page.run("busy()"), true);
+  page.document.getElementById("tip").style.display = "none";
+  assert.strictEqual(page.run("busy()"), false);
+  heroOf(page)
+    .querySelectorAll(".btn")
+    .find((b) => b.textContent === "Fichar salida")
+    .listeners.click[0]();
+  assert.strictEqual(page.run("busy()"), true);
+});

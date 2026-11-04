@@ -14,14 +14,15 @@
  */
 
 import { refreshNotifyNote, resetAlarms, stopFlash } from "./alarms.js";
-import { loadAndRender, loadFirst, refreshState, stale } from "./api.js";
+import { busy, loadAndRender, loadFirst, refreshState, stale } from "./api.js";
 import { onDaySaved, wireDayDialog } from "./dayedit.js";
 import { isoDay } from "./format.js";
 import { punchText, renderHero } from "./hero.js";
 import { openRequest, renderAll, setRangeMonths } from "./render.js";
-import { byId, warned, wireLogout, wireMouseHistory, wireUpdates } from "./shared.js";
+import { wireSettings } from "./settings.js";
+import { byId, warned, wireLogout, wireMouseHistory } from "./shared.js";
 import { LOOPBACK, store, TickMs } from "./store.js";
-import { busy, wireSettings } from "./ui.js";
+import { wireUpdates } from "./updates.js";
 import { indexSessions, setClock } from "./week.js";
 
 store.other = location.pathname === "/empleado" ? new URLSearchParams(location.search).get("id") : null;

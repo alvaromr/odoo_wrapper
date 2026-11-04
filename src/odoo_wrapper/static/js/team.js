@@ -40,7 +40,7 @@
  *   each button with its count.
  * - Saturday and Sunday are hidden unless some row shown has a session, a request or a flag on them.
  * - The table scrolls inside its card, at most 70 % of the window high, so its header row stays in sight on
- *   top and the names and the total on either side; it also pans by dragging, both ways (shared.js's
+ *   top and the names and the total on either side; it also pans by dragging, both ways (pan.js's
  *   panScroll), and a drag never opens the cell it ends on.
  * - Each week takes Odoo about a second and a half, one query per model, so once a week is shown the page
  *   asks for the previous one in the background, into the server's cache, and stepping back is instant.
@@ -75,24 +75,15 @@
 
 import { balanced, dayDetails, dayLabel, onDaySaved, openDay, requestLine, wireDayDialog } from "./dayedit.js";
 import { fmtDay, fmtDelta, fmtHM, fmtTime, fmtYear, isoDay, parseDay, plural, shiftDays } from "./format.js";
-import {
-  api,
-  attachTip,
-  byId,
-  el,
-  hideTip,
-  panScroll,
-  tipRow,
-  warned,
-  wireLogout,
-  wireMouseHistory,
-  wireUpdates,
-} from "./shared.js";
+import { panScroll } from "./pan.js";
+import { api, byId, el, warned, wireLogout, wireMouseHistory } from "./shared.js";
 import { DayNames, MonthNames } from "./store.js";
 import { chartCard, divergingBars, groupedColumns, legend } from "./teamcharts.js";
 import { refreshDiscord, wireDiscord } from "./teamdiscord.js";
 import { loadFixes, renderFixes, wireFixes } from "./teamfixes.js";
 import { FixKinds, FlagText, named, team, thisDay } from "./teamstate.js";
+import { attachTip, hideTip, tipRow } from "./tip.js";
+import { wireUpdates } from "./updates.js";
 
 /**
  * @typedef {import("./teamstate.js").Day} Day

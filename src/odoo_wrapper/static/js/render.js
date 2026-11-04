@@ -64,9 +64,9 @@ import {
   plural,
 } from "./format.js";
 import { renderPhone, uncovered, unloggedGap } from "./hero.js";
-import { api, attachTip, byId, el, tipRow } from "./shared.js";
+import { api, byId, el } from "./shared.js";
 import { DayFull, DayNames, store } from "./store.js";
-import { fillBar } from "./ui.js";
+import { attachTip, tipRow } from "./tip.js";
 import {
   buildWeek,
   buildWeeks,
@@ -91,6 +91,37 @@ import {
  * One entry of the banner of punches to fix: a class, what it is and what it says of the day.
  * @typedef {[string, string, string]} Piece
  */
+
+/**
+ * @param {DaySession[]} sessions
+ * @returns {{from: number, to: number}[]}
+ */
+function restSpans(sessions) {
+  let before = 0;
+  return sessions.flatMap((s) => {
+    const span = s.rest ? [{ from: before, to: before + s.hours }] : [];
+    before += s.hours;
+    return span;
+  });
+}
+
+/**
+ * Draws a day's breaks inside its bar, each at its place as a share of the day's total.
+ * @template {HTMLElement} T
+ * @param {T} bar
+ * @param {DaySession[]} sessions
+ * @param {number} total
+ * @returns {T}
+ */
+export function fillBar(bar, sessions, total) {
+  for (const span of restSpans(sessions)) {
+    const seg = el("div", "rest");
+    seg.style.left = `${(span.from / total) * 100}%`;
+    seg.style.width = `${((span.to - span.from) / total) * 100}%`;
+    bar.appendChild(seg);
+  }
+  return bar;
+}
 
 /* ---------- KPIs ---------- */
 /** @param {Week[]} weeks */

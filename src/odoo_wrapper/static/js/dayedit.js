@@ -46,8 +46,9 @@
  */
 
 import { dayKey, fmtDate, fmtDay, fmtDelta, fmtHM, fmtTime, fmtYear, parseDay } from "./format.js";
-import { api, byId, el, hideTip, tipRow, warned } from "./shared.js";
+import { api, byId, el, warned } from "./shared.js";
 import { DayNames } from "./store.js";
+import { hideTip, tipRow } from "./tip.js";
 
 /**
  * What the day dialog reads and writes, as team.py sends it (data.py's session_of, fetch_requests).

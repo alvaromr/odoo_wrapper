@@ -28,7 +28,8 @@
  *   largest shortfall comes first. Grouped columns carry a count on top of each non-empty bar and a
  *   legend when there is more than one series, so colour is never the only cue.
  */
-import { attachTip, el, tipRow } from "./shared.js";
+import { el } from "./shared.js";
+import { attachTip, tipRow } from "./tip.js";
 
 /**
  * What team.js hands the builders.

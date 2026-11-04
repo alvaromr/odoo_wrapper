@@ -795,3 +795,46 @@ test("the week's meter has one section per day that expects hours, as wide as th
     ["8.5", "8.5", "8.5", "8.5", "6"],
   );
 });
+
+test("a gap counts only the unlogged time no leave covers", () => {
+  const { run } = load();
+  const monday = new Date(2026, 8, 14);
+  const gap = (leaves) =>
+    run(`unloggedGap([
+    { in: new Date(${at(monday, 9).getTime()}), out: new Date(${at(monday, 12).getTime()}) },
+    { in: new Date(${at(monday, 12, 30).getTime()}), out: null },
+  ], ${JSON.stringify(leaves)})`);
+  const leave = (h1, m1, h2, m2) => ({ from: at(monday, h1, m1).toISOString(), to: at(monday, h2, m2).toISOString() });
+  assert.equal(gap([]), 0.5);
+  assert.equal(gap([leave(11, 0, 12, 15)]), 0.25);
+  assert.equal(gap([leave(12, 0, 12, 30)]), 0);
+  assert.equal(gap([leave(15, 0, 16, 0)]), 0.5);
+});
+
+test("the bell mutes the alerts and silences a blinking title, and unmutes without touching it", async () => {
+  const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
+  const mute = () =>
+    heroOf(page)
+      .querySelectorAll(".icon-btn")
+      .find((b) => b.title.endsWith("avisos"));
+  page.run(`flashTitle("⏰")`);
+  page.calls.timers.at(-1)[0]();
+  assert.equal(page.document.title, "⏰");
+  mute().listeners.click[0]();
+  assert.equal(page.document.title, "Fichajes");
+  assert.equal(page.run("FlashTimer"), null);
+  assert.equal(mute().title, "Reactivar avisos");
+  assert.equal(mute().attrs["aria-label"], "Reactivar avisos");
+  assert.equal(mute().attrs["aria-pressed"], "true");
+  assert.equal(mute().children[0].children.length, 3);
+  await settle();
+  assert.deepEqual(
+    page.sent.filter((r) => r.url === "/api/state").map((r) => r.body),
+    [{ muted: true }],
+  );
+  page.run(`flashTitle("⏰")`);
+  page.calls.timers.at(-1)[0]();
+  mute().listeners.click[0]();
+  assert.equal(page.document.title, "⏰");
+  assert.notEqual(page.run("FlashTimer"), null);
+});

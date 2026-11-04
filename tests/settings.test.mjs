@@ -1,4 +1,4 @@
-// ui.js: the day's bar with its breaks, the punch buttons, the bell and the gear, the settings dialog and the icons.
+// settings.js: «Ajustes», the dialog the gear opens, each setting saved as it changes and explained in its tooltip.
 // Each test asserts what is drawn (tags, classes, attributes, text) and what is requested (paths, bodies), on a clock
 // the test sets (clockAt in page.mjs).
 
@@ -7,10 +7,8 @@ import test from "node:test";
 import {
   answer,
   at,
-  built,
   dashboard,
   dump,
-  element,
   heroOf,
   hover,
   load,
@@ -18,165 +16,8 @@ import {
   payload,
   session,
   settle,
-  TUESDAY,
   UP_TO_DATE,
 } from "./page.mjs";
-
-test("break spans sit where the break happened and gaps count only unlogged time", () => {
-  const { run } = load();
-  assert.deepEqual(
-    run("restSpans([{ hours: 2, rest: false }, { hours: 0.25, rest: true }, { hours: 1, rest: false }])"),
-    [{ from: 2, to: 2.25 }],
-  );
-  const monday = new Date(2026, 8, 14);
-  const gap = (leaves) =>
-    run(`unloggedGap([
-    { in: new Date(${at(monday, 9).getTime()}), out: new Date(${at(monday, 12).getTime()}) },
-    { in: new Date(${at(monday, 12, 30).getTime()}), out: null },
-  ], ${JSON.stringify(leaves)})`);
-  const leave = (h1, m1, h2, m2) => ({ from: at(monday, h1, m1).toISOString(), to: at(monday, h2, m2).toISOString() });
-  assert.equal(gap([]), 0.5);
-  assert.equal(gap([leave(11, 0, 12, 15)]), 0.25);
-  assert.equal(gap([leave(12, 0, 12, 30)]), 0);
-  assert.equal(gap([leave(15, 0, 16, 0)]), 0.5);
-});
-
-const buttonOf = (page, label) =>
-  heroOf(page)
-    .querySelectorAll(".btn")
-    .find((b) => b.textContent === label);
-const errOf = (page) => page.document.getElementById("hero").children[2].children.at(-1);
-const press = async (page, label) => {
-  const button = buttonOf(page, label);
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  await settle();
-  return button;
-};
-
-test("each punch button posts its own action after a second click, then reloads", async () => {
-  const lunchTime = at(TUESDAY, 14);
-  const open = [session(at(TUESDAY, 9), null)];
-  const scenarios = [
-    ["Fichar entrada", "checkin", "btn primary", { sessions: [] }],
-    ["Fichar salida", "checkout", "btn primary", { sessions: open, now: lunchTime }],
-    ["Salir a comer", "lunch", "btn ghost", { sessions: open, now: lunchTime }],
-    ["Salir a descanso", "break", "btn ghost", { sessions: open, now: lunchTime }],
-    ["Volver del descanso", "resume", "btn primary", { sessions: [session(at(TUESDAY, 9), null, true)] }],
-  ];
-  for (const [label, action, cls, options] of scenarios) {
-    const page = dashboard(options);
-    assert.equal(buttonOf(page, label).className, cls, label);
-    await press(page, label);
-    const posted = page.sent.filter((r) => r.method === "POST");
-    assert.deepEqual(posted, [
-      {
-        url: "/api/attendance",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: { action },
-      },
-    ]);
-    assert.equal(page.sent.at(-1).url, "/api/data");
-  }
-});
-
-test("a punch button arms for four seconds, and a pulsing one gets its pulse back", () => {
-  const cleared = [];
-  const page = dashboard({
-    sessions: [session(at(TUESDAY, 1), null)],
-    globals: { clearTimeout: (id) => cleared.push(id) },
-  });
-  const button = buttonOf(page, "Fichar salida");
-  assert.equal(button.className, "btn primary pulse");
-  button.listeners.click[0]();
-  assert.equal(button.className, "btn primary arm");
-  assert.equal(button.textContent, "¿Confirmar?");
-  const [expire, ms] = page.calls.timeouts.at(-1);
-  assert.equal(ms, 4000);
-  expire();
-  assert.equal(button.className, "btn primary pulse");
-  assert.equal(button.textContent, "Fichar salida");
-  button.listeners.click[0]();
-  assert.equal(page.run("busy()"), true);
-  button.listeners.click[0]();
-  assert.deepEqual(cleared, [page.calls.timeouts.length]);
-  const calm = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
-  const other = buttonOf(calm, "Salir a descanso");
-  other.listeners.click[0]();
-  calm.calls.timeouts.at(-1)[0]();
-  assert.equal(other.className, "btn ghost");
-});
-
-test("a punch in flight disables its button and clears the last error; a refusal gives the button back", async () => {
-  let release;
-  const page = dashboard({
-    sessions: [session(at(TUESDAY, 9), null)],
-    answers: {
-      "/api/attendance": () => new Promise((resolve) => (release = resolve)),
-    },
-  });
-  const button = buttonOf(page, "Fichar salida");
-  errOf(page).textContent = "viejo";
-  button.listeners.click[0]();
-  button.listeners.click[0]();
-  assert.equal(button.disabled, true);
-  assert.equal(button.textContent, "Fichando…");
-  assert.equal(errOf(page).textContent, "");
-  release({ ok: false, status: 409, json: async () => ({ error: "Ya has fichado" }) });
-  await settle();
-  assert.equal(errOf(page).textContent, "Error: Ya has fichado");
-  assert.equal(button.disabled, false);
-  assert.equal(button.textContent, "Fichar salida");
-  assert.equal(button.className, "btn primary");
-});
-
-test("a punch that went through but whose reload failed says so and keeps the button off", async () => {
-  const page = dashboard({
-    sessions: [session(at(TUESDAY, 9), null)],
-    answers: { "/api/data": () => Promise.reject(new Error("Odoo caído")) },
-  });
-  const button = await press(page, "Fichar salida");
-  assert.equal(errOf(page).textContent, "Fichado, pero no se pudo recargar: Odoo caído");
-  assert.equal(button.disabled, true);
-});
-
-test("a punch ends by running the alarms on the fresh data", async () => {
-  const page = dashboard({
-    sessions: [session(at(TUESDAY, 9), null)],
-    extra: { generated_at: at(TUESDAY, 8).toISOString() },
-  });
-  await press(page, "Fichar salida");
-  assert.equal(page.run("store.now.getTime()"), TUESDAY.getTime());
-});
-
-test("the bell mutes the alerts and silences a blinking title, and unmutes without touching it", async () => {
-  const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
-  const mute = () =>
-    heroOf(page)
-      .querySelectorAll(".icon-btn")
-      .find((b) => b.title.endsWith("avisos"));
-  page.run(`flashTitle("⏰")`);
-  page.calls.timers.at(-1)[0]();
-  assert.equal(page.document.title, "⏰");
-  mute().listeners.click[0]();
-  assert.equal(page.document.title, "Fichajes");
-  assert.equal(page.run("FlashTimer"), null);
-  assert.equal(mute().title, "Reactivar avisos");
-  assert.equal(mute().attrs["aria-label"], "Reactivar avisos");
-  assert.equal(mute().attrs["aria-pressed"], "true");
-  assert.equal(mute().children[0].children.length, 3);
-  await settle();
-  assert.deepEqual(
-    page.sent.filter((r) => r.url === "/api/state").map((r) => r.body),
-    [{ muted: true }],
-  );
-  page.run(`flashTitle("⏰")`);
-  page.calls.timers.at(-1)[0]();
-  mute().listeners.click[0]();
-  assert.equal(page.document.title, "⏰");
-  assert.notEqual(page.run("FlashTimer"), null);
-});
 
 test("the gear opens the settings dialog", () => {
   const page = dashboard({ sessions: [] });
@@ -186,32 +27,6 @@ test("the gear opens the settings dialog", () => {
   assert.equal(page.document.getElementById("settingsDialog").open, false);
   gear.listeners.click[0]();
   assert.equal(page.document.getElementById("settingsDialog").open, true);
-});
-
-test("a break is drawn at its place in the bar, as a share of the total", () => {
-  const page = dashboard();
-  const bar = built(
-    page,
-    `fillBar(document.createElement("div"), [
-      { hours: 4, rest: false }, { hours: 2, rest: true }, { hours: 1, rest: false }, { hours: 1, rest: true },
-    ], 8)`,
-  );
-  assert.deepEqual(dump(bar).split("\n"), [
-    "div",
-    "  div.rest [left:50% width:25%]",
-    "  div.rest [left:87.5% width:12.5%]",
-  ]);
-});
-
-test("the page is busy while a tooltip is open or a button is armed, and idle otherwise", () => {
-  const page = dashboard({ sessions: [session(at(TUESDAY, 9), null)] });
-  assert.strictEqual(page.run("busy()"), false);
-  page.document.getElementById("tip").style.display = "block";
-  assert.strictEqual(page.run("busy()"), true);
-  page.document.getElementById("tip").style.display = "none";
-  assert.strictEqual(page.run("busy()"), false);
-  buttonOf(page, "Fichar salida").listeners.click[0]();
-  assert.strictEqual(page.run("busy()"), true);
 });
 
 test("the settings dialog is built once, hidden, with its title, body, status note and close button", () => {
@@ -411,120 +226,6 @@ test("the update check disables its button, and says what it found or why it cou
   assert.equal(await check({ error: "Sin internet" }, 502), "No se pudo buscar actualizaciones: Sin internet");
 });
 
-test("the icons are SVG paths with the same stroke, and the muted bell is crossed out", () => {
-  const page = dashboard();
-  const spaces = [];
-  page.document.createElementNS = (space, tag) => {
-    spaces.push(space);
-    return element(tag);
-  };
-  const stroke = {
-    viewBox: "0 0 24 24",
-    width: "15",
-    height: "15",
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": "2",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-    "aria-hidden": "true",
-  };
-  for (const [call, paths] of [
-    ["bellIcon(false)", 2],
-    ["bellIcon(true)", 3],
-    ["gearIcon()", 2],
-    ["qrIcon()", 12],
-  ]) {
-    const svg = built(page, call);
-    assert.equal(svg.tagName, "SVG", call);
-    assert.deepEqual({ ...svg.attrs }, stroke, call);
-    assert.equal(svg.children.length, paths, call);
-    for (const path of svg.children) {
-      assert.equal(path.tagName, "PATH");
-      assert.match(path.attrs.d, /^M[\d.]/, call);
-    }
-  }
-  assert.equal(built(page, "bellIcon(true)").children[2].attrs.d, "M3 3l18 18");
-  assert.equal(
-    built(page, "gearIcon()").children[0].attrs.d,
-    "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38" +
-      "a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38" +
-      "a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2" +
-      "v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73" +
-      "l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73" +
-      "l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
-  );
-  assert.equal(spaces.length > 0 && spaces.every((space) => space === "http://www.w3.org/2000/svg"), true);
-});
-
-test("a day with no hours expected does not pulse the check-out button", () => {
-  const page = dashboard({
-    sessions: [session(at(TUESDAY, 9), null)],
-    schedule: "store.expected = [0, 0, 0, 0, 0, 0, 0]; store.weekTarget = 0;",
-  });
-  assert.equal(buttonOf(page, "Fichar salida").className, "btn primary");
-});
-
-test("a punch that succeeds but fails to reload says so and leaves the button disabled", async () => {
-  const today = new Date();
-  let punchedOnce = false;
-  const fetchImpl = async (url, opts) => {
-    if (opts && opts.method === "POST") {
-      punchedOnce = true;
-      return { ok: true, status: 200, json: async () => ({}) };
-    }
-    if (punchedOnce) throw new Error("caído");
-    return { ok: true, status: 200, json: async () => payload([session(at(today, 9), null)]) };
-  };
-  const page = load({ fetchImpl });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  const errBox = hero.querySelector(".err");
-  assert.equal(errBox.textContent, "Fichado, pero no se pudo recargar: caído");
-  assert.equal(button.disabled, true);
-});
-
-test("a punch that itself fails restores the button and shows the plain error", async () => {
-  const today = new Date();
-  const fetchImpl = async (url, opts) => {
-    if (opts && opts.method === "POST") throw new Error("sin conexión");
-    return { ok: true, status: 200, json: async () => payload([session(at(today, 9), null)]) };
-  };
-  const page = load({ fetchImpl });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  const errBox = hero.querySelector(".err");
-  assert.equal(errBox.textContent, "Error: sin conexión");
-  assert.equal(button.disabled, false);
-  assert.equal(button.textContent, "Fichar salida");
-});
-
-test("an armed punch button disarms by itself after four seconds", async () => {
-  const today = new Date();
-  const schedule = { hours: [7, 7, 7, 7, 7, 7, 7], lunch_from: [13, 13, 13, 13, 13, 13, 13] };
-  const page = load({ data: payload([session(at(today, 9), null)], { schedule }) });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  button.classList.add("pulse");
-  await button.listeners.click[0]();
-  assert.equal(button.textContent, "¿Confirmar?");
-  const [disarm, ms] = page.calls.timeouts.at(-1);
-  assert.equal(ms, 4000);
-  disarm();
-  assert.equal(button.textContent, "Fichar salida");
-  assert.deepEqual(
-    ["arm", "pulse"].map((c) => button.classList.contains(c)),
-    [false, true],
-  );
-});
-
 test("the gear opens the settings, each saved on change and explained in its tooltip", async () => {
   const posts = [];
   const data = payload([session(at(new Date(), 9), null)]);
@@ -620,33 +321,4 @@ test("«Tema» keeps this browser's theme, and says so when the browser will not
   dark.listeners.click[0]();
   assert.equal(locked.document.documentElement.dataset.theme, "dark");
   assert.match(locked.document.getElementById("settingsNote").textContent, /^Este navegador no deja guardar el tema/);
-});
-
-test("a punch that goes through reloads and checks the alarms", async () => {
-  const today = new Date();
-  let punched = false;
-  const page = load({
-    fetchImpl: async (url, opts) => {
-      if (opts?.method === "POST") {
-        punched = true;
-        return { ok: true, status: 200, json: async () => ({}) };
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => payload(punched ? [session(at(today, 9), at(today, 10))] : [session(at(today, 9), null)]),
-      };
-    },
-  });
-  await page.run("loadAndRender()");
-  const hero = page.document.getElementById("hero");
-  const button = hero.querySelectorAll(".btn").find((b) => b.textContent === "Fichar salida");
-  await button.listeners.click[0]();
-  await button.listeners.click[0]();
-  assert.equal(punched, true);
-  assert.deepEqual(
-    hero.querySelectorAll(".btn").map((b) => b.textContent),
-    ["Fichar entrada"],
-  );
-  assert.equal(hero.querySelector(".err").textContent, "");
 });

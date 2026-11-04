@@ -36,11 +36,10 @@ src/odoo_wrapper/
   qr.py              hand-written QR encoder
   static/            dashboard.html, team.html (the management view at /gestion), login.html, style.css
                      (design tokens) and each page's own .css, manifest.json and icon.svg (installable page),
-                     and js/: the pages
-                     as ES modules, app.js, team.js and login.js the only ones each page loads: the dashboard's (store,
-                     format, week, ui, api, hero, render, alarms, app), the management view's (teamstate, teamfixes,
-                     teamcharts, teamdiscord, team), the login page's (login) and what the first two share (shared,
-                     dayedit: the day dialog); store.js and
+                     and js/: the pages as ES modules, app.js, team.js and login.js the only ones each page loads:
+                     the dashboard's (store, format, week, api, hero, punch, icons, settings, render, alarms, app), the
+                     management view's (teamstate, teamfixes, teamcharts, teamdiscord, pan, team), the login page's
+                     (login) and what the first two share (shared, tip, updates, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
 tests/               unittest + node tests, and report_coverage.py, the Python suite with its coverage

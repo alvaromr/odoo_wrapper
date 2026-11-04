@@ -10,6 +10,7 @@
  * - Open pages keep up with each other: any punch stamps punched_at in the shared state, the other pages
  *   see it in their next /api/state poll and reload, so clocking in on the phone updates the laptop by
  *   itself. State writes render optimistically and roll back if the request fails, leaving why in the console.
+ * - busy() treats an open tooltip (tip.js), an armed button or a focused duration field as "do not repaint now".
  */
 
 import { LastRing } from "./alarms.js";
@@ -18,8 +19,13 @@ import { renderHero } from "./hero.js";
 import { renderAll } from "./render.js";
 import { api, byId, warned } from "./shared.js";
 import { DataMaxAge, NoSchedule, RetryAfter, store } from "./store.js";
-import { busy } from "./ui.js";
+import { tipOpen } from "./tip.js";
 import { indexSessions, setClock } from "./week.js";
+
+/** @returns {boolean} */
+export function busy() {
+  return tipOpen() || Boolean(document.querySelector(".btn.arm, .actions .btn:disabled, .lunch-input:focus"));
+}
 
 /** @returns {boolean} */
 export function stale() {

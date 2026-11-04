@@ -14,7 +14,7 @@
  *   around it. The floating + and − change its pixels per day (team.fixDay, FixZoom); it scrolls sideways
  *   under the fixed name and chip columns, opening at today's end, and down under its fixed header row, at
  *   most 60 % of the window high so a long list does not push the rest of the page away.
- * - It also scrolls by dragging (shared.js's panScroll). A mark opens its day in dayedit.js's dialog
+ * - It also scrolls by dragging (pan.js's panScroll). A mark opens its day in dayedit.js's dialog
  *   (openFixDay), unless it ends a drag.
  * - «↔» widens the card alone to the whole window and back: the rest of the page reads better narrow, but
  *   the strip is the one thing that gains from the width.
@@ -27,7 +27,8 @@
 
 import { dayLabel, openDayOf, sessionRow, whyDay, wrongSession } from "./dayedit.js";
 import { fmtDate, fmtDay, fmtHM, fmtTime, parseDay, plural, shiftDays } from "./format.js";
-import { api, byId, el, panScroll } from "./shared.js";
+import { panScroll } from "./pan.js";
+import { api, byId, el } from "./shared.js";
 import { DayNames } from "./store.js";
 import { sessionStrip, stripAxis } from "./teamcharts.js";
 import { FixKinds, FlagText, named, team } from "./teamstate.js";

@@ -7,7 +7,7 @@
  *   calendar has a lunch, and disappears for the rest of the day once used. A UI guard, not a server rule: the
  *   action is a plain check-out and stays valid at any hour. Nothing in Odoo tells which gap was lunch, so the
  *   hero and the day's tooltip call every gap time away («Ausente»), not lunch. The durations and that window
- *   are set in «Ajustes», the gear beside the bell (ui.js).
+ *   are set in «Ajustes», the gear beside the bell (settings.js).
  * - The week's meter is a gauge: one section per day that expects hours, as wide as those hours and notched every
  *   hour (8 h 30 m from Monday to Thursday and 6 h on Fridays: four long sections and a short one). The hours are
  *   each day's expected ones, after absences and leaves, so the sections add up to the target the fill is measured
@@ -30,9 +30,12 @@
 import { notifyStatus, stopFlash } from "./alarms.js";
 import { saveState } from "./api.js";
 import { fmtDay, fmtDelta, fmtHM, fmtShort, fmtTime } from "./format.js";
+import { bellIcon, gearIcon, qrIcon } from "./icons.js";
+import { actionButton } from "./punch.js";
+import { fillBar } from "./render.js";
+import { openSettings } from "./settings.js";
 import { api, byId, el, warned } from "./shared.js";
 import { DayNames, store } from "./store.js";
-import { actionButton, bellIcon, fillBar, gearIcon, openSettings, qrIcon } from "./ui.js";
 import { buildWeek, lunchHours, lunchOpen, targetLabel, weekRangeLabel } from "./week.js";
 
 /**

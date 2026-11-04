@@ -1,65 +1,19 @@
 /*
- * DOM building blocks: the break segments drawn inside a bar, the inline icons
- * (bell, gear, QR), the punch button, the settings dialog, and busy().
- *
- * - The gear in the hero opens «Ajustes» (openSettings): how long lunch and a break last, and the hours the
- *   lunch button shows, all in the shared state (state.py), each saved as soon as it changes. Each row's
- *   tooltip says what the setting drives. A modal dialog sits in the browser's top layer, above any z-index,
- *   so the tooltip is moved inside it while it is open and back to the body when it closes. A window that
- *   would end before it starts is refused here with a note, and by the server too. Two rows are not shared
- *   state: «Tema», this browser's own (theme.js), and «Actualizaciones», which asks the server to check GitHub
- *   now (updates.py) and says the answer, or why there is none, in the dialog's note.
- * - Every punch button asks for confirmation in place: the first click arms it («¿Confirmar?») for four
- *   seconds, the second one punches. The server validates the real state and answers 409 on invalid
- *   actions; the error lands in the hero's error box. A punch that succeeds but is followed by a failed
- *   reload says so instead of claiming the punch itself failed, and leaves the button disabled since the
- *   punch went through and the next tick or tab focus will reload.
- * - busy() treats an open tooltip (shared.js), an armed button or a focused duration field as "do not
- *   repaint now".
+ * «Ajustes», the dialog the gear in the hero opens (openSettings): how long lunch and a break last, and the hours the
+ * lunch button shows, all in the shared state (state.py), each saved as soon as it changes. Each row's tooltip says
+ * what the setting drives. A modal dialog sits in the browser's top layer, above any z-index, so the tooltip is moved
+ * inside it while it is open and back to the body when it closes. A window that would end before it starts is
+ * refused here with a note, and by the server too. Two rows are not shared state: «Tema», this browser's own
+ * (theme.js), and «Actualizaciones», which asks the server to check GitHub now (updates.py) and says the answer, or
+ * why there is none, in the dialog's note.
  */
 
-import { checkAlarms } from "./alarms.js";
-import { loadAndRender, saveState } from "./api.js";
-import { api, attachTip, byId, el, hideTip, showUpdate, tipOpen } from "./shared.js";
+import { saveState } from "./api.js";
+import { api, byId, el } from "./shared.js";
 import { LunchMax, store } from "./store.js";
+import { attachTip, hideTip } from "./tip.js";
+import { showUpdate } from "./updates.js";
 
-/**
- * @param {import("./store.js").DaySession[]} sessions
- * @returns {{from: number, to: number}[]}
- */
-function restSpans(sessions) {
-  let before = 0;
-  return sessions.flatMap((s) => {
-    const span = s.rest ? [{ from: before, to: before + s.hours }] : [];
-    before += s.hours;
-    return span;
-  });
-}
-
-/**
- * @template {HTMLElement} T
- * @param {T} bar
- * @param {import("./store.js").DaySession[]} sessions
- * @param {number} total
- * @returns {T}
- */
-export function fillBar(bar, sessions, total) {
-  for (const span of restSpans(sessions)) {
-    const seg = el("div", "rest");
-    seg.style.left = `${(span.from / total) * 100}%`;
-    seg.style.width = `${((span.to - span.from) / total) * 100}%`;
-    bar.appendChild(seg);
-  }
-  return bar;
-}
-
-/* ---------- estado ocupado ---------- */
-/** @returns {boolean} */
-export function busy() {
-  return tipOpen() || Boolean(document.querySelector(".btn.arm, .actions .btn:disabled, .lunch-input:focus"));
-}
-
-/* ---------- ajustes ---------- */
 const SettingsTips = {
   lunch:
     "Lo que sueles tardar en comer. Los días con comida en tu calendario de Odoo se suma a la hora " +
@@ -123,7 +77,7 @@ function updatesField() {
     const note = byId("settingsNote");
     b.disabled = true;
     try {
-      const answer = showUpdate(/** @type {import("./shared.js").UpdateAnswer} */ (await api("/api/update?fresh")));
+      const answer = showUpdate(/** @type {import("./updates.js").UpdateAnswer} */ (await api("/api/update?fresh")));
       note.textContent =
         answer.error ||
         (answer.available
@@ -249,123 +203,4 @@ export function openSettings() {
   const dialog = /** @type {HTMLDialogElement} */ (byId("settingsDialog"));
   dialog.appendChild(byId("tip"));
   dialog.showModal();
-}
-
-/**
- * @param {string[]} shapes
- * @returns {SVGSVGElement}
- */
-function icon(shapes) {
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg");
-  for (const [k, v] of Object.entries({
-    viewBox: "0 0 24 24",
-    width: 15,
-    height: 15,
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": 2,
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-    "aria-hidden": "true",
-  }))
-    svg.setAttribute(k, /** @type {string} */ (v));
-  for (const d of shapes) {
-    const path = document.createElementNS(NS, "path");
-    path.setAttribute("d", d);
-    svg.appendChild(path);
-  }
-  return svg;
-}
-
-/**
- * @param {boolean} muted
- * @returns {SVGSVGElement}
- */
-export function bellIcon(muted) {
-  return icon([
-    "M10.3 21a2 2 0 0 0 3.4 0",
-    "M3.3 15.3A1 1 0 0 0 4 17h16a1 1 0 0 0 .7-1.7C19.4 14 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.4 6-2.7 7.3",
-    ...(muted ? ["M3 3l18 18"] : []),
-  ]);
-}
-
-/** @returns {SVGSVGElement} */
-export function gearIcon() {
-  return icon([
-    "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38" +
-      "a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38" +
-      "a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2" +
-      "v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73" +
-      "l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73" +
-      "l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
-    "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
-  ]);
-}
-
-/** @returns {SVGSVGElement} */
-export function qrIcon() {
-  return icon([
-    "M3 3h5v5H3z",
-    "M16 3h5v5h-5z",
-    "M3 16h5v5H3z",
-    "M21 16h-3a2 2 0 0 0-2 2v3",
-    "M21 21v.01",
-    "M12 7v3a2 2 0 0 1-2 2H7",
-    "M3 12h.01",
-    "M12 3h.01",
-    "M12 16v.01",
-    "M16 12h1",
-    "M21 12v.01",
-    "M12 21v-1",
-  ]);
-}
-
-/**
- * @param {string} cls
- * @param {string} label
- * @param {string} action
- * @param {HTMLElement} errBox
- * @returns {HTMLButtonElement}
- */
-export function actionButton(cls, label, action, errBox) {
-  const b = el("button", `btn ${cls}`, label);
-  let armed = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
-  b.addEventListener("click", async () => {
-    if (!armed) {
-      const hadPulse = b.classList.contains("pulse");
-      armed = setTimeout(() => {
-        armed = null;
-        b.textContent = label;
-        b.classList.remove("arm");
-        b.classList.toggle("pulse", hadPulse);
-      }, 4000);
-      b.textContent = "¿Confirmar?";
-      b.classList.add("arm");
-      b.classList.remove("pulse");
-      return;
-    }
-    clearTimeout(armed);
-    armed = null;
-    b.disabled = true;
-    b.textContent = "Fichando…";
-    errBox.textContent = "";
-    let punched = false;
-    try {
-      await api("/api/attendance", { action });
-      punched = true;
-      await loadAndRender();
-      checkAlarms();
-    } catch (e) {
-      if (punched) {
-        errBox.textContent = `Fichado, pero no se pudo recargar: ${/** @type {Error} */ (e).message}`;
-        return;
-      }
-      errBox.textContent = `Error: ${/** @type {Error} */ (e).message}`;
-      b.disabled = false;
-      b.textContent = label;
-      b.classList.remove("arm");
-    }
-  });
-  return b;
 }
