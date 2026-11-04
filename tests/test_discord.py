@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
-from helpers import NORMAL, REST, ScriptedClient, logged, temp_state
+from harness import NORMAL, REST, ScriptedClient, logged, temp_state
 
 from odoo_wrapper import cache
 from odoo_wrapper import client as c

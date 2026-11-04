@@ -203,7 +203,7 @@ tools pull in, so do it now and then even with no pin to move.
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
 secret anywhere under the repo, a size cap for source files and every module named in the map above. Neither
-suite reaches the network or the real clock: `tests/helpers.py` and `tests/page.mjs` make every connection fail,
+suite reaches the network or the real clock: `tests/harness.py` and `tests/page.mjs` make every connection fail,
 so a call left unmocked fails its test, and run every test at one fixed instant and time zone, so a result never
 depends on the day the suite runs.
 

@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import NORMAL, REST, TODAY, ScriptedClient, logged
+from harness import NORMAL, REST, TODAY, ScriptedClient, logged
 
 from odoo_wrapper import attendance_rules as ar
 from odoo_wrapper import cache

@@ -10,7 +10,7 @@ import urllib.request
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import helpers  # noqa: F401
+import harness  # noqa: F401
 
 from odoo_wrapper import sheets as sh
 

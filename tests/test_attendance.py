@@ -4,7 +4,7 @@ import unittest
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
-from helpers import NORMAL, NOW, REST, TODAY, ScriptedClient, logged, temp_state, utc
+from harness import NORMAL, NOW, REST, TODAY, ScriptedClient, logged, temp_state, utc
 
 from odoo_wrapper import attendance as at
 from odoo_wrapper import attendance_rules as ar

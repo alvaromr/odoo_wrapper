@@ -6,7 +6,7 @@ import unittest
 from datetime import timedelta
 from unittest.mock import patch
 
-from helpers import NOW, logged, temp_state
+from harness import NOW, logged, temp_state
 
 from odoo_wrapper import client as c
 from odoo_wrapper import state as st

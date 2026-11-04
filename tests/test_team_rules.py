@@ -3,7 +3,7 @@
 import unittest
 from datetime import date, datetime, time, timedelta
 
-import helpers  # noqa: F401 - puts the package on the path, fixes the zone and refuses the network when run alone
+import harness  # noqa: F401 - puts the package on the path, fixes the zone and refuses the network when run alone
 
 from odoo_wrapper import attendance_rules as ar
 from odoo_wrapper import team_rules as tr

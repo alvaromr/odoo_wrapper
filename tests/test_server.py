@@ -23,7 +23,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import CONFIG, NORMAL, TODAY, ScriptedClient, logged, temp_state, utc
+from harness import CONFIG, NORMAL, TODAY, ScriptedClient, logged, temp_state, utc
 
 from odoo_wrapper import attendance_rules as ar
 from odoo_wrapper import cache, lan

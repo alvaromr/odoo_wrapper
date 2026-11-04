@@ -20,7 +20,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
-from helpers import CONFIG, logged, temp_state
+from harness import CONFIG, logged, temp_state
 
 from odoo_wrapper import autostart as au
 from odoo_wrapper import cli, lan

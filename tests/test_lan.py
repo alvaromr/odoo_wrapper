@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from helpers import logged, temp_state
+from harness import logged, temp_state
 
 from odoo_wrapper import lan
 

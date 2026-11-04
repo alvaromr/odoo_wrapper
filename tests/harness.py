@@ -1,5 +1,5 @@
-"""Shared test scaffolding: fixtures, the scripted Odoo stand-ins, the throwaway state directory and the log
-captured as `LEVEL message` lines.
+"""The Python suite's harness, as tests/page.mjs is the page's: fixtures, the scripted Odoo stand-ins, the
+throwaway state directory and the log captured as `LEVEL message` lines.
 
 Nothing here touches the network or the real ~/.odoo_dashboard: temp_state points every module that
 writes there at a temporary directory for the duration of one test. Importing this module also refuses the

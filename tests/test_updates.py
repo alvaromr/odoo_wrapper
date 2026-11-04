@@ -11,7 +11,7 @@ import unittest
 import urllib.error
 from unittest.mock import call, patch
 
-from helpers import logged, temp_state
+from harness import logged, temp_state
 
 from odoo_wrapper import __version__
 from odoo_wrapper import updates as up

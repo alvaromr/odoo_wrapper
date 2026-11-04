@@ -4,7 +4,7 @@ import unittest
 from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 
-import helpers  # noqa: F401 - puts the package on the path and refuses the network when this file runs alone
+import harness  # noqa: F401 - puts the package on the path and refuses the network when this file runs alone
 
 from odoo_wrapper import attendance_rules as ar
 from odoo_wrapper import cache

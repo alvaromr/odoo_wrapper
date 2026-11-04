@@ -8,7 +8,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
-from helpers import temp_state
+from harness import temp_state
 
 from odoo_wrapper import autostart as au
 from odoo_wrapper import process as pr

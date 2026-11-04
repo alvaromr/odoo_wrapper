@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from helpers import (
+from harness import (
     CONFIG,
     DEVICE_HEADER,
     EMPLOYEE,

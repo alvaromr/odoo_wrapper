@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from unittest.mock import patch
 
-from helpers import (
+from harness import (
     CONFIG,
     DEVICE_HEADER,
     EMPLOYEE,
