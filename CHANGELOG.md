@@ -5,6 +5,8 @@ Los cambios que nota quien usa las herramientas, por versión. El formato sigue
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-04
+
 ### Corregido
 
 - Los errores de `odoo-dashboard --autostart` salen por la salida de errores, como los del CLI.
@@ -45,6 +47,7 @@ Los cambios que nota quien usa las herramientas, por versión. El formato sigue
 
 Primera versión publicada: CLI de fichaje, panel de horas, vista de gestión, avisos por Discord y hoja de avisos.
 
-[Unreleased]: https://github.com/alvaromr/odoo_wrapper/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/alvaromr/odoo_wrapper/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/alvaromr/odoo_wrapper/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/alvaromr/odoo_wrapper/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/alvaromr/odoo_wrapper/releases/tag/v1.0.0
