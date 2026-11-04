@@ -164,14 +164,14 @@ goes to `main`, raise `__version__` in `src/odoo_wrapper/__init__.py`, the only 
 (semantic versioning: patch for fixes, minor for features, major for what breaks an install or a habit), and
 rename `[Unreleased]` in `CHANGELOG.md` to that version and its date, leaving a new empty one above. Every change
 a user notices adds its line under `[Unreleased]` in its own commit.
-Once `main` is pushed, publish it from `main`:
+The work happens on `dev`, and one command ships it, from `dev`:
 
 ```bash
 python3 tests/release.py --dry-run   # the checks, and the commands it would run
-python3 tests/release.py             # tags HEAD vX.Y.Z, pushes the tag and creates the GitHub release
+python3 tests/release.py             # pushes dev, installs it from GitHub, moves main to it, tags it vX.Y.Z, releases it
 ```
 
-Its header lists what it checks before publishing anything. A tag is never moved or reused; a broken release is
+Its header lists what it checks before anything leaves the machine, and in what order it goes. A tag is never moved or reused; a broken release is
 fixed by the next one.
 
 ## How to verify changes
