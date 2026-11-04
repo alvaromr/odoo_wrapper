@@ -43,8 +43,8 @@ src/odoo_wrapper/
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
 tests/               unittest + node tests, and report_coverage.py, the Python suite with its coverage
-scripts/             check.py (the gate), fix.py, mutate.py and release.py, and tools/, their Python tools locked;
-                     see below
+scripts/             check.py (the gate), fix.py, mutate.py, audit.py and release.py, and tools/, their Python tools
+                     locked; see below
 package.json         the gate's Node tools (Biome, TypeScript, StrykerJS), locked in pnpm-lock.yaml; never the
                      package's: it ships none
 .githooks/           pre-commit: runs the gate before each commit, on what the commit holds
@@ -198,7 +198,12 @@ freeze: when one is behind its latest stable release (the latest LTS for Node), 
 the release is a week old: read the changelog from the pinned version to the new one, note what changes here, ask
 the owner before a major jump, change the pin, lock it again (the command at the top of each `.txt`, run in
 `scripts/tools/`, or `pnpm install`), and run the gate and both mutation rounds. Locking again also moves what the
-tools pull in, so do it now and then even with no pin to move.
+tools pull in, so do it now and then even with no pin to move. Every lock is also checked against the known
+vulnerabilities, now and then and by `scripts/release.py` before it ships; its header says why and how:
+
+```bash
+python3 scripts/audit.py                 # pnpm audit over pnpm-lock.yaml, pip-audit over each scripts/tools/*.txt
+```
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
 secret anywhere under the repo, a size cap for source files and every module named in the map above. Neither

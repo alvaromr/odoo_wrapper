@@ -4,15 +4,16 @@ Releasing says when and why).
 
 `python3 scripts/release.py` checks that HEAD is dev, the tree clean, main behind dev so it moves forward without a
 merge, the version in src/odoo_wrapper/__init__.py not tagged yet, here or on GitHub, its section in CHANGELOG.md
-written, and the gate green. Then it pushes dev and installs that commit from GitHub as users install it (the source
-updates.py names, through uv, isolated from any install of the machine) on the oldest and the newest Python, and
-runs its two commands; only if they run does it push dev to main, move the local main along, tag the commit vX.Y.Z,
-push the tag and create the GitHub release with that section as its notes: the dashboards' «Novedades» link opens
-them, so users read what the changelog says. Its wrapped lines are joined, as GitHub breaks a release's lines where
-the source does. Each step runs only if the one before it worked, and a failure says what is already done.
-`--dry-run` runs the checks and prints the commands and the notes instead of running them. Every check comes before
-anything leaves the machine, and dev is the only thing pushed before the install from GitHub has run, so a refusal
-or a failed install leaves main and the tags as they were: a tag is never moved or reused.
+written, the gate green and the audit of the tools' locks (audit.py) clean. Then it pushes dev and installs that
+commit from GitHub as users install it (the source updates.py names, through uv, isolated from any install of the
+machine) on the oldest and the newest Python, and runs its two commands; only if they run does it push dev to main,
+move the local main along, tag the commit vX.Y.Z, push the tag and create the GitHub release with that section as
+its notes: the dashboards' «Novedades» link opens them, so users read what the changelog says. Its wrapped lines
+are joined, as GitHub breaks a release's lines where the source does. Each step runs only if the one before it
+worked, and a failure says what is already done. `--dry-run` runs the checks and prints the commands and the notes
+instead of running them. Every check comes before anything leaves the machine, and dev is the only thing pushed
+before the install from GitHub has run, so a refusal or a failed install leaves main and the tags as they were: a
+tag is never moved or reused.
 """
 
 import os
@@ -30,6 +31,7 @@ VERSION_FILE = os.path.join(ROOT, "src", "odoo_wrapper", "__init__.py")
 VERSION = re.compile(r'^__version__ = "(\d+\.\d+\.\d+)"$', re.MULTILINE)
 CHANGELOG = os.path.join(ROOT, "CHANGELOG.md")
 GATE = [sys.executable, os.path.join(ROOT, "scripts", "check.py")]
+AUDIT = [sys.executable, os.path.join(ROOT, "scripts", "audit.py")]
 
 
 def git(*args):
@@ -64,6 +66,7 @@ def refusal(tag, said):
         ),
         (lambda: not said, f"CHANGELOG.md has no section for {tag[1:]}: write it first"),
         (lambda: subprocess.run(GATE, cwd=ROOT, check=False).returncode, "the gate fails"),
+        (lambda: subprocess.run(AUDIT, cwd=ROOT, check=False).returncode, "the audit finds a known vulnerability"),
     ]
     return next((why for failed, why in checks if failed()), "")
 
