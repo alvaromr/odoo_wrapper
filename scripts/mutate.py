@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Mutation testing, run now and then rather than before each commit (AGENTS.md § How to verify changes says why).
 
-`python3 tests/mutate.py` runs mutmut over the package (pyproject.toml) and lists the mutants no test killed;
-`python3 tests/mutate.py js` runs StrykerJS over the page's JS (stryker.config.json), which takes about an hour. The
+`python3 scripts/mutate.py` runs mutmut over the package (pyproject.toml) and lists the mutants no test killed;
+`python3 scripts/mutate.py js` runs StrykerJS over the page's JS (stryker.config.json), which takes about an hour. The
 tools come locked, as the gate's do (check.py says how): mutmut, with the pytest it runs and the gate's own mypy,
-which type-checks each mutant, from tests/tools/mutation.txt into .tools/mutation, on MUTMUT_PYTHON; StrykerJS from
+which type-checks each mutant, from scripts/tools/mutation.txt into .tools/mutation, on MUTMUT_PYTHON; StrykerJS from
 package.json. StrykerJS reads tsconfig.json through TypeScript's JavaScript API, which TypeScript 7, the gate's, no
 longer ships, so package.json keeps `typescript` on 6, the last line that has it.
 """

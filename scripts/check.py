@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The gate: every check AGENTS.md § How to verify changes asks for, in one command that fails if any fails.
 
-`python3 tests/check.py` runs Ruff (format and lint), mypy (strict types, for TYPED_PYTHON: mypy 2 checks for 3.10
+`python3 scripts/check.py` runs Ruff (format and lint), mypy (strict types, for TYPED_PYTHON: mypy 2 checks for 3.10
 or newer only, so what 3.9 lacks is caught by the suites, which run every line on 3.9), the Python suite on every
 minor Python the package supports from MIN_PYTHON (read from .python-version, which pyproject.toml's requires-python
 must match; Ruff takes its target from requires-python itself) up to the one before COVERAGE_PYTHON, the same suite
@@ -18,7 +18,7 @@ the gate installs that hook itself (git's core.hooksPath) the first time it runs
 without it.
 
 The tools come locked with every dependency they pull in, so each run installs the same files. Ruff and mypy come
-from tests/tools/lint.txt, generated from lint.in with a hash for every file, and installed with the hashes required
+from scripts/tools/lint.txt, generated from lint.in with a hash for every file, and installed with the hashes required
 into .tools/lint, a virtual environment git ignores, on COVERAGE_PYTHON; Biome and TypeScript from package.json and
 pnpm-lock.yaml into node_modules, which pnpm-workspace.yaml hardens. TypeScript is there twice: the gate runs the 7
 line through its alias, typescript-7, and `typescript` stays on 6 for StrykerJS (mutate.py says why). The suites run
@@ -37,7 +37,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = ".githooks"
 TOOLS = os.path.join(ROOT, ".tools")
-LOCKS = os.path.join(ROOT, "tests", "tools")
+LOCKS = os.path.join(ROOT, "scripts", "tools")
 TYPED_PYTHON = "3.10"
 with open(os.path.join(ROOT, ".python-version")) as pinned:
     MIN_PYTHON = pinned.read().strip()

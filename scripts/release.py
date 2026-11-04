@@ -2,7 +2,7 @@
 """Ship what dev holds: push it, install it from GitHub, move main to it and publish its release (AGENTS.md §
 Releasing says when and why).
 
-`python3 tests/release.py` checks that HEAD is dev, the tree clean, main behind dev so it moves forward without a
+`python3 scripts/release.py` checks that HEAD is dev, the tree clean, main behind dev so it moves forward without a
 merge, the version in src/odoo_wrapper/__init__.py not tagged yet, here or on GitHub, its section in CHANGELOG.md
 written, and the gate green. Then it pushes dev and installs that commit from GitHub as users install it (the source
 updates.py names, through uv, isolated from any install of the machine) on the oldest and the newest Python, and
@@ -29,7 +29,7 @@ BRANCH = "dev"
 VERSION_FILE = os.path.join(ROOT, "src", "odoo_wrapper", "__init__.py")
 VERSION = re.compile(r'^__version__ = "(\d+\.\d+\.\d+)"$', re.MULTILINE)
 CHANGELOG = os.path.join(ROOT, "CHANGELOG.md")
-GATE = [sys.executable, os.path.join(ROOT, "tests", "check.py")]
+GATE = [sys.executable, os.path.join(ROOT, "scripts", "check.py")]
 
 
 def git(*args):

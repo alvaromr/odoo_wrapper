@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The gate's companion: fixes what the tools can fix by themselves, then runs the gate.
 
-`python3 tests/fix.py` formats the Python with Ruff and applies its safe fixes, lets Biome format the page, apply
-its safe fixes and sort its imports, and then runs tests/check.py, whose verdict and exit code it hands on. What
+`python3 scripts/fix.py` formats the Python with Ruff and applies its safe fixes, lets Biome format the page, apply
+its safe fixes and sort its imports, and then runs scripts/check.py, whose verdict and exit code it hands on. What
 is left for a person is what the gate still lists. The tools and their versions are the gate's own.
 """
 

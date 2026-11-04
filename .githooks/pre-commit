@@ -1,5 +1,5 @@
 #!/bin/sh
-# The gate before every commit, on exactly what the commit holds: tests/check.py says what it runs, and installs this
+# The gate before every commit, on exactly what the commit holds: scripts/check.py says what it runs, and installs this
 # hook the first time. What is not staged, untracked files included, is set aside in a stash while it runs and put
 # back after, whatever the gate says. If that is cut short, `git stash list` shows it and `git stash pop` restores it.
 before=$(git rev-parse -q --verify refs/stash)
@@ -11,7 +11,7 @@ restore() {
   fi
 }
 trap 'restore; exit 130' INT TERM
-python3 tests/check.py
+python3 scripts/check.py
 status=$?
 restore
 exit $status

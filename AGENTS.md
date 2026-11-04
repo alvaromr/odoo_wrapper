@@ -41,8 +41,9 @@ src/odoo_wrapper/
                      teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
-tests/               unittest + node tests, check.py (the gate), fix.py, mutate.py and release.py, and tools/,
-                     their Python tools locked; see below
+tests/               unittest + node tests, and report_coverage.py, the Python suite with its coverage
+scripts/             check.py (the gate), fix.py, mutate.py and release.py, and tools/, their Python tools locked;
+                     see below
 package.json         the gate's Node tools (Biome, TypeScript, StrykerJS), locked in pnpm-lock.yaml; never the
                      package's: it ships none
 .githooks/           pre-commit: runs the gate before each commit, on what the commit holds
@@ -167,8 +168,8 @@ a user notices adds its line under `[Unreleased]` in its own commit.
 The work happens on `dev`, and one command ships it, from `dev`:
 
 ```bash
-python3 tests/release.py --dry-run   # the checks, and the commands it would run
-python3 tests/release.py             # pushes dev, installs it from GitHub, moves main to it, tags it vX.Y.Z, releases it
+python3 scripts/release.py --dry-run   # the checks, and the commands it would run
+python3 scripts/release.py             # pushes dev, installs it from GitHub, moves main to it, tags it vX.Y.Z, releases it
 ```
 
 Its header lists what it checks before anything leaves the machine, and in what order it goes. A tag is never moved or reused; a broken release is
@@ -177,24 +178,24 @@ fixed by the next one.
 ## How to verify changes
 
 Start with the gate, one command that needs uv, pnpm and Node at the versions it pins (`TOOLCHAIN` in
-`tests/check.py`). It installs uv's own Python of every version it runs, at the latest patch, where uv keeps them;
+`scripts/check.py`). It installs uv's own Python of every version it runs, at the latest patch, where uv keeps them;
 in the repo, only its tools, in folders git ignores (`.tools/`, `node_modules/`), and its own pre-commit hook
 (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash
-python3 tests/check.py                   # Ruff, mypy, Biome, TypeScript, both suites, both coverages, the built package; its header lists each step
-python3 tests/fix.py                     # formats and applies the tools' safe fixes, then runs the gate
+python3 scripts/check.py                 # Ruff, mypy, Biome, TypeScript, both suites, both coverages, the built package; its header lists each step
+python3 scripts/fix.py                   # formats and applies the tools' safe fixes, then runs the gate
 ```
 
 Every tool the checks use is pinned to one exact version, and locked with everything it pulls in: the Python ones
-in `tests/tools/*.in`, compiled with hashes into the `.txt` beside each, and the Node ones in `package.json`, locked
+in `scripts/tools/*.in`, compiled with hashes into the `.txt` beside each, and the Node ones in `package.json`, locked
 in `pnpm-lock.yaml`. None of them reaches the users, whose install needs only uv and Python. setuptools, pinned in
 `pyproject.toml`, does: it builds the package on the user's machine, with the user's Python, so it moves only as
 far as its last release that runs on the oldest Python the package supports. The pins move forward rather than
 freeze: when one is behind its latest stable release (the latest LTS for Node), move it in its own commit, once
 the release is a week old: read the changelog from the pinned version to the new one, note what changes here, ask
 the owner before a major jump, change the pin, lock it again (the command at the top of each `.txt`, run in
-`tests/tools/`, or `pnpm install`), and run the gate and both mutation rounds. Locking again also moves what the
+`scripts/tools/`, or `pnpm install`), and run the gate and both mutation rounds. Locking again also moves what the
 tools pull in, so do it now and then even with no pin to move.
 
 The Python suite includes the project's guards (`tests/test_project.py`): the dependency rule of Code style, no
@@ -222,8 +223,8 @@ That is what makes the type in a `cast` need no pragma. Both rounds run through 
 locked as the gate's are:
 
 ```bash
-python3 tests/mutate.py      # mutmut over the package (pyproject.toml), then the mutants no test killed
-python3 tests/mutate.py js   # StrykerJS over the page's JS (stryker.config.json), about an hour
+python3 scripts/mutate.py      # mutmut over the package (pyproject.toml), then the mutants no test killed
+python3 scripts/mutate.py js   # StrykerJS over the page's JS (stryker.config.json), about an hour
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
@@ -238,7 +239,7 @@ run one after another there: Stryker already runs mutants in parallel, and files
 overloaded the machine until nearly every mutant timed out. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
 (the header of `tests/page.mjs` says why). It needs TypeScript to copy `tsconfig.json` into its sandbox, and the
-6 line, which `tests/mutate.py`'s header explains.
+6 line, which `scripts/mutate.py`'s header explains.
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
 original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences
