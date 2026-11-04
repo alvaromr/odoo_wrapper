@@ -9,10 +9,10 @@
  * exported setter (render.js's setRangeMonths, alarms.js's resetAlarms). Constants that never change stay
  * plain exported `const`s, not store properties.
  *
- * - store.data is the last payload from /api/data; store.now/store.today the clock it was rendered with;
+ * - store.personal is the last payload from /api/personal; store.now/store.today the clock it was rendered with;
  *   store.byDay, store.absMap and store.leaveMap the indexes built from it; store.state the shared state
  *   (lunch stamp, settings, mute).
- * - store.contractHours holds the payload's contract_hours ({date: hours}, data.py): the days whose contract
+ * - store.contractHours holds the payload's contract_hours ({date: hours}, attendance_rules.py): the days whose contract
  *   in force asked for other hours than the current schedule, which a day's expected hours take first.
  * - store.expected, store.lunchFrom and store.weekTarget come only from the schedule in the payload;
  *   nothing about the user's working week is written here. A calendar that answers nothing means no
@@ -25,7 +25,7 @@
  */
 
 /**
- * A session as /api/data sends it (data.py's session_of).
+ * A session as /api/personal sends it (attendance_rules.py's session_of).
  * @typedef {object} PayloadSession
  * @property {number | null} id
  * @property {string} in
@@ -92,7 +92,7 @@
  */
 
 /**
- * The /api/data payload (attendance.py's build_personal, and server.py's additions to it).
+ * The /api/personal payload (attendance.py's build_personal, and server.py's additions to it).
  * @typedef {object} Payload
  * @property {string} employee
  * @property {number} employee_id
@@ -130,10 +130,10 @@
  */
 
 /**
- * The shared mutable object. data, now and today are typed as set because nothing renders before
- * loadAndRender fills them (the code that can run earlier checks store.data first).
+ * The shared mutable object. personal, now and today are typed as set because nothing renders before
+ * loadAndRender fills them (the code that can run earlier checks store.personal first).
  * @typedef {object} Store
- * @property {Payload} data
+ * @property {Payload} personal
  * @property {Date} now
  * @property {Date} today
  * @property {Map<string, DayRecord>} byDay
@@ -165,12 +165,12 @@ export const DayFull = ["lunes", "martes", "miércoles", "jueves", "viernes", "s
 export const MonthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 export const NotifyEveryMs = 120000;
 export const TickMs = 20000;
-export const DataMaxAge = 300000;
+export const PersonalMaxAge = 300000;
 export const RetryAfter = 60000;
 
 /** @type {Store} */
 export const store = {
-  data: /** @type {Payload} */ (/** @type {unknown} */ (null)),
+  personal: /** @type {Payload} */ (/** @type {unknown} */ (null)),
   now: /** @type {Date} */ (/** @type {unknown} */ (null)),
   today: /** @type {Date} */ (/** @type {unknown} */ (null)),
   byDay: new Map(),

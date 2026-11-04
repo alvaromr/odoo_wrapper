@@ -74,7 +74,7 @@ test("the page follows the day change before asking Odoo", async () => {
 test("a failed first load keeps retrying once a minute", async () => {
   const page = load();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  const loads = () => page.calls.fetch.filter(([url]) => url.startsWith("/api/data")).length;
+  const loads = () => page.calls.fetch.filter(([url]) => url.startsWith("/api/personal")).length;
   assert.equal(loads(), 1);
   assert.match(page.document.getElementById("loadmsg").textContent, /^Error cargando datos de Odoo: sin datos/);
   page.run("tick()");
@@ -86,7 +86,7 @@ test("a failed first load keeps retrying once a minute", async () => {
 test("a failed reload is retried once a minute, not every tick", () => {
   const page = withData([session(at(new Date(), 9), null)]);
   page.run("setClock(new Date()); indexSessions();");
-  const loads = () => page.calls.fetch.filter(([url]) => url.startsWith("/api/data")).length;
+  const loads = () => page.calls.fetch.filter(([url]) => url.startsWith("/api/personal")).length;
   page.run("tick()");
   assert.equal(loads(), 1);
   page.run("tick()");
@@ -106,7 +106,7 @@ test("someone else's week is read only: their data, no punch buttons, no duratio
   });
   await page.run("loadAndRender()");
   assert.equal(page.run("store.other"), "9");
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/data?employee=9");
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/personal?employee=9");
   const hero = page.document.getElementById("hero");
   assert.equal(hero.children.length, 2);
   assert.equal(hero.querySelectorAll("button").length, 0);
@@ -115,7 +115,7 @@ test("someone else's week is read only: their data, no punch buttons, no duratio
   await page.run("refreshState()");
   assert.equal(page.calls.fetch.length, before);
   await page.run("loadAndRender(true)");
-  assert.equal(page.calls.fetch.at(-1)[0], "/api/data?employee=9&fresh");
+  assert.equal(page.calls.fetch.at(-1)[0], "/api/personal?employee=9&fresh");
 });
 
 test("the mouse's back and forward buttons walk the history on both pages", async () => {
@@ -171,20 +171,22 @@ test("the tab coming back, the source poll, the views and «Actualizar» drive t
   doc.hidden = true;
   visible();
   doc.hidden = false;
-  const loads = () => fetched.filter((url) => url.startsWith("/api/data")).length;
+  const loads = () => fetched.filter((url) => url.startsWith("/api/personal")).length;
   const loaded = loads();
   visible();
   page.run("store.loadedAt = 0; store.triedAt = 0");
   visible();
   await settle();
   assert.equal(loads(), loaded + 1);
-  page.run("store.data = null");
+  page.run("store.personal = null");
   visible();
-  page.run(`store.data = ${JSON.stringify(payload([]))}; store.state = store.data.state`);
+  page.run(`store.personal = ${JSON.stringify(payload([]))}; store.state = store.personal.state`);
   page.run("setClock(new Date()); indexSessions(); store.loadedAt = Date.now(); store.punchEv = null; tick()");
   page.run("store.punchEv = { at: new Date(), open: false }; store.punchEl = document.createElement('div'); tick()");
   assert.match(page.run("store.punchEl.textContent"), / a las \d\d:\d\d · hace 0m$/);
-  page.run(`store.data.sessions = [${JSON.stringify(session(new Date(Date.now() - 3600e3), null))}]; indexSessions()`);
+  page.run(
+    `store.personal.sessions = [${JSON.stringify(session(new Date(Date.now() - 3600e3), null))}]; indexSessions()`,
+  );
   page.run("document.querySelector = () => ({}); tick(); document.querySelector = () => null; tick()");
   const views = doc.getElementById("viewSeg");
   const table = doc.createElement("button"),
@@ -209,7 +211,7 @@ test("the tab coming back, the source poll, the views and «Actualizar» drive t
   const target = { disabled: false };
   await refresh.listeners.click[0]({ target });
   assert.equal(target.disabled, false);
-  assert.ok(fetched.includes("/api/data?fresh"));
+  assert.ok(fetched.includes("/api/personal?fresh"));
 });
 
 test("a full fortnight draws every part of the dashboard: break, lunch, leave, holidays and progress", async () => {
@@ -277,7 +279,7 @@ test("a full fortnight draws every part of the dashboard: break, lunch, leave, h
   mute().listeners.click[0]();
   await settle();
   assert.equal(page.run("store.state.muted"), false);
-  page.run("store.data.sessions.at(-1).rest = false; indexSessions(); renderHero()");
+  page.run("store.personal.sessions.at(-1).rest = false; indexSessions(); renderHero()");
   assert.deepEqual(
     hero.querySelectorAll(".btn").map((b) => b.textContent),
     ["Fichar salida", "Salir a descanso"],
@@ -389,7 +391,7 @@ test("the alarms, the loader and the tooltip in their other cases", async () => 
   assert.equal(audio.made.length, 1);
   const lunch = new Date(Date.now() - 40 * 60000).toISOString();
   page.run(
-    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
+    `store.personal = ${JSON.stringify(payload([]))}; store.state = { ...store.personal.state, lunch: "${lunch}" }; ${SCHEDULE}`,
   );
   page.run(
     "setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms(); checkAlarms(); LastRing.lunch = 0; checkAlarms()",
@@ -467,7 +469,7 @@ test("the source poll runs only where the page is served from this machine", () 
 
 const later = (page, ms) => page.Clock.set(new Date(page.Clock.now() + ms));
 const freshData = (page) => page.run(`store.loadedAt = ${page.Clock.now()}; store.triedAt = ${page.Clock.now()}`);
-const dataLoads = (page) => page.sent.filter((r) => r.url.startsWith("/api/data")).length;
+const dataLoads = (page) => page.sent.filter((r) => r.url.startsWith("/api/personal")).length;
 const marks = (page) => {
   page.run("LastRing.lunch = 5; LastRing.rest = 6; NotifiedAt = 7; store.byDay = new Map()");
   page.run(`flashTitle("x")`);
@@ -501,7 +503,7 @@ test("a new day resets the alarms, repaints from the local clock and reloads", a
     ticking.sent.some((r) => r.url === "/api/state"),
     false,
   );
-  const failing = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("sin red")) } });
+  const failing = dashboard({ answers: { "/api/personal": () => Promise.reject(new Error("sin red")) } });
   failing.Clock.set(WEDNESDAY);
   failing.document.listeners.visibilitychange[0]();
   await settle();
@@ -539,12 +541,12 @@ test("coming back to the tab stops a blinking title and reloads stale data unles
   assert.equal(dataLoads(busy), 1);
 
   const empty = back();
-  empty.run("store.data = null");
+  empty.run("store.personal = null");
   later(empty, 61000);
   empty.document.listeners.visibilitychange[0]();
   assert.equal(dataLoads(empty), 1);
 
-  const failing = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("sin red")) } });
+  const failing = dashboard({ answers: { "/api/personal": () => Promise.reject(new Error("sin red")) } });
   later(failing, 61000);
   failing.document.listeners.visibilitychange[0]();
   await settle();
@@ -581,7 +583,7 @@ const clockTick = (page) => page.calls.timers.find(([, ms]) => ms === 20000)[0];
 test("the clock reloads a page that has no data, when it is time and the tab is visible", () => {
   const empty = () => {
     const page = dashboard();
-    page.run("store.data = null");
+    page.run("store.personal = null");
     return page;
   };
   const visible = empty();
@@ -615,7 +617,7 @@ test("the clock reloads stale data when visible and idle, and otherwise only pol
     polls: 0,
   });
   assert.deepEqual(await run((p) => freshData(p)), { loads: 1, polls: 1 });
-  const failing = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("sin red")) } });
+  const failing = dashboard({ answers: { "/api/personal": () => Promise.reject(new Error("sin red")) } });
   later(failing, 61000);
   clockTick(failing)();
   await settle();
@@ -733,14 +735,14 @@ test("the view buttons show the charts or the table", () => {
 
 test("the refresh button reloads from Odoo and stays off meanwhile", async () => {
   let release;
-  const page = dashboard({ answers: { "/api/data?fresh": () => new Promise((resolve) => (release = resolve)) } });
+  const page = dashboard({ answers: { "/api/personal?fresh": () => new Promise((resolve) => (release = resolve)) } });
   const button = page.document.getElementById("refreshBtn");
   const pending = button.listeners.click[0]({ target: button });
   assert.equal(button.disabled, true);
   release(await answer(page.data)());
   await pending;
   assert.equal(button.disabled, false);
-  assert.equal(page.sent.at(-1).url, "/api/data?fresh");
+  assert.equal(page.sent.at(-1).url, "/api/personal?fresh");
 });
 
 test("the page wires its controls: log out, the mouse's back button, the update banner, the day dialog", async () => {
@@ -772,7 +774,7 @@ test("the page wires its controls: log out, the mouse's back button, the update 
     true,
   );
   await page.run("Reload()");
-  assert.equal(page.sent.at(-1).url, "/api/data?fresh");
+  assert.equal(page.sent.at(-1).url, "/api/personal?fresh");
   const request = page.document.getElementById("requestBtn");
   await request.listeners.click[0]();
   await settle();

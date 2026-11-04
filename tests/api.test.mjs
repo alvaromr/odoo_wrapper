@@ -85,7 +85,7 @@ test("polling the shared state ignores a page of someone else's and a refused an
   });
   await refused.run("refreshState()");
   assert.equal(refused.sent.filter((r) => r.url === "/api/state").length, 1);
-  assert.equal(refused.sent.filter((r) => r.url === "/api/data").length, 1);
+  assert.equal(refused.sent.filter((r) => r.url === "/api/personal").length, 1);
   const other = dashboard();
   other.run(`store.other = "7"`);
   await other.run("refreshState()");
@@ -129,7 +129,7 @@ test("a punch made elsewhere reloads the page, a changed state replaces it, an e
 
   const punched = polled({ punched_at: iso(TUESDAY) });
   await punched.run("refreshState()");
-  assert.equal(punched.sent.filter((r) => r.url === "/api/data").length, 2);
+  assert.equal(punched.sent.filter((r) => r.url === "/api/personal").length, 2);
   assert.equal(punched.run("window.kept === store.state"), false);
 });
 
@@ -177,18 +177,18 @@ test("a failed poll of the shared state is logged and the page carries on", asyn
 
 test("a load asks for the personal week, the fresh data or someone else's, and nothing more", async () => {
   const page = dashboard();
-  const urls = () => page.sent.filter((r) => r.url.startsWith("/api/data")).map((r) => r.url);
+  const urls = () => page.sent.filter((r) => r.url.startsWith("/api/personal")).map((r) => r.url);
   await page.run("loadAndRender()");
   await page.run("loadAndRender(true)");
   page.run(`store.other = "7"`);
   await page.run("loadAndRender()");
   await page.run("loadAndRender(true)");
   assert.deepEqual(urls(), [
-    "/api/data",
-    "/api/data",
-    "/api/data?fresh",
-    "/api/data?employee=7",
-    "/api/data?employee=7&fresh",
+    "/api/personal",
+    "/api/personal",
+    "/api/personal?fresh",
+    "/api/personal?employee=7",
+    "/api/personal?employee=7&fresh",
   ]);
   assert.equal(page.sent.at(-1).method, undefined);
 });
@@ -248,7 +248,7 @@ test("a payload without schedule, contracts, since, absences or team leaves the 
 });
 
 test("the first load that fails says so where the page was to appear", async () => {
-  const page = dashboard({ answers: { "/api/data": () => Promise.reject(new Error("Odoo caído")) } });
+  const page = dashboard({ answers: { "/api/personal": () => Promise.reject(new Error("Odoo caído")) } });
   page.run("loadFirst()");
   await settle();
   assert.equal(page.document.getElementById("loadmsg").textContent, "Error cargando datos de Odoo: Odoo caído");

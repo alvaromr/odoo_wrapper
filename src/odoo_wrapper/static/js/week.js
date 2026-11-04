@@ -15,7 +15,7 @@
  *   trusted, so the page does not tell it reached its target. It has an error when it is suspect or holds
  *   a missed or unclosed day: either way a punch needs fixing.
  * - A day expects its contract's hours when the payload lists it (store.contractHours), the current
- *   schedule's otherwise, and nothing before store.since, the week of the first real punch (data.py says why).
+ *   schedule's otherwise, and nothing before store.since, the week of the first real punch (attendance_rules.py says why).
  *   Its scheduled hours are those same hours before any absence or leave: the length of day its calendar gave it.
  * - Absence days subtract their expected hours from the week's target. A leave shorter than a day
  *   subtracts just its hours from that day and is kept on the day so the hero and the timeline can show it.
@@ -97,7 +97,7 @@ export function lunchHours(day) {
  * @returns {boolean}
  */
 export function longDay(d) {
-  return d.hours > store.data.long_hours;
+  return d.hours > store.personal.long_hours;
 }
 
 /**
@@ -127,10 +127,10 @@ export function missed(d) {
 /** @returns {PunchError[]} */
 export function punchErrors() {
   /** @type {PunchError[]} */
-  const open = store.data.sessions
+  const open = store.personal.sessions
     .filter((s) => !s.out && new Date(s.in) < store.today)
     .map((s) => ({ kind: "open", in: new Date(s.in) }));
-  const days = Array.from({ length: store.data.weeks }, (_, k) => buildWeek(k).days).flat();
+  const days = Array.from({ length: store.personal.weeks }, (_, k) => buildWeek(k).days).flat();
   /** @type {PunchError[]} */
   const long = days
     .filter((d) => d.sessions.every((s) => s.out) && longDay(d))
@@ -166,7 +166,7 @@ export function setClock(date) {
 
 export function indexSessions() {
   store.byDay = new Map();
-  for (const s of store.data.sessions) {
+  for (const s of store.personal.sessions) {
     const inD = new Date(s.in);
     const outD = s.out ? new Date(s.out) : null;
     const hours =

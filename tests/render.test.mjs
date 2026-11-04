@@ -492,7 +492,7 @@ test("the week card's hint quotes the schedule, or says there is none", () => {
     hint(),
     `Odoo no devuelve horario para tu calendario, así que no hay jornada prevista ni objetivo semanal.${tail}`,
   );
-  p.run("store.data.schedule = { hours: store.expected, lunch_from: store.lunchFrom }; renderCalendar()");
+  p.run("store.personal.schedule = { hours: store.expected, lunch_from: store.lunchFrom }; renderCalendar()");
   assert.equal(
     hint(),
     `La marca vertical de cada día es la jornada prevista en Odoo: 8h 30m de lunes a jueves, 6h los viernes.${tail}`,
@@ -991,7 +991,7 @@ const REQUESTS = [
 const banner = (p, { errors = PUNCH_ERRORS, requests = REQUESTS, canEdit = true, other = null } = {}) => {
   put(p, "errors", errors);
   p.run(
-    `punchErrors = () => errors; store.data.requests = ${JSON.stringify(requests)}; store.data.can_edit = ${canEdit}; store.other = ${JSON.stringify(other)}; renderErrors()`,
+    `punchErrors = () => errors; store.personal.requests = ${JSON.stringify(requests)}; store.personal.can_edit = ${canEdit}; store.other = ${JSON.stringify(other)}; renderErrors()`,
   );
   return p.document.getElementById("errorsBanner");
 };
@@ -1341,7 +1341,7 @@ test("the banner lists this person's punch errors and opens their week", async (
     .filter((g) => g.tagName === "G" && has(g, "col"))[0]
     .children.find((c) => has(c, "bar"));
   assert.match(tallest.getAttribute("d"), / L [\d.]+ 14 Q /);
-  page.run("store.data.sessions = []; store.contractHours = new Map(); indexSessions(); renderErrors()");
+  page.run("store.personal.sessions = []; store.contractHours = new Map(); indexSessions(); renderErrors()");
   assert.equal(box.classList.contains("hidden"), true);
 });
 
@@ -1540,12 +1540,12 @@ test("the dashboard's texts in their other cases", () => {
   const items = banner.children[0].children[2].children.map((li) => bannerLine(li.children[0]));
   assert.ok(items.includes("Lun 7 sep 2026 · Jornada de 36h"));
   page.run(
-    `store.data.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`,
+    `store.personal.sessions = [${JSON.stringify(session(on(last, 3, 21), on(last, 4, 1)))}]; store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`,
   );
   assert.equal(banner.classList.contains("hidden"), true);
   page.run(SCHEDULE);
   page.run(
-    `store.data.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"]
+    `store.personal.sessions = [${["0,8,0,16,30", "1,8,0,16,30", "2,8,0,16,30", "3,8,0,16,30", "4,8,0,13,0"]
       .map((v) => {
         const [d, h1, m1, h2, m2] = v.split(",").map(Number);
         return JSON.stringify(session(on(last, d, h1, m1), on(last, d, h2, m2)));
@@ -1562,7 +1562,7 @@ test("the dashboard's texts in their other cases", () => {
   page.run("rangeShort = false; renderCalendar(); renderTable(buildWeeks(2))");
   assert.deepEqual([card.querySelectorAll(".badge")[0].className, downs().length], ["badge flat", 0]);
   page.run(
-    `store.data.sessions.at(-1).out = "${on(last, 4, 14).toISOString()}"; store.data.sessions.at(-1).hours = 6; indexSessions(); renderCalendar()`,
+    `store.personal.sessions.at(-1).out = "${on(last, 4, 14).toISOString()}"; store.personal.sessions.at(-1).hours = 6; indexSessions(); renderCalendar()`,
   );
   assert.equal(card.querySelectorAll(".badge")[0].textContent, "+0h vs 40h");
   page.run("setRangeMonths(1); renderAll(); setRangeMonths(0); renderAll()");
@@ -1570,7 +1570,7 @@ test("the dashboard's texts in their other cases", () => {
   assert.deepEqual(page.run("buildWeek(1).days.map(d => d.expected)"), [0, 0, 0, 0, 0, 0, 0]);
   assert.equal(page.run("buildWeek(0).target"), 40);
   page.run(`store.since = ""`);
-  page.run(`store.data.sessions = [${JSON.stringify(session(on(last, 0, 8), on(last, 0, 9)))}, ${JSON.stringify(session(on(last, 0, 10), on(last, 0, 23)))}];
+  page.run(`store.personal.sessions = [${JSON.stringify(session(on(last, 0, 8), on(last, 0, 9)))}, ${JSON.stringify(session(on(last, 0, 10), on(last, 0, 23)))}];
     store.expected = [0, 0, 0, 0, 0, 0, 0]; indexSessions(); renderErrors()`);
   assert.equal(
     bannerLine(banner.children[0].children[2].children[0].children[0]),
@@ -1628,11 +1628,11 @@ test("the personal page's punches to fix open the correcting dialog when the ses
     .children.filter((c) => c.tagName === "INPUT");
   [added[0].value, added[1].value] = ["09:00", "10:00"];
   const save = editor.children.find((c) => c.className === "edit-actions").children[0];
-  const loads = urls.filter((u) => u.startsWith("/api/data")).length;
+  const loads = urls.filter((u) => u.startsWith("/api/personal")).length;
   await save.listeners.click[0]();
   await save.listeners.click[0]();
   await settle();
-  assert.equal(urls.filter((u) => u.startsWith("/api/data")).length, loads + 1);
+  assert.equal(urls.filter((u) => u.startsWith("/api/personal")).length, loads + 1);
   assert.equal(doc.getElementById("dayDialogNote").textContent, "Guardado.");
   down = false;
   doc.getElementById("dayDialogClose").listeners.click[0]();
@@ -1641,11 +1641,11 @@ test("the personal page's punches to fix open the correcting dialog when the ses
   await fix.listeners.click[0]();
   await settle();
   assert.deepEqual([fix.textContent, fix.title], ["No se pudo abrir", "sin red"]);
-  page.run("store.data.can_edit = false; renderErrors()");
+  page.run("store.personal.can_edit = false; renderErrors()");
   assert.equal(items()[0].children.length, 1);
   page.run("store.other = null; renderErrors()");
   assert.equal(items()[0].children[1].textContent, "Solicitar cambio");
-  page.run("store.data.can_edit = true; renderErrors()");
+  page.run("store.personal.can_edit = true; renderErrors()");
   assert.deepEqual(
     items()[0]
       .children.slice(1)
@@ -1762,7 +1762,7 @@ test("someone's page shows the requests the viewer may approve, one line per day
   await lines()[0].children[1].listeners.click[0]();
   await settle();
   assert.equal(lines()[0].children[1].textContent, "No se pudo abrir");
-  page.run(`store.data.requests = store.data.requests.slice(0, 1); store.data.sessions = [${JSON.stringify(session(new Date(2025, 2, 3, 9), null))}];
+  page.run(`store.personal.requests = store.personal.requests.slice(0, 1); store.personal.sessions = [${JSON.stringify(session(new Date(2025, 2, 3, 9), null))}];
     indexSessions(); renderErrors()`);
   assert.equal(box.querySelectorAll("h2")[0].textContent, "⚠ 1 fichaje por corregir · 1 solicitud pendiente");
   assert.equal(box.classList.contains("requests"), false);
@@ -1770,7 +1770,7 @@ test("someone's page shows the requests the viewer may approve, one line per day
     bannerLine(lines()[0].children[0]),
     "Lun 3 mar 2025 · Sin cerrar entrada a las 09:00, sin salida · Solicitud pendiente 08:30–17:40 · Salí a las 17:40",
   );
-  page.run("delete store.data.requests; store.data.sessions = []; indexSessions(); renderErrors()");
+  page.run("delete store.personal.requests; store.personal.sessions = []; indexSessions(); renderErrors()");
   assert.equal(box.classList.contains("hidden"), true);
 });
 

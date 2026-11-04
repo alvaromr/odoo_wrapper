@@ -35,7 +35,7 @@ test("a 401 sends the page to the login", async () => {
   const page = load({ fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: "caducada" }) }) });
   await new Promise((resolve) => setImmediate(resolve));
   page.calls.replace.length = 0;
-  await assert.rejects(page.run("api('/api/data')"), /caducada/);
+  await assert.rejects(page.run("api('/api/personal')"), /caducada/);
   assert.deepEqual(page.calls.replace, ["/login"]);
 });
 

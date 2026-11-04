@@ -8,7 +8,7 @@ decoder reads the byte-mode length and ignores the rest. Verify it by decoding i
 (VNDetectBarcodesRequest) from a throwaway swift script, which is how versions 1-5 were checked. The tests
 pin the modules of two texts Vision read back: a change that moves any is decoded again before the fixture
 is updated. Text longer than 106 bytes raises ValueError, which the dashboard turns into "no QR, URL as
-text" rather than a broken /api/data.
+text" rather than a broken /api/personal.
 """
 
 from __future__ import annotations

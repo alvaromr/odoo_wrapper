@@ -6,7 +6,7 @@ Login and sessions
   (HttpOnly, SameSite=Lax, Secure over TLS, Max-Age 400 days). The password is never stored. Every later
   request forwards that cookie to Odoo, so each browser holds its own session. config.json keeps url, db
   and user only.
-- Whether a session may read other people (client.sees_others, behind /api/team and /api/data?employee)
+- Whether a session may read other people (client.sees_others, behind /api/team and /api/personal?employee)
   and whether it may change punches (client.edits_punches, Odoo's own access rights on hr.attendance) are
   remembered per session for SEES_TTL, half an hour: each was one more Odoo call on every request and
   does not change within a session. Logout forgets them. Payloads carry can_edit so a page offers no
@@ -65,10 +65,11 @@ Assets
   open it full screen; the URL it opens still changes with the network, same as any other bookmark.
 
 API
-- GET /api/data is the cached payload from attendance.py plus, fresh on every response, the phone access block and
-  the shared state; the state used to ride inside the cached payload, so for up to its TTL a page could load
-  with a stale mute or duration and overwrite the good one.
-- GET /api/data?employee=<id> is that employee's payload, for /empleado?id=<id> (the dashboard page in
+- GET /api/personal is the cached payload from attendance.py plus, fresh on every response, the phone access block
+  and the shared state; the state used to ride inside the cached payload, so for up to its TTL a page could load
+  with a stale mute or duration and overwrite the good one. Its old name, /api/data, redirects there (308) with its
+  query, so a page loaded before an update, such as one left open on a phone, keeps loading.
+- GET /api/personal?employee=<id> is that employee's payload, for /empleado?id=<id> (the dashboard page in
   read-only mode, linked from each row of /gestion), with the same 403 as /api/team; it carries no phone
   block and state.OTHER_STATE instead of the viewer's state, plus the employee's pending change requests the
   viewer may approve (team.requests_to_approve), read fresh each time since approving changes them.
@@ -168,6 +169,7 @@ CONTENT_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
     "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 )
+PERSONAL_ROUTE = "/api/personal"
 NOT_TEAM = "Tu usuario de Odoo no ve fichajes de otras personas"
 NOT_EDITOR = "Tu usuario de Odoo no puede modificar fichajes"
 log = logging.getLogger(__name__)
@@ -425,10 +427,10 @@ class Handler(BaseHTTPRequestHandler):
         answer = updates.recheck() if forced else updates.check()
         self._send(200, dict(answer, local=self._local(), how=updates.how()))
 
-    def _data(self, query: str) -> None:
+    def _personal(self, query: str) -> None:
         params = dict(parse_qsl(query, keep_blank_values=True))
         if params.get("employee"):
-            self._someone_data(params)
+            self._someone_personal(params)
             return
         client = new_client(self.session)
         payload = (attendance.reload_personal if "fresh" in params else attendance.fetch_personal)(client)
@@ -439,7 +441,10 @@ class Handler(BaseHTTPRequestHandler):
         }
         self._send(200, dict(payload, **own))
 
-    def _someone_data(self, params: dict[str, str]) -> None:
+    def _personal_moved(self, query: str) -> None:
+        self._send(308, b"", "text/plain", location=PERSONAL_ROUTE + (f"?{query}" if query else ""))
+
+    def _someone_personal(self, params: dict[str, str]) -> None:
         employee = params["employee"]
         if not employee.isdigit():
             self._send(400, {"error": f"Empleado no válido: {employee}"})
@@ -605,7 +610,8 @@ GET_ROUTES = {
     "/api/state": (Handler._state, True),
     "/api/request": (Handler._request, True),
     "/api/update": (Handler._update_check, True),
-    "/api/data": (Handler._data, True),
+    PERSONAL_ROUTE: (Handler._personal, True),
+    "/api/data": (Handler._personal_moved, False),
     "/api/team": (Handler._team, True),
 }
 POST_ROUTES = {

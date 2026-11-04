@@ -47,7 +47,7 @@ function alarmsPage(sessions, state = {}) {
   const page = load();
   const data = payload(sessions, { state: { ...payload([]).state, ...state } });
   page.run(
-    `store.data = ${JSON.stringify(data)}; store.state = store.data.state; store.expected = [8, 8, 8, 8, 8, 8, 8]; store.lunchFrom = Array(7).fill(13.5);`,
+    `store.personal = ${JSON.stringify(data)}; store.state = store.personal.state; store.expected = [8, 8, 8, 8, 8, 8, 8]; store.lunchFrom = Array(7).fill(13.5);`,
   );
   page.run("setClock(new Date()); indexSessions();");
   return page;
@@ -110,7 +110,7 @@ test("the first touch unlocks the sound, and a lunch that ran out rings three be
   assert.equal(audio.made.length, 1);
   const lunch = new Date(Date.now() - 40 * 60000).toISOString();
   page.run(
-    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
+    `store.personal = ${JSON.stringify(payload([]))}; store.state = { ...store.personal.state, lunch: "${lunch}" }; ${SCHEDULE}`,
   );
   page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
   assert.equal(audio.made[0].oscillators.length, 3);
@@ -137,7 +137,7 @@ test("a browser that grants the sound with no gesture rings without a touch", ()
   const page = load({ globals: { window: audio.window } });
   const lunch = new Date(Date.now() - 40 * 60000).toISOString();
   page.run(
-    `store.data = ${JSON.stringify(payload([]))}; store.state = { ...store.data.state, lunch: "${lunch}" }; ${SCHEDULE}`,
+    `store.personal = ${JSON.stringify(payload([]))}; store.state = { ...store.personal.state, lunch: "${lunch}" }; ${SCHEDULE}`,
   );
   page.run("setClock(new Date()); store.expected = [8, 8, 8, 8, 8, 8, 8]; checkAlarms()");
   assert.equal(audio.made[0].oscillators.length, 3);
@@ -334,7 +334,7 @@ test("a muted day, a day with no hours or no data rings nothing and stops a blin
   };
   assert.deepEqual(quiet("store.state.muted = true"), [0, false]);
   assert.deepEqual(quiet("store.expected = [8.5, 0, 0, 0, 0, 0, 0]"), [0, false]);
-  assert.deepEqual(quiet("store.data = null"), [0, true]);
+  assert.deepEqual(quiet("store.personal = null"), [0, true]);
 });
 
 test("a break rings when it has lasted as long as it should, not a minute before", () => {

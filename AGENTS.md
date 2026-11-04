@@ -273,11 +273,11 @@ HOME=/tmp/fakehome python3 bin/odoo-dashboard
 
 # Auth and anti-CSRF/rebinding matrix (expected: login page, 401, 401, 403, 303 to /login, 403, 403)
 curl -sk https://<lan-ip>:8443/ | grep -c "Introduce tu usuario"
-curl -sk -o /dev/null -w "%{http_code}\n" https://<lan-ip>:8443/api/data
-curl -sk -o /dev/null -w "%{http_code}\n" -H "Cookie: odoo_dash=deadbeef" https://<lan-ip>:8443/api/data
+curl -sk -o /dev/null -w "%{http_code}\n" https://<lan-ip>:8443/api/personal
+curl -sk -o /dev/null -w "%{http_code}\n" -H "Cookie: odoo_dash=deadbeef" https://<lan-ip>:8443/api/personal
 curl -sk -o /dev/null -w "%{http_code}\n" -X POST https://<lan-ip>:8443/api/login -d '{}'
 curl -sk -o /dev/null -w "%{http_code} %{redirect_url}\n" "https://<lan-ip>:8443/pair?t=bogus"
-curl -s  -o /dev/null -w "%{http_code}\n" -H "Host: evil.com" http://localhost:8931/api/data
+curl -s  -o /dev/null -w "%{http_code}\n" -H "Host: evil.com" http://localhost:8931/api/personal
 curl -s  -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8931/api/attendance \
      -H "Origin: https://evil.example" -H "Content-Type: text/plain" -d '{"action":"bogus"}'
 ```

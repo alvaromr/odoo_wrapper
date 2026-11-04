@@ -408,7 +408,9 @@ export const SCHEDULE =
 
 export function withData(sessions, extra) {
   const page = load();
-  page.run(`store.data = ${JSON.stringify(payload(sessions, extra))}; store.state = store.data.state; ${SCHEDULE}`);
+  page.run(
+    `store.personal = ${JSON.stringify(payload(sessions, extra))}; store.state = store.personal.state; ${SCHEDULE}`,
+  );
   page.run(`setClock(new Date(${TUESDAY.getTime()})); indexSessions();`);
   return page;
 }
@@ -610,7 +612,7 @@ export const answer =
   (body, status = 200) =>
   async () => ({ ok: status < 400, status, json: async () => body });
 
-// The page with its payload already loaded on the clock `now`. Its first /api/data (the page's own load at
+// The page with its payload already loaded on the clock `now`. Its first /api/personal (the page's own load at
 // boot) never answers, so a test decides when data arrives; `answers` says what other paths answer.
 export function dashboard({
   sessions = [],
@@ -628,18 +630,18 @@ export function dashboard({
   const fetchImpl = async (url, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : undefined;
     sent.push({ url, method: opts?.method, headers: opts?.headers && { ...opts.headers }, body });
-    if (url === "/api/data" && !booted) {
+    if (url === "/api/personal" && !booted) {
       booted = true;
       return new Promise(() => {});
     }
     if (answers[url]) return answers[url](url, opts);
     if (url === "/api/update") return answer(UP_TO_DATE)();
-    if (url.startsWith("/api/data")) return answer(data)();
+    if (url.startsWith("/api/personal")) return answer(data)();
     if (url === "/api/state") return answer(Object.assign(shared, body))();
     return answer({})();
   };
   const page = load({ fetchImpl, ...options, globals: { Date: Clock, ...options.globals } });
-  page.run(`store.data = ${JSON.stringify(data)}; store.state = store.data.state; ${schedule}`);
+  page.run(`store.personal = ${JSON.stringify(data)}; store.state = store.personal.state; ${schedule}`);
   page.run(`setClock(new Date(${now.getTime()})); indexSessions();`);
   return { ...page, Clock, data, sent };
 }

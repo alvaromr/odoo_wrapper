@@ -1,9 +1,9 @@
 /*
  * Talking to the dashboard server: the data load, the shared state, and when to reload.
  *
- * - Data older than DataMaxAge is reloaded on the next clock tick while visible and as soon as the tab
- *   becomes visible again, which covers punches made from the CLI or Odoo's own web. A background tab does
- *   not poll Odoo.
+ * - A personal payload older than PersonalMaxAge is reloaded on the next clock tick while visible and as soon as
+ *   the tab becomes visible again, which covers punches made from the CLI or Odoo's own web. A background tab
+ *   does not poll Odoo.
  * - A failed load, the first one included, is retried no sooner than RetryAfter, whatever brings the page
  *   back (tick or tab focus): with Odoo down each open page costs one request a minute, and a page opened
  *   while Odoo is down comes up by itself once Odoo is back.
@@ -18,7 +18,7 @@ import { fmtDay, fmtTime } from "./format.js";
 import { renderHero } from "./hero.js";
 import { renderAll } from "./render.js";
 import { api, byId, warned } from "./shared.js";
-import { DataMaxAge, NoSchedule, RetryAfter, store } from "./store.js";
+import { NoSchedule, PersonalMaxAge, RetryAfter, store } from "./store.js";
 import { tipOpen } from "./tip.js";
 import { indexSessions, setClock } from "./week.js";
 
@@ -29,7 +29,7 @@ export function busy() {
 
 /** @returns {boolean} */
 export function stale() {
-  return Date.now() - store.loadedAt > DataMaxAge && Date.now() - store.triedAt > RetryAfter;
+  return Date.now() - store.loadedAt > PersonalMaxAge && Date.now() - store.triedAt > RetryAfter;
 }
 
 /** @param {Partial<import("./store.js").SharedState>} changes */
@@ -75,8 +75,8 @@ export async function refreshState() {
 export async function loadAndRender(fresh) {
   store.triedAt = Date.now();
   const query = [store.other ? `employee=${store.other}` : "", fresh ? "fresh" : ""].filter(Boolean).join("&");
-  const data = /** @type {import("./store.js").Payload} */ (await api(`/api/data${query ? `?${query}` : ""}`));
-  store.data = data;
+  const data = /** @type {import("./store.js").Payload} */ (await api(`/api/personal${query ? `?${query}` : ""}`));
+  store.personal = data;
   store.loadedAt = Date.now();
   store.state = data.state || store.state;
   const schedule = data.schedule || NoSchedule;
@@ -93,11 +93,11 @@ export async function loadAndRender(fresh) {
     (m, a) => m.set(a.date, [...(m.get(a.date) || []), a]),
     /** @type {Map<string, import("./store.js").Leave[]>} */ (new Map()),
   );
-  setClock(new Date(store.data.generated_at));
+  setClock(new Date(store.personal.generated_at));
   indexSessions();
-  byId("title").textContent = store.data.employee;
+  byId("title").textContent = store.personal.employee;
   byId("subtitle").textContent = `Odoo · actualizado el ${fmtDay(store.now)} a las ${fmtTime(store.now)}`;
-  byId("teamLink").classList.toggle("hidden", !store.data.team);
+  byId("teamLink").classList.toggle("hidden", !store.personal.team);
   byId("requestBtn").classList.toggle("hidden", Boolean(store.other));
   byId("loadmsg").classList.add("hidden");
   byId("app").classList.remove("hidden");

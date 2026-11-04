@@ -280,7 +280,7 @@ test("the gear opens the settings, each saved on change and explained in its too
   dialog.listeners.close[0]();
   assert.equal(dialog.open, false);
   assert.ok(doc.body.children.includes(tip));
-  page.run("store.data.breaks = false; openSettings()");
+  page.run("store.personal.breaks = false; openSettings()");
   assert.equal(dialog.querySelectorAll(".setting").length, 4);
 });
 
@@ -289,7 +289,7 @@ test("«Tema» keeps this browser's theme, and says so when the browser will not
   const page = load({ local: memoryStorage(items) });
   const doc = page.document;
   assert.equal(doc.documentElement.dataset.theme, "dark");
-  page.run("store.data = { breaks: false }; openSettings()");
+  page.run("store.personal = { breaks: false }; openSettings()");
   const seg = doc.getElementById("settingsDialog").querySelectorAll(".seg")[0];
   const pressed = () => seg.children.map((b) => b.getAttribute("aria-pressed"));
   assert.deepEqual(
@@ -316,7 +316,7 @@ test("«Tema» keeps this browser's theme, and says so when the browser will not
   };
   const locked = load({ local: blocked });
   assert.equal(locked.document.documentElement.dataset.theme, undefined);
-  locked.run("store.data = { breaks: false }; openSettings()");
+  locked.run("store.personal = { breaks: false }; openSettings()");
   const dark = locked.document.getElementById("settingsDialog").querySelectorAll(".seg")[0].children[2];
   dark.listeners.click[0]();
   assert.equal(locked.document.documentElement.dataset.theme, "dark");

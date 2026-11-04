@@ -34,12 +34,12 @@ test("last punch is the latest event, the check-out of a closed session and not 
   });
   assert.deepEqual(page.run("lastPunch()"), { at: iso(at(TUESDAY, 13)), out: true, rest: true });
   page.run(
-    `store.data.sessions = [${JSON.stringify(session(nine, noon))}, ${JSON.stringify(session(noon, null, true))}]`,
+    `store.personal.sessions = [${JSON.stringify(session(nine, noon))}, ${JSON.stringify(session(noon, null, true))}]`,
   );
   assert.deepEqual(page.run("lastPunch()"), { at: iso(noon), out: true, rest: false });
-  page.run(`store.data.sessions = [${JSON.stringify(session(nine, null))}]`);
+  page.run(`store.personal.sessions = [${JSON.stringify(session(nine, null))}]`);
   assert.deepEqual(page.run("lastPunch()"), { at: iso(nine), open: true, rest: false });
-  page.run("store.data.sessions = []");
+  page.run("store.personal.sessions = []");
   assert.equal(page.run("lastPunch()"), null);
 });
 

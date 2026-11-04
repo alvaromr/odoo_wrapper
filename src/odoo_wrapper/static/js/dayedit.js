@@ -51,7 +51,7 @@ import { DayNames } from "./store.js";
 import { hideTip, tipRow } from "./tip.js";
 
 /**
- * What the day dialog reads and writes, as team.py sends it (data.py's session_of, fetch_requests).
+ * What the day dialog reads and writes, as team.py sends it (attendance_rules.py's session_of, team.py's fetch_requests).
  *
  * @typedef {{ id: number, in: string, out: string | null, hours: number | null, rest: boolean, reason: string | null, reason_id: number | null }} Session
  * @typedef {Pick<Session, "in" | "out" | "hours"> & { rest?: boolean }} SessionLike  What a row of sessions needs

@@ -422,7 +422,7 @@ class HandlerTest(unittest.TestCase):
         self.assertNotIn("sid", sv._rights)
 
     def test_someone_elses_data(self):
-        self.assertEqual(self.get("/api/data?employee=x")[0], 400)
+        self.assertEqual(self.get("/api/personal?employee=x")[0], 400)
         pending = {
             "id": 552,
             "request_owner_id": [11, "Ana"],
@@ -438,11 +438,11 @@ class HandlerTest(unittest.TestCase):
             return sum(model == "hr.attendance" for model, *_ in odoo.queries)
 
         with patch.object(sv, "new_client", odoo.factory):
-            self.assertEqual(self.get("/api/data?employee=9")[:3:2], (403, {"error": sv.NOT_TEAM}))
+            self.assertEqual(self.get("/api/personal?employee=9")[:3:2], (403, {"error": sv.NOT_TEAM}))
             self.assertEqual((odoo.sessions, odoo.queries), (["sid"], []))
             odoo.team = True
             sv._rights.clear()
-            status, _, payload = self.get("/api/data?employee=9&fresh")
+            status, _, payload = self.get("/api/personal?employee=9&fresh")
             self.assertEqual(status, 200)
             asked = {
                 "from": ar.local(pending["date_start"]).isoformat(),
@@ -459,9 +459,9 @@ class HandlerTest(unittest.TestCase):
             )
             self.assertEqual((payload["employee_id"], odoo.loaded_others), (9, [9]))
             self.assertEqual(attendance_reads(), 1)
-            self.get("/api/data?employee=9")
+            self.get("/api/personal?employee=9")
             self.assertEqual(attendance_reads(), 1)
-            self.get("/api/data?employee=9&fresh")
+            self.get("/api/personal?employee=9&fresh")
             self.assertEqual(attendance_reads(), 2)
             self.assertEqual(sum(model == "approval.request" for model, *_ in odoo.queries), 3)
 
@@ -688,7 +688,7 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.post("/api/state", {}, origin="http://localhost:8931")[0], 200)
         self.assertEqual(self.get("/nada")[:3:2], (404, {"error": "not found"}))
         self.assertEqual(self.post("/api/nada", {})[:3:2], (404, {"error": "not found"}))
-        self.assertEqual(self.get("/api/data?employee=x")[:3:2], (400, {"error": "Empleado no válido: x"}))
+        self.assertEqual(self.get("/api/personal?employee=x")[:3:2], (400, {"error": "Empleado no válido: x"}))
         for period in ("week=nope", "month=2026-13", "year=dos"):
             self.assertEqual(
                 self.get(f"/api/team?{period}")[:3:2], (400, {"error": f"Periodo no válido: {period.split('=')[1]}"})
@@ -704,19 +704,19 @@ class HandlerTest(unittest.TestCase):
             return sum(model == "hr.attendance" for model, *_ in odoo.queries)
 
         with patch.object(sv, "new_client", odoo.factory):
-            status, _, payload = self.get("/api/data?fresh")
+            status, _, payload = self.get("/api/personal?fresh")
             self.assertEqual(status, 200)
             self.assertIs(payload["can_edit"], False)
             self.assertEqual(payload["sessions"], [])
             self.assertEqual(payload["state"]["break_minutes"], st.BREAK_DEFAULT + 1)
             self.assertEqual(payload["phone"], {"off": lan.HOST_OPTION})
             self.assertEqual((set(odoo.sessions), attendance_reads()), ({"sid"}, 1))
-            self.get("/api/data")
+            self.get("/api/personal")
             self.assertEqual(attendance_reads(), 1)
-            self.get("/api/data?fresh")
+            self.get("/api/personal?fresh")
             self.assertEqual(attendance_reads(), 2)
             odoo.team = True
-            self.assertIs(self.get("/api/data?fresh")[2]["can_edit"], True)
+            self.assertIs(self.get("/api/personal?fresh")[2]["can_edit"], True)
 
     def test_config_shows_the_server_only_to_loopback(self):
         self.assertEqual(self.get("/api/config", cookie=None)[:3:2], (200, dict(CONFIG, configured=True, local=True)))
@@ -732,27 +732,37 @@ class HandlerTest(unittest.TestCase):
 
     def test_data_errors(self):
         with self.failing(OdooError("caído")):
-            status, _, payload = self.get("/api/data")
+            status, _, payload = self.get("/api/personal")
         self.assertEqual((status, payload["error"]), (502, "Odoo: caído"))
         with self.failing(OdooDown("Odoo no responde (Connection refused)")):
-            status, _, payload = self.get("/api/data")
+            status, _, payload = self.get("/api/personal")
         self.assertEqual((status, payload["error"]), (502, "Odoo no responde (Connection refused)"))
         with self.failing(RuntimeError("roto")), logged() as out:
-            self.assertEqual(self.get("/api/data")[:3:2], (500, {"error": "Error interno del dashboard"}))
-        self.assertTrue(out.getvalue().startswith("ERROR Error interno atendiendo GET /api/data\nTraceback"))
+            self.assertEqual(self.get("/api/personal")[:3:2], (500, {"error": "Error interno del dashboard"}))
+        self.assertTrue(out.getvalue().startswith("ERROR Error interno atendiendo GET /api/personal\nTraceback"))
         self.assertTrue(out.getvalue().endswith("RuntimeError: roto\n"))
 
     def test_an_expired_session_is_forgotten_and_the_cookie_cleared(self):
         with self.failing(SessionExpired("caducada")):
-            status, headers, payload = self.get("/api/data")
+            status, headers, payload = self.get("/api/personal")
         self.assertEqual((status, payload["error"]), (401, "caducada"))
         self.assertIn(f"{sv.COOKIE_NAME}=; Path=/; Max-Age=0;", headers["Set-Cookie"])
         self.assertNotIn("sid", sv._sessions)
 
+    def test_the_old_name_of_the_personal_payload_redirects_with_its_query(self):
+        for path, location in (
+            ("/api/data", "/api/personal"),
+            ("/api/data?employee=9&fresh", "/api/personal?employee=9&fresh"),
+        ):
+            status, headers, body = self.get(path, cookie=None)
+            self.assertEqual(
+                (status, headers["Location"], headers["Content-Type"], body), (308, location, "text/plain", b""), path
+            )
+
     def test_api_needs_a_session_everywhere(self):
         unauthorized = (401, {"error": "no autorizado"})
         for ip in ("127.0.0.1", "10.0.0.9"):
-            for path in ("/api/state", "/api/request", "/api/update", "/api/data", "/api/team"):
+            for path in ("/api/state", "/api/request", "/api/update", "/api/personal", "/api/team"):
                 self.assertEqual(self.get(path, ip=ip, cookie=None)[:3:2], unauthorized, path)
             self.assertEqual(self.post("/api/state", {}, ip=ip, cookie=None)[:3:2], unauthorized)
         odoo = ServerOdoo()

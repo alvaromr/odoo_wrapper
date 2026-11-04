@@ -181,7 +181,7 @@ export function wireSettings() {
 
 export function openSettings() {
   const rows = [settingRow("Comida", SettingsTips.lunch, minutesField("Comida", "lunch_minutes"))];
-  if (store.data.breaks) {
+  if (store.personal.breaks) {
     rows.push(settingRow("Descanso", SettingsTips.rest, minutesField("Descanso", "break_minutes")));
   }
   rows.push(

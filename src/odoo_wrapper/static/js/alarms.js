@@ -149,13 +149,13 @@ function ringWhenDue(due, kind, title) {
 }
 
 export function checkAlarms() {
-  if (!store.data) return;
+  if (!store.personal) return;
   if (store.state.muted) return stopFlash();
   store.now = new Date();
   indexSessions();
   const day = buildWeek(0).days.find((d) => d.date.getTime() === store.today.getTime());
   if (!day || day.expected <= 0) return stopFlash();
-  const open = store.data.sessions.find((s) => !s.out);
+  const open = store.personal.sessions.find((s) => !s.out);
 
   if (open?.rest) {
     LastRing.lunch = 0;

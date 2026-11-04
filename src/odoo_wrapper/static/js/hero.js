@@ -17,7 +17,7 @@
  *   how to fix it instead of offering to pair: a missing block gave no reason for the missing QR. It first says
  *   what the block is for, since whoever reads it may never have seen the QR it replaces.
  * - The break button and the break row of «Ajustes» exist only when the payload says breaks: true, i.e. Odoo
- *   has the Descanso reason (data.py). Without it no session is ever a break, so the break alarm never fires
+ *   has the Descanso reason (attendance.py). Without it no session is ever a break, so the break alarm never fires
  *   either.
  * - The gap between two sessions is only what no hour leave covers (uncovered), in the timeline (render.js) and as
  *   the lunch taken alike (unloggedGap): a doctor's leave taken between two punches had the gap's box and length
@@ -51,7 +51,7 @@ import { buildWeek, lunchHours, lunchOpen, targetLabel, weekRangeLabel } from ".
 /** @returns {PunchEvent | null} */
 export function lastPunch() {
   /** @type {PunchEvent[]} */
-  const events = store.data.sessions.flatMap((s) => {
+  const events = store.personal.sessions.flatMap((s) => {
     const inEv = { at: new Date(s.in), open: !s.out, rest: s.rest };
     return s.out ? [inEv, { at: new Date(s.out), out: true, rest: s.rest }] : [inEv];
   });
@@ -284,7 +284,7 @@ export function heroActions(open, day, dayRemaining) {
     if (!store.state.lunch_done && lunchOpen()) {
       actions.appendChild(actionButton("ghost", "Salir a comer", "lunch", errBox));
     }
-    if (store.data.breaks) actions.appendChild(actionButton("ghost", "Salir a descanso", "break", errBox));
+    if (store.personal.breaks) actions.appendChild(actionButton("ghost", "Salir a descanso", "break", errBox));
   } else {
     actions.appendChild(actionButton("primary", "Fichar entrada", "checkin", errBox));
   }
@@ -325,7 +325,7 @@ export function renderHero() {
   const dayDelta = day.hours - day.expected;
   const remaining = Math.max(week.target - week.total, 0);
   const restToday = day.rest;
-  const open = store.data.sessions.find((s) => !s.out);
+  const open = store.personal.sessions.find((s) => !s.out);
   const working = open && new Date(open.in) >= store.today;
   const away = unloggedGap(day.sessions, day.leaves);
   const lunchLeft = away > 0.01 ? 0 : lunchHours(day);
@@ -354,11 +354,11 @@ let pairError = "";
 
 export function renderPhone() {
   const host = byId("phone");
-  const show = store.data.phone && location.protocol === "http:";
+  const show = store.personal.phone && location.protocol === "http:";
   host.classList.toggle("hidden", !show);
   if (!show) return;
   host.replaceChildren();
-  const phone = /** @type {import("./store.js").Phone} */ (store.data.phone);
+  const phone = /** @type {import("./store.js").Phone} */ (store.personal.phone);
   if (phone.off) {
     const off = el("div", "links");
     off.appendChild(el("h2", null, "Abrir en el móvil"));

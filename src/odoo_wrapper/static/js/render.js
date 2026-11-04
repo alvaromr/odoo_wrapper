@@ -381,11 +381,11 @@ export function vacIcon(d) {
 export function renderCalendar() {
   const w = buildWeek(calOffset);
   byId("weeksHint").textContent =
-    (store.data.schedule
+    (store.personal.schedule
       ? `La marca vertical de cada día es la jornada prevista en Odoo: ${scheduleSentence()}.`
       : "Odoo no devuelve horario para tu calendario, así que no hay jornada prevista ni objetivo semanal.") +
     " El descanso fichado va en morado, en el tramo en que ocurrió; en naranja, las jornadas de más de " +
-    `${fmtHM(store.data.long_hours)} en total, las entradas sin cerrar y los días con` +
+    `${fmtHM(store.personal.long_hours)} en total, las entradas sin cerrar y los días con` +
     " jornada prevista sin fichar, casi siempre un fichaje olvidado." +
     " En el horario, cada bloque es un fichaje en su hora real; los huecos entre bloques son tiempo ausente," +
     " la comida por ejemplo, y no cuentan." +
@@ -415,7 +415,7 @@ export function renderCalendar() {
     return b;
   }
   head.appendChild(
-    navButton("navbtn", "‹", "Semana anterior", calOffset >= store.data.weeks - 1, () => {
+    navButton("navbtn", "‹", "Semana anterior", calOffset >= store.personal.weeks - 1, () => {
       calOffset++;
       renderCalendar();
     }),
@@ -657,7 +657,7 @@ export function renderTimeline(card, w) {
             el(
               "div",
               "t-note warn",
-              `Jornada muy larga: ${fmtHM(d.hours)} en el día, más de ${fmtHM(store.data.long_hours)}, ` +
+              `Jornada muy larga: ${fmtHM(d.hours)} en el día, más de ${fmtHM(store.personal.long_hours)}, ` +
                 "casi siempre una salida sin fichar",
             ),
           );
@@ -742,7 +742,7 @@ export function setRangeMonths(n) {
 
 /** @param {Date} date */
 function showWeek(date) {
-  calOffset = Math.min(weekOffsetOf(date), store.data.weeks - 1);
+  calOffset = Math.min(weekOffsetOf(date), store.personal.weeks - 1);
   renderCalendar();
   byId("weekCal").scrollIntoView({ block: "start", behavior: "smooth" });
 }
@@ -811,7 +811,7 @@ function requestPiece(r) {
 export function renderErrors() {
   const box = byId("errorsBanner");
   const errors = punchErrors();
-  const requests = store.data.requests || [];
+  const requests = store.personal.requests || [];
   box.classList.toggle("hidden", !errors.length && !requests.length);
   box.classList.toggle("requests", !errors.length);
   if (!errors.length && !requests.length) return;
@@ -837,11 +837,11 @@ export function renderErrors() {
     item.addEventListener("click", () => showWeek(date));
     const li = el("li");
     li.appendChild(item);
-    if (store.data.can_edit || pieces.some(([cls]) => cls === "req")) {
-      const fix = el("button", "fix", store.data.can_edit ? "Corregir" : "Revisar");
+    if (store.personal.can_edit || pieces.some(([cls]) => cls === "req")) {
+      const fix = el("button", "fix", store.personal.can_edit ? "Corregir" : "Revisar");
       fix.type = "button";
       fix.addEventListener("click", () =>
-        openDayOf(Number(store.other) || store.data.employee_id, key).catch((e) => {
+        openDayOf(Number(store.other) || store.personal.employee_id, key).catch((e) => {
           fix.textContent = "No se pudo abrir";
           fix.title = e.message;
         }),
@@ -885,7 +885,7 @@ export function renderErrors() {
       "p",
       null,
       "Entradas sin cerrar de días anteriores, jornadas de más de " +
-        `${fmtHM(store.data.long_hours)} y días con jornada prevista sin ningún fichaje, de todo el historial` +
+        `${fmtHM(store.personal.long_hours)} y días con jornada prevista sin ningún fichaje, de todo el historial` +
         (m ? ", y las solicitudes de cambio pendientes de tu aprobación" : "") +
         ", un día por línea. Pulsa uno para ver su semana.",
     ),
@@ -905,7 +905,9 @@ function shortWeek(w) {
 }
 
 export function renderAll() {
-  const weeks = buildWeeks(Math.min(rangeMonths ? weeksSince(rangeMonths) : store.data.weeks, store.data.weeks));
+  const weeks = buildWeeks(
+    Math.min(rangeMonths ? weeksSince(rangeMonths) : store.personal.weeks, store.personal.weeks),
+  );
   rangeShort = weeks.filter((w) => w.complete).reduce((a, w) => a + w.delta, 0) <= -1 / 60;
   renderErrors();
   renderCalendar();

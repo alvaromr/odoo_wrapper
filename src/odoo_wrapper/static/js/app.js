@@ -30,7 +30,7 @@ store.other = location.pathname === "/empleado" ? new URLSearchParams(location.s
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
   stopFlash();
-  if (!store.data || newDay()) return;
+  if (!store.personal || newDay()) return;
   if (stale() && !busy()) loadAndRender().catch(warned("the reload on returning to the tab"));
 });
 
@@ -67,7 +67,7 @@ if (LOOPBACK.includes(location.hostname)) setInterval(checkSources, ReloadPoll);
 
 /* ---------- reloj: refresca «faltan/llevas» sin recargar ---------- */
 function tick() {
-  if (!store.data) {
+  if (!store.personal) {
     if (stale() && document.visibilityState === "visible") loadFirst();
     return;
   }
@@ -78,7 +78,7 @@ function tick() {
     return;
   }
   refreshState();
-  if (!store.data.sessions.some((s) => !s.out)) {
+  if (!store.personal.sessions.some((s) => !s.out)) {
     if (store.punchEv) /** @type {HTMLElement} */ (store.punchEl).textContent = punchText(store.punchEv);
     refreshNotifyNote();
     return;

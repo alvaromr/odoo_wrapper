@@ -42,7 +42,7 @@ test("each punch button posts its own action after a second click, then reloads"
         body: { action },
       },
     ]);
-    assert.equal(page.sent.at(-1).url, "/api/data");
+    assert.equal(page.sent.at(-1).url, "/api/personal");
   }
 });
 
@@ -99,7 +99,7 @@ test("a punch in flight disables its button and clears the last error; a refusal
 test("a punch that went through but whose reload failed says so and keeps the button off", async () => {
   const page = dashboard({
     sessions: [session(at(TUESDAY, 9), null)],
-    answers: { "/api/data": () => Promise.reject(new Error("Odoo caído")) },
+    answers: { "/api/personal": () => Promise.reject(new Error("Odoo caído")) },
   });
   const button = await press(page, "Fichar salida");
   assert.equal(errOf(page).textContent, "Fichado, pero no se pudo recargar: Odoo caído");
