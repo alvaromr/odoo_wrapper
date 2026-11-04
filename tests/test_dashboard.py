@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
@@ -125,11 +125,13 @@ class MainTest(unittest.TestCase):
 
     def run_main(self, argv, tty):
         out = TerminalOutput() if tty else io.StringIO()
-        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), logged(out):
+        err = io.StringIO()
+        with patch.object(sys, "argv", ["dash", *argv]), redirect_stdout(out), redirect_stderr(err), logged(out):
             try:
                 d.main()
             finally:
                 self.output = STAMP.sub("", out.getvalue())
+                self.errors = err.getvalue()
 
     def main(self, *argv, tty=True):
         self.run_main(argv, tty)
@@ -251,16 +253,18 @@ class MainTest(unittest.TestCase):
         self.assertFalse(os.path.exists(pr.LOG_FILE))
         self.server.serve_forever.assert_not_called()
 
-    def test_autostart_needs_on_or_off(self):
-        self.assertEqual(self.fails("--autostart", tty=False), "ERROR: --autostart necesita on u off\n")
-        self.assertEqual(self.fails("--autostart", "yes", tty=False), "ERROR: --autostart necesita on u off\n")
+    def test_autostart_needs_on_or_off_and_says_so_on_stderr(self):
+        for argv in (["--autostart"], ["--autostart", "yes"]):
+            self.assertEqual(self.fails(*argv, tty=False), "")
+            self.assertEqual(self.errors, "ERROR: --autostart necesita on u off\n")
         self.assertEqual(self.commands.calls, [])
         self.assertFalse(os.path.exists(au.unit_file()))
 
-    def test_autostart_reports_what_the_system_refused(self):
+    def test_autostart_reports_what_the_system_refused_on_stderr(self):
         for error in (FileNotFoundError("systemctl"), subprocess.CalledProcessError(1, ["systemctl"])):
             self.commands.errors = {"systemctl": error}
-            self.assertIn("no se pudo cambiar el arranque", self.fails("--autostart", "on", tty=False))
+            self.assertEqual(self.fails("--autostart", "on", tty=False), "")
+            self.assertEqual(self.errors, f"ERROR: no se pudo cambiar el arranque al iniciar sesión: {error}\n")
 
     def test_the_first_start_after_an_update_moves_the_login_entry_and_says_so(self):
         self.stale_unit()

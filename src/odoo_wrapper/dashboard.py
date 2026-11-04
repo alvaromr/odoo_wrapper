@@ -108,12 +108,12 @@ def option(name: str) -> str | None:
 def switch_autostart(choice: str | None) -> NoReturn:
     """Turn the login entry on or off, say so and exit."""
     if choice not in AUTOSTART_DONE:
-        print("ERROR: --autostart necesita on u off")
+        print("ERROR: --autostart necesita on u off", file=sys.stderr)
         sys.exit(1)
     try:
         (autostart.turn_on if choice == "on" else autostart.turn_off)()
     except (OSError, subprocess.CalledProcessError) as error:
-        print(f"ERROR: no se pudo cambiar el arranque al iniciar sesión: {error}")
+        print(f"ERROR: no se pudo cambiar el arranque al iniciar sesión: {error}", file=sys.stderr)
         sys.exit(1)
     print(AUTOSTART_DONE[choice])
     sys.exit(0)

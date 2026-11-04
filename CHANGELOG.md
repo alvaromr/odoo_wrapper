@@ -5,6 +5,10 @@ Los cambios que nota quien usa las herramientas, por versión. El formato sigue
 
 ## [Unreleased]
 
+### Corregido
+
+- Los errores de `odoo-dashboard --autostart` salen por la salida de errores, como los del CLI.
+
 ## [1.1.0] - 2026-11-03
 
 ### Añadido
