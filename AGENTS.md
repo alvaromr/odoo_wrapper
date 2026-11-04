@@ -176,8 +176,9 @@ python3 scripts/release.py --dry-run   # the checks, and the commands it would r
 python3 scripts/release.py             # pushes dev, installs it from GitHub, moves main to it, tags it vX.Y.Z, releases it
 ```
 
-Its header lists what it checks before anything leaves the machine, and in what order it goes. A tag is never moved or reused; a broken release is
-fixed by the next one.
+Its header lists what it checks before anything leaves the machine, and in what order it goes. A tag is never moved
+or reused; a broken release is fixed by the next one. GitHub enforces it: a ruleset of the repo («Release tags are
+immutable», in Settings › Rules) refuses to move or delete a `v*` tag, to anyone, the owner included.
 
 ## How to verify changes
 
