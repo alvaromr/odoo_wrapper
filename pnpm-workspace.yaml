@@ -4,3 +4,9 @@ minimumReleaseAge: 10080
 trustPolicy: no-downgrade
 verifyDepsBeforeRun: error
 allowBuilds: {}
+# StrykerJS 10.1.1 pins releases with known denial-of-service advisories (scripts/audit.py reports them); these are
+# the first fixed ones. minimatch 11 drops only what StrykerJS does not call (makeRe, the AST, debug). Remove each
+# once StrykerJS requires a fixed release itself.
+overrides:
+  qs: ^6.16.1
+  minimatch: ^11.0.1
