@@ -11,8 +11,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from helpers import NORMAL, REST, ScriptedClient, logged, temp_state
 
+from odoo_wrapper import cache
 from odoo_wrapper import client as c
-from odoo_wrapper import data as dt
 from odoo_wrapper import discord as dc
 from odoo_wrapper import team_rules as tr
 
@@ -104,7 +104,7 @@ def refused(status, body=b"", reason="Forbidden"):
 class DiscordTest(unittest.TestCase):
     def setUp(self):
         self.home = temp_state(self)
-        self.addCleanup(dt.drop_data_cache)
+        self.addCleanup(cache.drop)
         self.requests = []
 
     def opener(self, *results):
@@ -393,7 +393,7 @@ def punch(day, start, end=None, hours=None):
 
 class ProposalTest(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(dt.drop_data_cache)
+        self.addCleanup(cache.drop)
 
     def test_an_open_punch_runs_from_its_check_in_to_the_hours_the_day_lacked(self):
         day = {

@@ -11,9 +11,9 @@ the edge that reads those rows from Odoo, one query per model, not a load per we
   but shows in no period, not even the weeks they still worked. Only the current staff is reviewed. Showing them
   took their departure_date, which only an HR officer may read (a team lead reading their team's attendances got
   an access error for the whole read, seen in real data).
-- Contracts are hr.contract in state open or close, read by data.fetch_contracts; a session that may not read
+- Contracts are hr.contract in state open or close, read by attendance.fetch_contracts; a session that may not read
   them gets the employee's own calendar for every day (team_rules.py says what each day expects).
-- Expected hours and absences come from the same places as the personal payload (data.py): the
+- Expected hours and absences come from the same places as the personal payload (attendance.py): the
   resource.calendar, validated hr.leave and public holidays, read for everyone at once, one query per model.
   Nothing is expected before each person's first real punch (first_punches reads it for everyone in one read_group).
 - What is left to fix (fetch_fixes, /api/team?fixes) reads the first attendance the session can read, then builds
@@ -33,7 +33,7 @@ the edge that reads those rows from Odoo, one query per model, not a load per we
   again without it, so for that session nobody has one. discord_of reads it for one employee, for discord.py: the
   recipient of that message and its sender.
 - Read only: the day dialog's writes are corrections.py. The payload is cached per session and period for
-  data.VIEW_TTL, longer than the personal one: what someone else punched moves slowly. The reload_ functions skip
+  cache.VIEW_TTL, longer than the personal one: what someone else punched moves slowly. The reload_ functions skip
   the cache and replace its entry («Actualizar»).
 - Types. Each query's rows are annotated where client.call_kw hands them over (its Any ends there), with the shapes
   team_rules.py declares; the payloads returned are its TeamPayload, YearPayload and FixesPayload.
@@ -44,7 +44,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import TypedDict
 
-from odoo_wrapper import data, data_rules
+from odoo_wrapper import attendance, attendance_rules, cache
 from odoo_wrapper import team_rules as rules
 from odoo_wrapper.client import OdooClient, OdooError, SessionExpired, degrade
 
@@ -57,10 +57,10 @@ DISCORD_LABEL = "discord"
 class EmployeeUser(TypedDict):
     """An hr.employee read for its user only."""
 
-    user_id: data_rules.MaybeMany2one
+    user_id: attendance_rules.MaybeMany2one
 
 
-def team_load(client: OdooClient, span: rules.Span) -> data.Load[rules.TeamPayload]:
+def team_load(client: OdooClient, span: rules.Span) -> cache.Load[rules.TeamPayload]:
     """Return the cache key of a span of weeks, as from month_span or (monday,), and the function that builds it."""
     monday, weeks, start, stop = rules.period(*span)
     key = (client.session_id, monday.isoformat(), weeks, start and start.isoformat())
@@ -69,15 +69,15 @@ def team_load(client: OdooClient, span: rules.Span) -> data.Load[rules.TeamPaylo
 
 def fetch_team(client: OdooClient, span: rules.Span) -> rules.TeamPayload:
     """Return the payload of a span of weeks, as from month_span or (monday,), cached for the view."""
-    return data.cached(*team_load(client, span), data.VIEW_TTL)
+    return cache.cached(*team_load(client, span), cache.VIEW_TTL)
 
 
 def reload_team(client: OdooClient, span: rules.Span) -> rules.TeamPayload:
     """Return the payload of a span of weeks read again from Odoo, replacing what was cached."""
-    return data.rebuilt(*team_load(client, span))
+    return cache.rebuilt(*team_load(client, span))
 
 
-def year_load(client: OdooClient, year: int) -> data.Load[rules.YearPayload]:
+def year_load(client: OdooClient, year: int) -> cache.Load[rules.YearPayload]:
     """Return the cache key of a year's payload and the function that builds it."""
 
     def build() -> rules.YearPayload:
@@ -88,17 +88,17 @@ def year_load(client: OdooClient, year: int) -> data.Load[rules.YearPayload]:
 
 def fetch_year(client: OdooClient, year: int) -> rules.YearPayload:
     """Return a year's payload, one row per month, cached for the view."""
-    return data.cached(*year_load(client, year), data.VIEW_TTL)
+    return cache.cached(*year_load(client, year), cache.VIEW_TTL)
 
 
 def reload_year(client: OdooClient, year: int) -> rules.YearPayload:
     """Return a year's payload read again from Odoo, replacing what was cached."""
-    return data.rebuilt(*year_load(client, year))
+    return cache.rebuilt(*year_load(client, year))
 
 
 def build_fixes(client: OdooClient) -> rules.FixesPayload:
     """Read from Odoo every punch to fix since the first one, by employee."""
-    first: list[data_rules.FirstCheckIn] = client.call_kw(
+    first: list[attendance_rules.FirstCheckIn] = client.call_kw(
         "hr.attendance",
         "search_read",
         [[("employee_id.active", "=", True)]],
@@ -108,19 +108,19 @@ def build_fixes(client: OdooClient) -> rules.FixesPayload:
     return rules.fixes_payload(build_team(client, monday, weeks))
 
 
-def fixes_load(client: OdooClient) -> data.Load[rules.FixesPayload]:
+def fixes_load(client: OdooClient) -> cache.Load[rules.FixesPayload]:
     """Return the cache key of the punches to fix and the function that builds them."""
     return (client.session_id, "fixes"), lambda: build_fixes(client)
 
 
 def fetch_fixes(client: OdooClient) -> rules.FixesPayload:
     """Return every punch to fix since the first one in Odoo, by employee, cached for the view."""
-    return data.cached(*fixes_load(client), data.VIEW_TTL)
+    return cache.cached(*fixes_load(client), cache.VIEW_TTL)
 
 
 def reload_fixes(client: OdooClient) -> rules.FixesPayload:
     """Return every punch to fix read again from Odoo, replacing what was cached."""
-    return data.rebuilt(*fixes_load(client))
+    return cache.rebuilt(*fixes_load(client))
 
 
 def fetch_requests(
@@ -195,7 +195,7 @@ def first_punches(client: OdooClient, ids: list[int]) -> dict[int, str]:
         "hr.attendance",
         "read_group",
         [
-            [("employee_id", "in", ids), ("worked_hours", ">=", data_rules.MIN_SESSION)],
+            [("employee_id", "in", ids), ("worked_hours", ">=", attendance_rules.MIN_SESSION)],
             ["employee_id", "check_in:min"],
             ["employee_id"],
         ],
@@ -228,7 +228,7 @@ def build_team(
     employees = read_employees(client, seen, ["name", "resource_calendar_id", "user_id"])
     ids = [e["id"] for e in employees]
     since = first_punches(client, ids)
-    contracts = data.fetch_contracts(client, ids, monday, end)
+    contracts = attendance.fetch_contracts(client, ids, monday, end)
     calendars = rules.calendar_ids(employees, contracts)
     blocks: list[rules.TeamBlockRow] = client.call_kw(
         "resource.calendar.attendance",
@@ -253,8 +253,8 @@ def build_team(
             "order": "check_in asc",
         },
     )
-    holidays = data.holiday_rows(client, monday.isoformat(), end.isoformat(), calendars)
-    leaves = data.leave_rows(client, ids, monday.isoformat(), end.isoformat())
+    holidays = attendance.holiday_rows(client, monday.isoformat(), end.isoformat(), calendars)
+    leaves = attendance.leave_rows(client, ids, monday.isoformat(), end.isoformat())
     requests = fetch_requests(client, rules.user_ids(employees), (monday, end))
     rows = rules.Rows(
         employees, since, contracts, blocks, reasons, records, holidays, leaves, requests, client.offered_reasons()

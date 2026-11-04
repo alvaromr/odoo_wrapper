@@ -44,7 +44,7 @@ from a scheduled task, without an agent in between.
   time when there is a terminal to ask on: its address must not be needed on every run. Only its id is kept,
   and in the state directory like everything else that is one person's: the address of a staff record has no
   place in the repo.
-- Types. The attendances it reads are data_rules.py's rows. The latest attendance of someone with none open
+- Types. The attendances it reads are attendance_rules.py's rows. The latest attendance of someone with none open
   (ClosedAttendance) has left, so its check-out is a stamp: Odoo allows a single open attendance per employee,
   which the status command has just seen there is not. The notices already written are the lists of text cells
   the file holds, each as many cells as sheet_rows reads.
@@ -64,7 +64,7 @@ from datetime import date, datetime, timedelta, timezone
 from itertools import groupby
 from typing import TypedDict
 
-from odoo_wrapper import data_rules, discord, team, team_rules
+from odoo_wrapper import attendance_rules, discord, team, team_rules
 from odoo_wrapper.client import (
     STATE_DIR,
     OdooClient,
@@ -186,7 +186,7 @@ def status(client: OdooClient) -> None:
 
     local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0)
     today_start = local_midnight.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    today_records: list[data_rules.AttendanceRow] = client.call_kw(
+    today_records: list[attendance_rules.AttendanceRow] = client.call_kw(
         "hr.attendance",
         "search_read",
         [
@@ -299,7 +299,7 @@ def history(client: OdooClient, days: int = 7) -> None:
     """Print the user's attendances of the last days, grouped by day, with each day's total."""
     client.load_employee()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    records: list[data_rules.AttendanceRow] = client.call_kw(
+    records: list[attendance_rules.AttendanceRow] = client.call_kw(
         "hr.attendance",
         "search_read",
         [

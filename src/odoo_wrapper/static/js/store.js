@@ -92,7 +92,7 @@
  */
 
 /**
- * The /api/data payload (data.py's build_data, and server.py's additions to it).
+ * The /api/data payload (attendance.py's build_personal, and server.py's additions to it).
  * @typedef {object} Payload
  * @property {string} employee
  * @property {number} employee_id

@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import helpers  # noqa: F401 - puts the package on the path and refuses the network when this file runs alone
 
+from odoo_wrapper import attendance_rules as ar
+from odoo_wrapper import cache
 from odoo_wrapper import corrections as co
-from odoo_wrapper import data as dt
-from odoo_wrapper import data_rules as dr
 from odoo_wrapper.client import OdooError, SessionExpired
 
 MONDAY = date(2025, 3, 3)
@@ -21,8 +21,8 @@ def at(day, hour, minute=0):
 
 class CorrectionsTest(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(dt.drop_data_cache)
-        dt._data_cache[("sid", None)] = (0, {})
+        self.addCleanup(cache.drop)
+        cache._entries[("sid", None)] = (0, {})
 
     def client(self, answers=None, fail=None):
         calls = []
@@ -47,12 +47,12 @@ class CorrectionsTest(unittest.TestCase):
         self.assertEqual(
             client.calls[1], ("hr.attendance", "write", [[31512], {"check_in": at(0, 9), "check_out": at(0, 17, 40)}])
         )
-        self.assertEqual(dt._data_cache, {})
+        self.assertEqual(cache._entries, {})
 
     def test_shortening_into_the_same_day_warns_when_the_next_check_in_would_be_lost(self):
         body = {"id": 1, "check_in": self.iso(0, 16, 7), "check_out": self.iso(0, 17, 40)}
         lonely = self.client({"read": [{"employee_id": [7, "x"], "check_out": at(1, 8, 34)}], "search_count": 0})
-        self.assertEqual(co.save_attendance(lonely, body)[1]["lost_entry"], dr.local(at(1, 8, 34)).isoformat())
+        self.assertEqual(co.save_attendance(lonely, body)[1]["lost_entry"], ar.local(at(1, 8, 34)).isoformat())
         self.assertEqual(
             lonely.calls,
             [
@@ -134,10 +134,10 @@ class CorrectionsTest(unittest.TestCase):
         )
         with self.assertRaises(SessionExpired):
             co.approve_request(self.client(fail={"action_approve": SessionExpired("caducada")}), 1)
-        self.assertEqual(list(dt._data_cache), [("sid", None)])
+        self.assertEqual(list(cache._entries), [("sid", None)])
         self.assertEqual(co.approve_request(client, "552"), (200, {"ok": True}))
         self.assertEqual(client.calls, [("approval.request", "action_approve", [[552]])])
-        self.assertEqual(dt._data_cache, {})
+        self.assertEqual(cache._entries, {})
 
     def test_a_punch_is_deleted_for_good(self):
         client = self.client()
@@ -146,10 +146,10 @@ class CorrectionsTest(unittest.TestCase):
             co.delete_attendance(self.client(fail={"unlink": OdooError("no puedes borrarlo")}), 1),
             (409, {"error": "no puedes borrarlo"}),
         )
-        self.assertEqual(list(dt._data_cache), [("sid", None)])
+        self.assertEqual(list(cache._entries), [("sid", None)])
         self.assertEqual(co.delete_attendance(client, "31512"), (200, {"ok": True}))
         self.assertEqual(client.calls, [("hr.attendance", "unlink", [[31512]])])
-        self.assertEqual(dt._data_cache, {})
+        self.assertEqual(cache._entries, {})
 
 
 if __name__ == "__main__":

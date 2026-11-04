@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta
 
 import helpers  # noqa: F401 - puts the package on the path, fixes the zone and refuses the network when run alone
 
-from odoo_wrapper import data_rules as dr
+from odoo_wrapper import attendance_rules as ar
 from odoo_wrapper import team_rules as tr
 
 MONDAY = date(2025, 3, 3)
@@ -18,7 +18,7 @@ def row_day(when, hours=0.0, target=8.0, flags=()):
 class HelpersTest(unittest.TestCase):
     def test_odoo_time_is_local_midnight_in_utc(self):
         stamp = tr.odoo_time(MONDAY)
-        self.assertEqual(dr.local(stamp), datetime.combine(MONDAY, time()).astimezone())
+        self.assertEqual(ar.local(stamp), datetime.combine(MONDAY, time()).astimezone())
 
     def test_month_span_covers_every_week_touching_the_month(self):
         self.assertEqual(tr.month_span(date(2026, 9, 1)), (date(2026, 8, 31), 5, date(2026, 9, 1), date(2026, 10, 1)))

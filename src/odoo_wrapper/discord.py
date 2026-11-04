@@ -63,7 +63,7 @@ from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta, timezone
 from typing import NamedTuple, TypedDict
 
-from odoo_wrapper import __version__, data_rules, team, team_rules
+from odoo_wrapper import __version__, attendance_rules, team, team_rules
 from odoo_wrapper.client import (
     STATE_DIR,
     OdooClient,
@@ -239,15 +239,15 @@ def proposal(day: team_rules.Day) -> tuple[datetime | None, datetime | None, str
     """Return the start, end and reason a change request for a flagged day would carry, or None."""
     sessions, target, today = day["sessions"], day["target"], date.fromisoformat(day["date"])
     if {"open", "long"} & set(day["flags"]):
-        wrong = next((s for s in sessions if not s["out"]), None) or max(sessions, key=data_rules.hours_of)
+        wrong = next((s for s in sessions if not s["out"]), None) or max(sessions, key=attendance_rules.hours_of)
         start = datetime.fromisoformat(wrong["in"]).replace(second=0)
-        done = sum(data_rules.hours_of(s) for s in sessions if s is not wrong)
+        done = sum(attendance_rules.hours_of(s) for s in sessions if s is not wrong)
         last = datetime.combine(today, LAST_MINUTE).astimezone()
         end = min(start + timedelta(hours=max(0, target - done)), last).replace(second=0)
         if wrong["out"]:
             out = datetime.fromisoformat(wrong["out"])
             until = clock(out) if out.date() == start.date() else f"{day_name(out)} {clock(out)}"
-            what = f"de {clock(start)} a {until} ({duration(data_rules.hours_of(wrong))})"
+            what = f"de {clock(start)} a {until} ({duration(attendance_rules.hours_of(wrong))})"
         else:
             what = f"entrada a las {clock(start)} sin salida"
         correction = f"de {clock(start)} a {clock(end)}."

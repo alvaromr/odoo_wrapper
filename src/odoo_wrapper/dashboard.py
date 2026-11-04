@@ -4,14 +4,15 @@
 Run `bin/odoo-dashboard --help` for usage. main() only wires the pieces together; each one explains
 itself at its top:
 
-  server.py    pages, JSON API, Odoo sessions as the login, same-site guard
-  data.py      the payload read from Odoo (sessions, schedule, absences) and its cache; its rules are data_rules.py's
-  state.py     the shared state file (lunch stamp, durations, mute), per Odoo user
-  lan.py       phone access: LAN address and name, self-signed certificate, QR
-  process.py   log, self-restart on source or network changes, port check
-  autostart.py what --autostart registers so the dashboard starts at login, on each system
-  updates.py   whether GitHub holds a newer release, and installing it, asked for by the pages through server.py
-  cli.py       the CLI, whose Odoo session is kept alive from here
+  server.py      pages, JSON API, Odoo sessions as the login, same-site guard
+  attendance.py  the personal payload read from Odoo (sessions, schedule, absences), its rules attendance_rules.py's
+  cache.py       the payloads kept per Odoo session
+  state.py       the shared state file (lunch stamp, durations, mute), per Odoo user
+  lan.py         phone access: LAN address and name, self-signed certificate, QR
+  process.py     log, self-restart on source or network changes, port check
+  autostart.py   what --autostart registers so the dashboard starts at login, on each system
+  updates.py     whether GitHub holds a newer release, and installing it, asked for by the pages through server.py
+  cli.py         the CLI, whose Odoo session is kept alive from here
 
 The page is documented at the top of each file in static/js/ and of static/style.css, the QR
 encoder in qr.py,

@@ -65,7 +65,7 @@ Assets
   open it full screen; the URL it opens still changes with the network, same as any other bookmark.
 
 API
-- GET /api/data is the cached payload from data.py plus, fresh on every response, the phone access block and
+- GET /api/data is the cached payload from attendance.py plus, fresh on every response, the phone access block and
   the shared state; the state used to ride inside the cached payload, so for up to its TTL a page could load
   with a stale mute or duration and overwrite the good one.
 - GET /api/data?employee=<id> is that employee's payload, for /empleado?id=<id> (the dashboard page in
@@ -85,7 +85,7 @@ API
   the punch errors to fix over the whole history (team.fetch_fixes); 403 unless the session reads other people's
   attendances. The page for it is /gestion. The week, month and year payloads carry can_message: whether this
   machine has a Discord bot to send the day dialog's notice with (discord.py).
-- Punch actions go through data.punch, which validates the real state and returns the (status, body) to send.
+- Punch actions go through attendance.punch, which validates the real state and returns the (status, body) to send.
 - POST /api/team/attendance {id | employee, check_in, check_out[, reason]} (ISO times with their offset, the
   id of an attendance reason) edits or creates someone's punch, POST /api/team/delete {id} removes one, and
   POST /api/team/approve {id} approves a change request (see corrections.py); all answer 403 like /api/team,
@@ -99,7 +99,7 @@ Types
 - A POST body is declared a JSON object (Body) as it is parsed, and its values stay objects: each route checks
   the ones it reads, or hands them on to a function that does (corrections_rules.py says which). A body that is
   JSON but not an object is not refused; it fails on its first key and ends as the 500 of any other crash. The
-  payloads the routes send are data.py's and team.py's TypedDicts, added to with dict(payload, key=...); an answer
+  payloads the routes send are attendance.py's and team.py's TypedDicts, added to with dict(payload, key=...); an answer
   that only acknowledges is a Mapping[str, object] (Reply).
 """
 
@@ -122,7 +122,7 @@ from http.server import BaseHTTPRequestHandler
 from typing import Callable, TypedDict, TypeVar
 from urllib.parse import parse_qsl
 
-from odoo_wrapper import corrections, data, discord, lan, process, state, team, team_rules, updates
+from odoo_wrapper import attendance, cache, corrections, discord, lan, process, state, team, team_rules, updates
 from odoo_wrapper.client import (
     CONFIG_KEYS,
     AccessDenied,
@@ -431,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
             self._someone_data(params)
             return
         client = new_client(self.session)
-        payload = (data.reload_data if "fresh" in params else data.fetch_data)(client)
+        payload = (attendance.reload_personal if "fresh" in params else attendance.fetch_personal)(client)
         own = {
             "phone": lan.phone_access(),
             "state": state.read_state(client.uid),
@@ -448,7 +448,9 @@ class Handler(BaseHTTPRequestHandler):
         if not sees_others(client):
             self._send(403, {"error": NOT_TEAM})
             return
-        payload = (data.reload_data if "fresh" in params else data.fetch_data)(client, int(employee))
+        payload = (attendance.reload_personal if "fresh" in params else attendance.fetch_personal)(
+            client, int(employee)
+        )
         someone = {
             "phone": None,
             "state": state.OTHER_STATE,
@@ -523,7 +525,7 @@ class Handler(BaseHTTPRequestHandler):
         _sessions.pop(session_id, None)
         _rights.pop(session_id, None)
         revoke_pairings(session_id)
-        data.drop_data_cache(session_id)
+        cache.drop(session_id)
         self._send(200, {"ok": True}, cookies=[(COOKIE_NAME, "")])
 
     def _post(self) -> None:
@@ -569,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, new_pairing(self.session, phone["name_url" if body.get("name") else "url"]))
 
     def _punch(self, body: Body) -> None:
-        self._send(*data.punch(new_client(self.session), body.get("action")))
+        self._send(*attendance.punch(new_client(self.session), body.get("action")))
 
     def _update(self, _body: Body) -> None:
         if not self._local():

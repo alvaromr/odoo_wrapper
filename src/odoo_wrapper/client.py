@@ -39,7 +39,7 @@
   the rows it asked for beside the `fields` it requested. The rows this module reads itself are the TypedDicts
   below, each holding exactly those fields. Odoo's empty value is False whatever the field's type: a many2one is
   [id, name] or False (Many2one, a pair here, though JSON gives a list that is only ever indexed) and a date or text
-  is the string or False. This module imports nothing from the package, so the pure rules (data_rules.py) restate
+  is the string or False. This module imports nothing from the package, so the pure rules (attendance_rules.py) restate
   the few shapes they read, as the fields they need and no others; a row of this module fits them.
 """
 

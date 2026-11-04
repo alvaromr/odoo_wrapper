@@ -1,19 +1,14 @@
-"""The dashboard payload: attendance sessions, expected schedule and absences, read from Odoo and cached.
+"""The personal page's payload: attendance sessions, expected schedule and absences, read from Odoo and cached.
 
-The rules (hours, schedule, absences, what a punch does) are data_rules.py's, pure over plain rows; this module is
-the edge that reads those rows from Odoo, hands them over and sends the punches.
+The rules (hours, schedule, absences, what a punch does) are attendance_rules.py's, pure over plain rows; this module
+is the edge that reads those rows from Odoo, hands them over and sends the punches.
 
-- build_data loads the employee's full attendance history (from the first hr.attendance, at least MIN_WEEKS) in six
-  calls; the page trims what it shows. The payload is cached per Odoo session for DATA_TTL seconds (a load costs
-  ~1.8 s against Odoo, ~2 ms from the cache), so two people logged into the same dashboard never see each other's
-  data; every entry is dropped on any punch, and a logout drops its session's; reload_data skips the cache
-  («Actualizar») and replaces the entry, leaving the old one if the load fails. cached() is that cache for any
-  payload, keyed by a tuple that starts with the session, and rebuilt() is its reload; team.py keys its own per
-  session and period. What the viewer reads about other people (the management view, someone else's week) keeps
-  VIEW_TTL, five minutes: moving between those pages used to reload from Odoo every time, and «Actualizar» still
-  forces a fresh load. The payload's team flag says whether the session reads other people's attendances, so the
-  page links the management view.
-- build_data(client, employee) reads someone else's week instead, for the management view's links: the
+- build_personal loads the employee's full attendance history (from the first hr.attendance, at least MIN_WEEKS) in
+  six calls; the page trims what it shows. fetch_personal answers from the cache (cache.py), keyed by the session
+  and the employee, and reload_personal reads Odoo again («Actualizar»). Every entry is dropped on any punch. The
+  payload's team flag says whether the session reads other people's attendances, so the page links the management
+  view.
+- build_personal(client, employee) reads someone else's week instead, for the management view's links: the
   same payload, loaded by employee id, and it never touches the shared state, which is the viewer's own.
 - The absence and contract readers take no session state and return plain rows, so team.py reads the same
   absences, contracts and schedules for many employees at once from one query per model.
@@ -25,35 +20,20 @@ the edge that reads those rows from Odoo, hands them over and sends the punches.
   leave_rows.
 - Attendance reasons are optional (see client.py). Without them the payload says breaks: false and
   attendance_reason_ids is not even requested — the field only exists with the module installed.
-- A punch is sent as data_rules.py plans it: one check-out or check-in at a time, in order, then the shared state
-  is stamped and every cached payload dropped.
-- The cache holds payloads of several kinds (the personal one, the team's, a year's, the fixes), so it stores them as
-  object and returns each as the type its builder made: a key says which kind it holds (the session, then the
-  employee, the period, "year" or "fixes"), and cached() and rebuilt() are only called with a key and builder of one
-  kind. Each read of Odoo declares the rows it asked for (data_rules.py has them), and a reply that is only
+- A punch is sent as attendance_rules.py plans it: one check-out or check-in at a time, in order, then the shared
+  state is stamped and every cached payload dropped.
+- Each read of Odoo declares the rows it asked for (attendance_rules.py has them), and a reply that is only
   acknowledged is a Mapping[str, object].
 """
 
 from __future__ import annotations
 
-import threading
-import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
-from typing import TypeVar, cast
 
-from odoo_wrapper import data_rules as rules
-from odoo_wrapper import state
+from odoo_wrapper import attendance_rules as rules
+from odoo_wrapper import cache, state
 from odoo_wrapper.client import OdooClient, OdooError, SessionExpired, degrade
-
-Payload = TypeVar("Payload")
-Key = tuple[object, ...]
-Load = tuple[Key, Callable[[], Payload]]
-
-DATA_TTL = 45
-VIEW_TTL = 300
-_data_lock = threading.Lock()
-_data_cache: dict[Key, tuple[float, object]] = {}
 
 
 def fetch_schedule(client: OdooClient, calendar_id: int | None) -> rules.Schedule | None:
@@ -128,44 +108,20 @@ def fetch_absences(client: OdooClient, since: str, calendar_ids: Iterable[int | 
     return rules.absences_from(holidays, leave_rows(client, [client.employee_id], since, None))
 
 
-def cached(key: Key, build: Callable[[], Payload], ttl: float = DATA_TTL) -> Payload:
-    """Return what build made for a key within ttl seconds, or build it again."""
-    with _data_lock:
-        hit = _data_cache.get(key)
-        if hit and time.monotonic() - hit[0] < ttl:
-            return cast("Payload", hit[1])
-    return rebuilt(key, build)
-
-
-def rebuilt(key: Key, build: Callable[[], Payload]) -> Payload:
-    """Build a key's payload again whatever the cache holds, keep it and return it."""
-    payload = build()
-    with _data_lock:
-        _data_cache[key] = (time.monotonic(), payload)
-    return payload
-
-
-def data_load(client: OdooClient, employee: int | None) -> Load[rules.PersonalPayload]:
+def personal_load(client: OdooClient, employee: int | None) -> cache.Load[rules.PersonalPayload]:
     """Return the cache key of the personal page's payload and the function that builds it."""
-    return (client.session_id, employee), lambda: build_data(client, employee)
+    return (client.session_id, employee), lambda: build_personal(client, employee)
 
 
-def fetch_data(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
+def fetch_personal(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
     """Return the personal page's payload, the session's own or an employee's, cached."""
-    key, build = data_load(client, employee)
-    return cached(key, build, VIEW_TTL if employee else DATA_TTL)
+    key, build = personal_load(client, employee)
+    return cache.cached(key, build, cache.VIEW_TTL if employee else cache.OWN_TTL)
 
 
-def reload_data(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
+def reload_personal(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
     """Return the personal page's payload read again from Odoo, replacing what was cached."""
-    return rebuilt(*data_load(client, employee))
-
-
-def drop_data_cache(session_id: str | None = None) -> None:
-    """Forget the cached payloads of a session, or of every session."""
-    with _data_lock:
-        for key in [key for key in _data_cache if session_id in (None, key[0])]:
-            del _data_cache[key]
+    return cache.rebuilt(*personal_load(client, employee))
 
 
 def fetch_contracts(
@@ -202,7 +158,7 @@ def fetch_contracts(
     return contracts
 
 
-def build_data(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
+def build_personal(client: OdooClient, employee: int | None = None) -> rules.PersonalPayload:
     """Read from Odoo everything the personal page shows: sessions, schedule, absences and contracts."""
     if employee:
         client.load_other(employee)
@@ -257,5 +213,5 @@ def punch(client: OdooClient, action: object) -> tuple[int, Mapping[str, object]
     for reason in reasons:
         client.punch(reason)
     state.write_state(client.uid, **rules.punch_state(action, datetime.now().astimezone().isoformat()))
-    drop_data_cache()
+    cache.drop()
     return 200, {"ok": True}

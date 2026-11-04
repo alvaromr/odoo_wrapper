@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, NamedTuple, TypedDict
 
-from odoo_wrapper import data_rules
+from odoo_wrapper import attendance_rules
 
 LOST_ENTRY_MINUTES = 10
 REPLACE = 6
@@ -83,7 +83,7 @@ def lost_window(old_out: str | None, new_out: str) -> tuple[str, str] | None:
     Returns:
         The old check-out and the end of the span, or None when shortening the punch cannot lose a check-in.
     """
-    if not old_out or data_rules.local(old_out).date() <= data_rules.local(new_out).date():
+    if not old_out or attendance_rules.local(old_out).date() <= attendance_rules.local(new_out).date():
         return None
     out = datetime.strptime(old_out, STAMP).replace(tzinfo=timezone.utc)  # pragma: no mutate - strftime drops the zone
     return old_out, (out + timedelta(minutes=LOST_ENTRY_MINUTES)).strftime(STAMP)

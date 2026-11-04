@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 from helpers import NORMAL, REST, TODAY, ScriptedClient, logged
 
+from odoo_wrapper import attendance_rules as ar
+from odoo_wrapper import cache
 from odoo_wrapper import client as c
-from odoo_wrapper import data as dt
-from odoo_wrapper import data_rules as dr
 from odoo_wrapper import team as tm
 from odoo_wrapper import team_rules as tr
 from odoo_wrapper.client import OdooError, SessionExpired
@@ -140,7 +140,7 @@ def rows(**extra):
 
 class BuildTeamTest(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(dt.drop_data_cache)
+        self.addCleanup(cache.drop)
         self.client = ScriptedClient(rows())
         self.payload = tm.build_team(self.client, MONDAY)
         self.people = {e["name"]: e for e in self.payload["employees"]}
@@ -169,7 +169,7 @@ class BuildTeamTest(unittest.TestCase):
                     "hr.attendance",
                     "read_group",
                     [
-                        [("employee_id", "in", ids), ("worked_hours", ">=", dr.MIN_SESSION)],
+                        [("employee_id", "in", ids), ("worked_hours", ">=", ar.MIN_SESSION)],
                         ["employee_id", "check_in:min"],
                         ["employee_id"],
                     ],
@@ -403,7 +403,7 @@ class BuildTeamTest(unittest.TestCase):
         day = MONDAY + timedelta(days=1)
 
         def flags(*sessions):
-            return tr.day_row(day, 8, None, ([dr.session_of(s, {}) for s in sessions], []), TODAY)["flags"]
+            return tr.day_row(day, 8, None, ([ar.session_of(s, {}) for s in sessions], []), TODAY)["flags"]
 
         self.assertEqual(flags(att(1, 1, (5, 0), (13, 0), 8.0)), [])
         self.assertEqual(flags(dict(att(1, 1, (16, 0), (23, 59), 8.0), check_out=at(2, 0, 1))), [])
@@ -431,14 +431,14 @@ class BuildTeamTest(unittest.TestCase):
 
     def test_a_short_day_is_no_flag_the_week_decides(self):
         day = MONDAY + timedelta(days=1)
-        blip = [dr.session_of(att(1, 1, (9, 0), (9, 0), 0.001), {}), dr.session_of(att(1, 1, (9, 0), (15, 0), 6.0), {})]
+        blip = [ar.session_of(att(1, 1, (9, 0), (9, 0), 0.001), {}), ar.session_of(att(1, 1, (9, 0), (15, 0), 6.0), {})]
         self.assertEqual(tr.day_row(day, 8.5, None, (blip, []), TODAY)["flags"], [])
 
     def test_a_long_day_is_flagged_whatever_its_sessions(self):
         day = MONDAY + timedelta(days=1)
         split = [
-            dr.session_of(att(1, 1, (8, 44), (14, 43), 6.0), {}),
-            dr.session_of(att(1, 1, (15, 7), (23, 45), 8.63), {}),
+            ar.session_of(att(1, 1, (8, 44), (14, 43), 6.0), {}),
+            ar.session_of(att(1, 1, (15, 7), (23, 45), 8.63), {}),
         ]
         self.assertEqual(tr.day_row(day, 8.5, None, (split, []), TODAY)["flags"], ["long"])
         self.assertEqual(tr.day_row(day, 8.5, None, (split[:1], []), TODAY)["flags"], [])
@@ -461,7 +461,7 @@ class BuildTeamTest(unittest.TestCase):
     def test_a_finished_week_below_target_is_under(self):
         schedule = {"hours": [8] * 5 + [0, 0]}
         employee = {"id": 1, "name": "Ana", "since": "2000-01-01"}
-        short_week = [dr.session_of(att(1, d, (8, 0), (15, 59), 7.98), {}) for d in range(5)]
+        short_week = [ar.session_of(att(1, d, (8, 0), (15, 59), 7.98), {}) for d in range(5)]
         row = tr.employee_row(employee, lambda iso: schedule, ([], short_week, []), (MONDAY,), TODAY)
         self.assertEqual((row["target"], row["flags"]), (40, ["under"]))
 
@@ -475,10 +475,10 @@ class BuildTeamTest(unittest.TestCase):
     def test_a_finished_week_over_its_target_by_more_than_the_margin_is_over(self):
         schedule = {"hours": [8] * 5 + [0, 0]}
         employee = {"id": 1, "name": "Ana", "since": "2000-01-01"}
-        long_week = [dr.session_of(att(1, d, (8, 0), (17, 12), 9.2), {}) for d in range(5)]
+        long_week = [ar.session_of(att(1, d, (8, 0), (17, 12), 9.2), {}) for d in range(5)]
         row = tr.employee_row(employee, lambda iso: schedule, ([], long_week, []), (MONDAY,), TODAY)
         self.assertEqual((row["hours"], row["target"], row["flags"]), (46.0, 40, ["over"]))
-        fair = [dr.session_of(att(1, d, (8, 0), (17, 0), 9.0), {}) for d in range(5)]
+        fair = [ar.session_of(att(1, d, (8, 0), (17, 0), 9.0), {}) for d in range(5)]
         self.assertEqual(tr.employee_row(employee, lambda iso: schedule, ([], fair, []), (MONDAY,), TODAY)["flags"], [])
         self.assertEqual(
             tr.employee_row(employee, lambda iso: schedule, ([], long_week, []), (MONDAY,), MONDAY)["flags"], []
@@ -492,7 +492,7 @@ class BuildTeamTest(unittest.TestCase):
     def test_sessions_keep_times_and_breaks(self):
         friday = self.people["Ana"]["days"][4]["sessions"]
         self.assertEqual([s["rest"] for s in friday], [False, True, False])
-        self.assertEqual(friday[0]["in"], dr.local(at(4, 9)).isoformat())
+        self.assertEqual(friday[0]["in"], ar.local(at(4, 9)).isoformat())
 
     def test_change_requests_sit_on_the_day_they_ask_to_change(self):
         ana, carl = self.people["Ana"], self.people["Carl"]
@@ -503,8 +503,8 @@ class BuildTeamTest(unittest.TestCase):
                 {
                     "id": 51,
                     "can_approve": True,
-                    "from": dr.local(at(2, 9)).isoformat(),
-                    "to": dr.local(at(2, 17, 40)).isoformat(),
+                    "from": ar.local(at(2, 9)).isoformat(),
+                    "to": ar.local(at(2, 17, 40)).isoformat(),
                     "status": "pending",
                     "reason": "Olvidé fichar la salida Salí a las 17:40",
                 }
@@ -516,7 +516,7 @@ class BuildTeamTest(unittest.TestCase):
                 {
                     "id": None,
                     "can_approve": False,
-                    "from": dr.local(at(1, 9)).isoformat(),
+                    "from": ar.local(at(1, 9)).isoformat(),
                     "to": None,
                     "status": "approved",
                     "reason": "",
@@ -764,8 +764,8 @@ class YearTest(unittest.TestCase):
         self.assertEqual((march["target"], march["balance"], march["due"], bea["balance"], bea["due"]), (None,) * 5)
 
     def test_fetch_year_builds_its_span_once_and_caches_it(self):
-        self.addCleanup(dt.drop_data_cache)
-        dt.drop_data_cache()
+        self.addCleanup(cache.drop)
+        cache.drop()
         calls = []
         original = tm.build_team
         tm.build_team = lambda client, *span: (
@@ -792,7 +792,7 @@ class FixesTest(unittest.TestCase):
             [(i["date"], i["kind"]) for i in ana["items"]],
             [("2025-03-04", "empty"), ("2025-03-05", "open"), ("2025-03-07", "long")],
         )
-        self.assertEqual(ana["items"][2]["sessions"][0]["in"], dr.local(at(4, 9)).isoformat())
+        self.assertEqual(ana["items"][2]["sessions"][0]["in"], ar.local(at(4, 9)).isoformat())
         self.assertEqual(set(ana["items"][2]["sessions"][0]), {"id", "in", "out", "hours"})
         self.assertEqual({k: ana["items"][0][k] for k in ("hours", "target")}, {"hours": 0, "target": 8})
         self.assertEqual(fixes["limits"]["long_day"], 12)
@@ -800,7 +800,7 @@ class FixesTest(unittest.TestCase):
     def test_nothing_is_expected_before_the_week_of_the_first_real_punch(self):
         def firsts(args, kwargs):
             if len(args) == 3 and "check_in:min" in args[1]:
-                self.assertIn(("worked_hours", ">=", dr.MIN_SESSION), args[0])
+                self.assertIn(("worked_hours", ">=", ar.MIN_SESSION), args[0])
                 return [{"employee_id": [3, "Carl"], "check_in": at(8, 9)}, {"employee_id": False}]
             return attendance(args, kwargs)
 
@@ -816,8 +816,8 @@ class FixesTest(unittest.TestCase):
         self.assertGreater(ana["target"], 0)
 
     def test_fetch_fixes_spans_from_the_first_attendance_to_this_week_and_caches(self):
-        self.addCleanup(dt.drop_data_cache)
-        dt.drop_data_cache()
+        self.addCleanup(cache.drop)
+        cache.drop()
         calls = []
         original = tm.build_team
         tm.build_team = lambda client, monday, weeks: (
@@ -842,8 +842,8 @@ class FixesTest(unittest.TestCase):
 
 class FetchTeamTest(unittest.TestCase):
     def test_cached_per_session_week_and_span(self):
-        self.addCleanup(dt.drop_data_cache)
-        dt.drop_data_cache()
+        self.addCleanup(cache.drop)
+        cache.drop()
         calls = []
         original = tm.build_team
         tm.build_team = lambda client, monday, weeks, start, stop: (
@@ -861,8 +861,8 @@ class FetchTeamTest(unittest.TestCase):
         self.assertEqual(tm.fetch_team(client, (MONDAY, 5, MONDAY, MONDAY + timedelta(weeks=5))), 4)
 
     def test_each_view_is_kept_for_the_views_ttl_and_built_from_its_own_arguments(self):
-        self.addCleanup(dt.drop_data_cache)
-        dt.drop_data_cache()
+        self.addCleanup(cache.drop)
+        cache.drop()
         built = []
 
         def build(*args):
@@ -887,7 +887,7 @@ class FetchTeamTest(unittest.TestCase):
         for view in views:
             view()
         self.assertEqual(
-            sorted(dt._data_cache, key=str),
+            sorted(cache._entries, key=str),
             sorted([("sid", "2025-03-03", 5, "2025-03-04"), ("sid", "year", 2026), ("sid", "fixes")], key=str),
         )
         weeks = (tr.monday_of(TODAY) - MONDAY).days // 7 + 1
@@ -903,7 +903,7 @@ class FetchTeamTest(unittest.TestCase):
         for view in views:
             view()
         self.assertEqual(len(built), 6)
-        with patch.object(dt, "VIEW_TTL", -1):
+        with patch.object(cache, "VIEW_TTL", -1):
             for view in views:
                 view()
         self.assertEqual(built, expected * 3)

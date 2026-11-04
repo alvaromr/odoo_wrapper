@@ -1,7 +1,7 @@
 """The rules of the personal payload, over plain rows: hours, schedule, absences, sessions and what a punch does.
 
 Nothing here reads Odoo, the disk, the network or the clock: rows go in, the payload comes out, and `now` is an
-argument. data.py reads the rows and hands them over, team_rules.py applies the same rules to many employees
+argument. attendance.py reads the rows and hands them over, team_rules.py applies the same rules to many employees
 at once, and tests/test_project.py checks that this module imports nothing that could do I/O.
 
 - Weeks are counted between calendar dates, not local datetimes: across a daylight-saving change the span is an
@@ -35,9 +35,9 @@ at once, and tests/test_project.py checks that this module imports nothing that 
 - Punch actions validate the real state (open attendance, its reason) and say why not when it is invalid, which
   the server answers as 409; a break is a check-out plus a check-in with the Descanso reason, lunch is a plain
   check-out that also stamps the shared state (punch_state). Without the Descanso reason, break and resume are
-  refused and the page hides them. A step only plans the punches, in order, and data.py sends them.
+  refused and the page hides them. A step only plans the punches, in order, and attendance.py sends them.
 - The only ambient input is the machine's time zone, which local reads to show Odoo's UTC stamps as the user's.
-- Types. Each Odoo model's rows are the TypedDicts below, holding exactly the fields data.py and team.py request
+- Types. Each Odoo model's rows are the TypedDicts below, holding exactly the fields attendance.py and team.py request
   for the rules; the payload built from them is the TypedDicts too. Odoo's empty value is False whatever the
   field's type: a many2one is [id, name] or False (Many2one, a pair here, though JSON gives a list that is only ever
   indexed; ref_id reads one) and a date or text is the string or False. A field that is unguarded in the code is

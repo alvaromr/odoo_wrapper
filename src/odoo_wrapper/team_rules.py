@@ -2,7 +2,8 @@
 
 Nothing here reads Odoo, the disk, the network or the clock: the rows team.py read go in, the payload comes out, and
 `now` and `today` are arguments. The rules shared with the personal page (sessions, absences, schedules, the
-thresholds) are data_rules.py's, and tests/test_project.py checks that this module imports nothing that could do I/O.
+thresholds) are attendance_rules.py's, and tests/test_project.py checks that this module imports nothing that could
+do I/O.
 
 - A payload covers whole weeks, Monday to Sunday: one for the week view, every week touching the month or
   the year for the others (month_span, year_span). Each employee carries its days, its weeks (hours, target and
@@ -17,7 +18,7 @@ thresholds) are data_rules.py's, and tests/test_project.py checks that this modu
   employee is megabytes. Each month has its own days' hours, target and balance, and the weeks whose
   Thursday falls in it (the ISO rule, so a week straddling two months counts once) with how many were under
   or over, plus how many of its days carry a flag.
-- Each day expects the hours of the contract in force that day (data_rules.calendar_on): before the hire date, or
+- Each day expects the hours of the contract in force that day (attendance_rules.calendar_on): before the hire date, or
   between two contracts, nothing is expected. The employee's own calendar is only the current one, so it used to
   charge a mid-year hire for the whole year and a 25 h contract, since moved to 40 h, for 40 h all along (both
   seen in real data). An employee without any contract, or a session that may not read contracts, falls back to
@@ -27,7 +28,7 @@ thresholds) are data_rules.py's, and tests/test_project.py checks that this modu
 - Flags per day: "open" an attendance left open before today (forgot to check out), "empty" a past day with a
   target and no attendance (forgot to check in), "long" a day over LONG_DAY hours in total, however many sessions
   it took (two sessions of 6 h and 8 h are as suspicious as one of 14 h). Taps under a minute are dropped as they
-  are read (data_rules.real_punch), so they flag nothing. Session length is never flagged: sessions of a few
+  are read (attendance_rules.real_punch), so they flag nothing. Session length is never flagged: sessions of a few
   seconds are double taps that cost nothing, and the attendance officer asked to ignore them. Breaks count in the
   day's hours like any other session, as they do in the personal payload.
 - The target is checked per week, not per day: a short day is often made up later that week, so only a
@@ -40,7 +41,7 @@ thresholds) are data_rules.py's, and tests/test_project.py checks that this modu
   attendance officer's rule is «under 40 h, over 45 h», and fixed numbers would flag every week with a
   holiday. The payload carries these limits so the page can explain each flag in words without restating
   them. Today and later are never empty or under: they are not over yet. Nothing is expected before each
-  person's first real punch, the same «since» as the personal payload (data_rules.py says why). UNDER_MARGIN is
+  person's first real punch, the same «since» as the personal payload (attendance_rules.py says why). UNDER_MARGIN is
   a minute, the personal page's own threshold: no minute may be missing, and a week read «al día» in one view
   and short in the other when it was six.
 - What is left to fix goes out apart (fixes_payload, /api/team?fixes): the same build over the whole history, from
@@ -60,8 +61,8 @@ thresholds) are data_rules.py's, and tests/test_project.py checks that this modu
   own as reason_id. Without the module the list is empty.
 - Each employee carries its Discord user id (discord), for the day dialog's message about a punch to fix: the
   field's text whatever its type, None when it is empty or the session read none (with_discord).
-- Types. The rows of the models data_rules.py does not read are the TypedDicts below, with exactly the fields
-  team.py requests (data_rules.py says how Odoo's empty values are typed), and the payload is the TypedDicts too:
+- Types. The rows of the models attendance_rules.py does not read are the TypedDicts below, with exactly the fields
+  team.py requests (attendance_rules.py says how Odoo's empty values are typed), and the payload is the TypedDicts too:
   each employee, week and day, the year's months and the fixes. An employee grows as it is read (the Discord id with
   with_discord, the first punch with team_payload), one TypedDict for each step. A flag is one of a closed set of
   words. Keys that are Python keywords are written with the functional TypedDict syntax. The one cast is
@@ -77,10 +78,10 @@ from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable, Literal, NamedTuple, Optional, TypedDict, Union, cast
 
-from odoo_wrapper import data_rules
-from odoo_wrapper.data_rules import Many2one, MaybeMany2one
+from odoo_wrapper import attendance_rules
+from odoo_wrapper.attendance_rules import Many2one, MaybeMany2one
 
-LONG_DAY = data_rules.LONG_HOURS
+LONG_DAY = attendance_rules.LONG_HOURS
 UNDER_MARGIN = 1 / 60
 OVER_MARGIN = 5
 Span = Union[tuple[date], tuple[date, int, Optional[date], Optional[date]]]
@@ -115,13 +116,13 @@ class TrackedEmployee(Employee):
     since: str
 
 
-class TeamAttendanceRow(data_rules.AttendanceRow):
+class TeamAttendanceRow(attendance_rules.AttendanceRow):
     """An hr.attendance of someone in the management view."""
 
     employee_id: Many2one
 
 
-class TeamBlockRow(data_rules.BlockRow):
+class TeamBlockRow(attendance_rules.BlockRow):
     """A resource.calendar.attendance with the calendar it belongs to."""
 
     calendar_id: Many2one
@@ -177,7 +178,7 @@ class Day(TypedDict):
     hours: float
     target: float
     absence: str | None
-    sessions: list[data_rules.Session]
+    sessions: list[attendance_rules.Session]
     flags: list[DayFlag]
     requests: list[DayRequest]
 
@@ -310,14 +311,14 @@ class Rows(NamedTuple):
 
     employees: list[Employee]
     since: dict[int, str]
-    contracts: data_rules.ContractsByEmployee
+    contracts: attendance_rules.ContractsByEmployee
     blocks: list[TeamBlockRow]
-    reasons: Sequence[data_rules.Reason]
+    reasons: Sequence[attendance_rules.Reason]
     records: list[TeamAttendanceRow]
-    holidays: list[data_rules.HolidayRow]
-    leaves: list[data_rules.LeaveRow]
+    holidays: list[attendance_rules.HolidayRow]
+    leaves: list[attendance_rules.LeaveRow]
     requests: list[ChangeRequest]
-    offered: Sequence[data_rules.Reason]
+    offered: Sequence[attendance_rules.Reason]
 
 
 def hundredths(hours: float) -> float:
@@ -356,14 +357,14 @@ def period(
     return monday, weeks, start, stop
 
 
-def fixes_span(first: list[data_rules.FirstCheckIn], today: date) -> tuple[date, int]:
+def fixes_span(first: list[attendance_rules.FirstCheckIn], today: date) -> tuple[date, int]:
     """Return the Monday and the number of weeks that take in every attendance up to this week.
 
     Args:
         first: The first attendance there is, as a list of one row, or an empty list when there is none.
         today: The day taken as today.
     """
-    monday = monday_of(data_rules.local(first[0]["check_in"]).date() if first else today)
+    monday = monday_of(attendance_rules.local(first[0]["check_in"]).date() if first else today)
     return monday, (monday_of(today) - monday).days // 7 + 1
 
 
@@ -455,8 +456,8 @@ def request_rows(rows: list[RequestRow]) -> list[ChangeRequest]:
             "id": r.get("id"),
             "user": r["request_owner_id"][0],
             "can_approve": r.get("user_status") == "pending",
-            "from": data_rules.local(r["date_start"]).isoformat(),
-            "to": data_rules.local(r["date_end"]).isoformat() if r["date_end"] else None,
+            "from": attendance_rules.local(r["date_start"]).isoformat(),
+            "to": attendance_rules.local(r["date_end"]).isoformat() if r["date_end"] else None,
             "status": r["request_status"],
             "reason": plain_text(r["reason"]),
         }
@@ -472,7 +473,7 @@ def with_discord(rows: list[EmployeeRow], field: str | None) -> list[Employee]:
 def first_mondays(rows: list[FirstCheckInGroup]) -> dict[int, str]:
     """Return the Monday of each employee's first real punch, by id, from the grouped earliest check-ins."""
     return {
-        r["employee_id"][0]: monday_of(data_rules.local(r["check_in"]).date()).isoformat()
+        r["employee_id"][0]: monday_of(attendance_rules.local(r["check_in"]).date()).isoformat()
         for r in rows
         if r["employee_id"]
     }
@@ -480,19 +481,19 @@ def first_mondays(rows: list[FirstCheckInGroup]) -> dict[int, str]:
 
 def calendars_of(employees: Sequence[EmployeeRow]) -> dict[int, int | None]:
     """Return each employee's own calendar, by employee id."""
-    return {e["id"]: data_rules.ref_id(e["resource_calendar_id"]) for e in employees}
+    return {e["id"]: attendance_rules.ref_id(e["resource_calendar_id"]) for e in employees}
 
 
 def users_of(employees: Sequence[EmployeeRow]) -> dict[int, int | None]:
     """Return each employee's user, by employee id."""
-    return {e["id"]: data_rules.ref_id(e["user_id"]) for e in employees}
+    return {e["id"]: attendance_rules.ref_id(e["user_id"]) for e in employees}
 
 
-def calendar_ids(employees: Sequence[EmployeeRow], contracts: data_rules.ContractsByEmployee) -> list[int]:
+def calendar_ids(employees: Sequence[EmployeeRow], contracts: attendance_rules.ContractsByEmployee) -> list[int]:
     """Return the calendars to read: the employees' own and every one their contracts name."""
     return sorted(
         {cid for cid in calendars_of(employees).values() if cid}
-        | data_rules.contract_calendars(c for cs in contracts.values() for c in cs)
+        | attendance_rules.contract_calendars(c for cs in contracts.values() for c in cs)
     )
 
 
@@ -517,7 +518,7 @@ def day_row(
     day: date,
     target: float,
     absence: str | None,
-    punches: tuple[list[data_rules.Session], list[ChangeRequest]],
+    punches: tuple[list[attendance_rules.Session], list[ChangeRequest]],
     today: date,
 ) -> Day:
     """Return a day's hours, target, sessions, requests and flags: left open, not punched, too long."""
@@ -525,7 +526,7 @@ def day_row(
     mine = [s for s in sessions if s["in"][:10] == day.isoformat()]
     requests = [r for r in requests if r["from"][:10] == day.isoformat()]
     past = day < today
-    hours = sum(data_rules.hours_of(s) for s in mine)
+    hours = sum(attendance_rules.hours_of(s) for s in mine)
     hits: tuple[tuple[DayFlag, bool], ...] = (
         ("open", past and any(not s["out"] for s in mine)),
         ("empty", past and target > 0 and not mine),
@@ -575,8 +576,8 @@ def week_row(monday: date, days: list[Day], schedule: bool, today: date) -> Week
 
 def employee_row(
     employee: TrackedEmployee,
-    schedule_on: Callable[[str], data_rules.Schedule | None],
-    punches: tuple[list[data_rules.Absence], list[data_rules.Session], list[ChangeRequest]],
+    schedule_on: Callable[[str], attendance_rules.Schedule | None],
+    punches: tuple[list[attendance_rules.Absence], list[attendance_rules.Session], list[ChangeRequest]],
     span: Span,
     today: date,
 ) -> TeamEmployee:
@@ -588,7 +589,7 @@ def employee_row(
     for a in absences:
         if "hours" in a:
             partial[a["date"]] = partial.get(a["date"], 0) + a["hours"]
-    sessions_on: dict[str, list[data_rules.Session]] = {}
+    sessions_on: dict[str, list[attendance_rules.Session]] = {}
     requests_on: dict[str, list[ChangeRequest]] = {}
     for s in sessions:
         sessions_on.setdefault(s["in"][:10], []).append(s)
@@ -640,24 +641,24 @@ def team_payload(span: Span, now: datetime, rows: Rows) -> TeamPayload:
     ]
     calendar_of, user_of = calendars_of(employees), users_of(employees)
     ids = calendar_ids(employees, rows.contracts)
-    schedules: dict[int | None, data_rules.Schedule | None] = {
-        cid: data_rules.schedule_from([b for b in rows.blocks if b["calendar_id"][0] == cid]) for cid in ids
+    schedules: dict[int | None, attendance_rules.Schedule | None] = {
+        cid: attendance_rules.schedule_from([b for b in rows.blocks if b["calendar_id"][0] == cid]) for cid in ids
     }
     reason_by_id = {r["id"]: r for r in rows.reasons}
 
     def row(employee: TrackedEmployee) -> TeamEmployee:
         calendar = calendar_of[employee["id"]]
         mine_contracts = rows.contracts.get(employee["id"], [])
-        own = {calendar} | data_rules.contract_calendars(mine_contracts)
-        pick = data_rules.calendar_on(mine_contracts, calendar)
-        absences = data_rules.absences_from(
+        own = {calendar} | attendance_rules.contract_calendars(mine_contracts)
+        pick = attendance_rules.calendar_on(mine_contracts, calendar)
+        absences = attendance_rules.absences_from(
             [h for h in rows.holidays if not h["calendar_id"] or h["calendar_id"][0] in own],
             [leave for leave in rows.leaves if leave["employee_id"][0] == employee["id"]],
         )
         sessions = [
-            data_rules.session_of(r, reason_by_id)
+            attendance_rules.session_of(r, reason_by_id)
             for r in rows.records
-            if r["employee_id"][0] == employee["id"] and data_rules.real_punch(r)
+            if r["employee_id"][0] == employee["id"] and attendance_rules.real_punch(r)
         ]
         mine = [r for r in rows.requests if user_of[employee["id"]] and r["user"] == user_of[employee["id"]]]
         return employee_row(

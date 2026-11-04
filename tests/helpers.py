@@ -34,9 +34,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from odoo_wrapper import cli, lan  # noqa: E402
+from odoo_wrapper import attendance as at  # noqa: E402
+from odoo_wrapper import cli, lan
 from odoo_wrapper import client as c
-from odoo_wrapper import data as dt
 from odoo_wrapper import discord as dc
 from odoo_wrapper import process as pr
 from odoo_wrapper import server as sv
@@ -47,7 +47,7 @@ ZONE = "Europe/Madrid"
 NOW_ISO = "2026-11-04T10:00:00+01:00"
 NOW = datetime.fromisoformat(NOW_ISO)
 TODAY = NOW.date()
-CLOCK_READERS = (cli, dt, sv, st, tm)
+CLOCK_READERS = (cli, at, sv, st, tm)
 CONFIG = {"url": "https://odoo.example", "db": "db", "user": "u"}
 NORMAL = {"id": 5, "name": "Normal", "is_rest": False, "action_type": "sign_in", "show_on_attendance_screen": True}
 REST = {"id": 3, "name": "Descanso", "is_rest": True, "action_type": "sign_in", "show_on_attendance_screen": True}

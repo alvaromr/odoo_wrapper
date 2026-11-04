@@ -179,7 +179,7 @@ class OutputTest(unittest.TestCase):
 
     def test_every_module_and_static_file_is_watched(self):
         names = {os.path.basename(p) for p in pr.SOURCES}
-        self.assertTrue({"process.py", "server.py", "lan.py", "data.py", "state.py", "cli.py"} <= names)
+        self.assertTrue({"process.py", "server.py", "lan.py", "attendance.py", "state.py", "cli.py"} <= names)
         self.assertTrue({"dashboard.html", "login.html", "style.css"} <= names)
         self.assertTrue(any(name.endswith(".js") for name in names))
 

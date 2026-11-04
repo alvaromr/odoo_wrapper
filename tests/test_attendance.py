@@ -1,15 +1,15 @@
-"""Unit tests for the Odoo payload: schedule, absences, the cache, the full build and punching."""
+"""Unit tests for the personal payload read from Odoo: schedule, absences, the full build and punching."""
 
 import unittest
 from datetime import date, datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from helpers import NORMAL, NOW, REST, TODAY, ScriptedClient, logged, temp_state, utc
 
+from odoo_wrapper import attendance as at
+from odoo_wrapper import attendance_rules as ar
+from odoo_wrapper import cache
 from odoo_wrapper import client as c
-from odoo_wrapper import data as dt
-from odoo_wrapper import data_rules as dr
 from odoo_wrapper import state as st
 from odoo_wrapper.client import OdooError
 
@@ -23,15 +23,15 @@ class ScheduleTest(unittest.TestCase):
                 ]
             }
         )
-        self.assertIsNone(dt.fetch_schedule(client, None))
-        self.assertEqual(dt.fetch_schedule(client, 4)["hours"][0], 8.0)
+        self.assertIsNone(at.fetch_schedule(client, None))
+        self.assertEqual(at.fetch_schedule(client, 4)["hours"][0], 8.0)
         self.assertEqual(client.calls[0][1], [[("calendar_id", "=", 4)]])
 
 
 class AbsencesTest(unittest.TestCase):
     def absences(self, holidays=(), leaves=()):
         client = ScriptedClient({"resource.calendar.leaves": list(holidays), "hr.leave": list(leaves)})
-        return dt.fetch_absences(client, "2026-08-01", [4]), client
+        return at.fetch_absences(client, "2026-08-01", [4]), client
 
     def test_holidays_skip_the_weekend(self):
         out, client = self.absences(
@@ -106,8 +106,8 @@ class AbsencesTest(unittest.TestCase):
         )
         self.assertEqual(len(out), 1)
         self.assertEqual((out[0]["date"], out[0]["type"], out[0]["hours"]), ("2026-06-05", "Médico", 2.5))
-        self.assertEqual(out[0]["from"], dr.local("2026-06-05 07:00:00").isoformat())
-        self.assertEqual(out[0]["to"], dr.local("2026-06-05 09:30:00").isoformat())
+        self.assertEqual(out[0]["from"], ar.local("2026-06-05 07:00:00").isoformat())
+        self.assertEqual(out[0]["to"], ar.local("2026-06-05 09:30:00").isoformat())
 
     def test_a_dropped_or_an_hour_leave_never_hides_the_leaves_after_it(self):
         weekend = {
@@ -159,91 +159,10 @@ class AbsencesTest(unittest.TestCase):
         self.assertEqual(out, [])
 
 
-class DataCacheTest(unittest.TestCase):
-    def setUp(self):
-        self.calls, self.failing = 0, False
-        original = dt.build_data
-        dt.build_data = self.count
-        self.addCleanup(setattr, dt, "build_data", original)
-        self.addCleanup(dt.drop_data_cache)
-        dt.drop_data_cache()
-
-    def count(self, client, employee=None):
-        if self.failing:
-            raise ZeroDivisionError
-        self.calls += 1
-        return dict({"call": self.calls, "client": client.session_id}, **({"employee": employee} if employee else {}))
-
-    def fetch(self, session_id, employee=None):
-        return dt.fetch_data(SimpleNamespace(session_id=session_id), employee)
-
-    def reload(self, session_id, employee=None):
-        return dt.reload_data(SimpleNamespace(session_id=session_id), employee)
-
-    def test_serves_the_same_payload_within_the_ttl_per_session(self):
-        self.assertEqual(self.fetch("one"), {"call": 1, "client": "one"})
-        self.assertEqual(self.fetch("one"), {"call": 1, "client": "one"})
-        self.assertEqual(self.fetch("other"), {"call": 2, "client": "other"})
-        self.assertEqual(self.fetch("one"), {"call": 1, "client": "one"})
-        self.assertEqual(self.calls, 2)
-
-    def test_a_reload_bypasses_it_and_replaces_the_entry(self):
-        self.fetch("one")
-        self.assertEqual(self.reload("one")["call"], 2)
-        self.assertEqual(self.fetch("one")["call"], 2)
-        self.assertEqual(self.reload("one", employee=9)["call"], 3)
-        self.assertEqual(self.fetch("one", employee=9)["call"], 3)
-
-    def test_a_reload_that_fails_leaves_the_entry_it_found(self):
-        self.fetch("one")
-        self.failing = True
-        with self.assertRaises(ZeroDivisionError):
-            self.reload("one")
-        self.failing = False
-        self.assertEqual(self.fetch("one")["call"], 1)
-
-    def test_someone_elses_week_keeps_longer(self):
-        self.fetch("one", employee=9)
-        with patch.object(dt, "DATA_TTL", -1):
-            self.assertEqual(self.fetch("one", employee=9)["call"], 1)
-            self.assertEqual(self.fetch("one")["call"], 2)
-        with patch.object(dt, "VIEW_TTL", -1):
-            self.assertEqual(self.fetch("one", employee=9)["call"], 3)
-
-    def test_someone_elses_week_has_its_own_entry(self):
-        self.assertEqual(self.fetch("one")["call"], 1)
-        self.assertEqual(self.fetch("one", employee=9), {"call": 2, "client": "one", "employee": 9})
-        self.assertEqual(self.fetch("one", employee=9)["call"], 2)
-        self.assertEqual(self.fetch("one")["call"], 1)
-
-    def test_a_punch_drops_every_session(self):
-        self.fetch("one")
-        self.fetch("other")
-        dt.drop_data_cache()
-        self.assertEqual(self.fetch("one")["call"], 3)
-        self.assertEqual(self.fetch("other")["call"], 4)
-
-    def test_it_expires_exactly_when_its_ttl_has_passed(self):
-        clock = [100.0]
-        with patch.object(dt.time, "monotonic", side_effect=lambda: clock[0]):
-            self.fetch("one")
-            clock[0] += dt.DATA_TTL - 0.5
-            self.assertEqual(self.fetch("one")["call"], 1)
-            clock[0] += 0.5
-            self.assertEqual(self.fetch("one")["call"], 2)
-
-    def test_it_expires(self):
-        self.fetch("one")
-        original = dt.DATA_TTL
-        dt.DATA_TTL = -1
-        self.addCleanup(setattr, dt, "DATA_TTL", original)
-        self.assertEqual(self.fetch("one")["call"], 2)
-
-
-class BuildDataTest(unittest.TestCase):
+class BuildPersonalTest(unittest.TestCase):
     def setUp(self):
         temp_state(self)
-        self.addCleanup(dt.drop_data_cache)
+        self.addCleanup(cache.drop)
 
     def build(self, records, reasons=(NORMAL, REST), rows=None):
         rows = {
@@ -257,7 +176,7 @@ class BuildDataTest(unittest.TestCase):
             **(rows or {}),
         }
         client = ScriptedClient(rows, reasons=reasons)
-        return dt.build_data(client), client
+        return at.build_personal(client), client
 
     def test_sessions_carry_reason_and_open_state(self):
         payload, _ = self.build(
@@ -284,7 +203,7 @@ class BuildDataTest(unittest.TestCase):
             (open_one["out"], open_one["hours"], open_one["rest"], open_one["reason"]), (None, None, False, None)
         )
         self.assertEqual([s["reason_id"] for s in payload["sessions"]], [5, 3, None])
-        self.assertEqual(work["in"], dr.local("2026-09-07 07:00:00").isoformat())
+        self.assertEqual(work["in"], ar.local("2026-09-07 07:00:00").isoformat())
         self.assertEqual(payload["employee"], "Ana")
         self.assertTrue(payload["breaks"])
         self.assertNotIn("phone", payload)
@@ -351,7 +270,7 @@ class BuildDataTest(unittest.TestCase):
         )
         self.assertEqual([model for model, _, _ in client.calls].count("hr.employee"), 0)
         payload, _ = self.build([])
-        self.assertEqual(payload["weeks"], dr.MIN_WEEKS)
+        self.assertEqual(payload["weeks"], ar.MIN_WEEKS)
         self.assertEqual(payload["since"], (today - timedelta(days=today.weekday())).isoformat())
 
     def test_holidays_are_asked_for_every_calendar_the_contracts_had(self):
@@ -495,7 +414,7 @@ class BuildDataTest(unittest.TestCase):
             }
         )
         client.load_other = lambda employee: setattr(client, "employee_id", employee)
-        dt.build_data(client, 42)
+        at.build_personal(client, 42)
         self.assertEqual(client.employee_id, 42)
         self.assertEqual(st.read_state(3)["lunch"], stamp)
         self.assertIn([("employee_id", "=", 42)], [a[0] for model, a, _ in client.calls if model == "hr.attendance"])
@@ -505,7 +424,7 @@ class BuildDataTest(unittest.TestCase):
             "id": 81,
             "check_in": "2024-06-03 08:00:00",
             "check_out": "2024-06-03 08:01:00",
-            "worked_hours": dr.MIN_SESSION,
+            "worked_hours": ar.MIN_SESSION,
             "attendance_reason_ids": [],
         }
         payload, _ = self.build([least])
@@ -516,7 +435,7 @@ class BuildDataTest(unittest.TestCase):
 
     def test_a_punch_at_the_very_moment_of_the_lunch_stamp_leaves_it(self):
         punched = utc(0)
-        stamp = dr.local(punched).isoformat()
+        stamp = ar.local(punched).isoformat()
         st.write_state(3, lunch=stamp)
         self.build([{"check_in": punched, "check_out": False, "worked_hours": 0, "attendance_reason_ids": []}])
         self.assertEqual(st.read_state(3)["lunch"], stamp)
@@ -533,13 +452,13 @@ class BuildDataTest(unittest.TestCase):
 class PunchTest(unittest.TestCase):
     def setUp(self):
         temp_state(self)
-        self.addCleanup(dt.drop_data_cache)
+        self.addCleanup(cache.drop)
 
     def punch(self, action, open_att=None, reasons=(NORMAL, REST), open_reason_ids=(5,)):
         client = ScriptedClient(
             {"hr.attendance": [{"attendance_reason_ids": list(open_reason_ids)}]}, open_att, reasons
         )
-        status, body = dt.punch(client, action)
+        status, body = at.punch(client, action)
         return status, body, client
 
     def test_each_answer_is_exactly_what_the_page_shows(self):
@@ -597,10 +516,10 @@ class PunchTest(unittest.TestCase):
 
     def test_lunch_stamps_the_state_and_other_punches_clear_it(self):
         self.assertEqual(self.punch("lunch")[0], 409)
-        dt._data_cache[("sid", None)] = (0, {})
+        cache._entries[("sid", None)] = (0, {})
         status, _, client = self.punch("lunch", open_att={"id": 1})
         self.assertEqual((status, client.punches), (200, [None]))
-        self.assertEqual(dt._data_cache, {})
+        self.assertEqual(cache._entries, {})
         state = st.read_state(3)
         self.assertTrue(state["lunch"] and state["lunch_done"] and state["punched_at"])
         st.write_state(3, punched_at=None)

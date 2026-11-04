@@ -4,7 +4,7 @@
   never the other way round (AGENTS.md § Code style).
 - The rules stay pure: the modules in PURE import nothing outside PURE_IMPORTS and each other, so no Odoo client,
   urllib, socket, subprocess, file or thread can reach them, and they never read the clock (CLOCK_READS), print or
-  open anything: the edge modules (data.py, team.py, corrections.py) read the rows and send the writes.
+  open anything: the edge modules (attendance.py, team.py, corrections.py) read the rows and send the writes.
 - No secret in any file under the repo, ignored ones included (AGENTS.md, rule 3): private keys and the token
   formats this project handles or could leak. The working copies of the mutation tools and the installed tools
   (.tools, node_modules) are left out: they hold third-party files, never this project's.
@@ -29,7 +29,7 @@ SECRETS = {
     "Google refresh token": re.compile(r"\b1//0[\w-]{20,}"),
 }
 MAX_LINES = 1000
-PURE = ("data_rules", "team_rules", "corrections_rules")
+PURE = ("attendance_rules", "team_rules", "corrections_rules")
 PURE_IMPORTS = {"__future__", "collections.abc", "datetime", "html", "re", "typing"}
 CLOCK_READS = {"now", "today", "utcnow"}
 IO_CALLS = {"open", "print", "input"}
@@ -90,7 +90,7 @@ class ProjectTest(unittest.TestCase):
         samples = [
             ("odoo_wrapper.client", "from odoo_wrapper.client import OdooClient"),
             ("odoo_wrapper.client", "from odoo_wrapper import client"),
-            ("odoo_wrapper.data", "from odoo_wrapper import data"),
+            ("odoo_wrapper.attendance", "from odoo_wrapper import attendance"),
             ("urllib.request", "import urllib.request"),
             ("socket", "import socket"),
             ("subprocess", "import subprocess"),
@@ -101,7 +101,7 @@ class ProjectTest(unittest.TestCase):
         ]
         for expected, source in samples:
             self.assertEqual(impurities(source), [expected], source)
-        self.assertEqual(impurities("from odoo_wrapper import data_rules\nimport re\nnow = 1"), [])
+        self.assertEqual(impurities("from odoo_wrapper import attendance_rules\nimport re\nnow = 1"), [])
 
     def test_no_file_holds_a_secret(self):
         found = []

@@ -25,10 +25,9 @@ from unittest.mock import patch
 
 from helpers import CONFIG, NORMAL, TODAY, ScriptedClient, logged, temp_state, utc
 
+from odoo_wrapper import attendance_rules as ar
+from odoo_wrapper import cache, lan
 from odoo_wrapper import client as c
-from odoo_wrapper import data as dt
-from odoo_wrapper import data_rules as dr
-from odoo_wrapper import lan
 from odoo_wrapper import server as sv
 from odoo_wrapper import state as st
 from odoo_wrapper import team_rules as tr
@@ -269,7 +268,7 @@ class HandlerTest(unittest.TestCase):
         self.addCleanup(sv._rights.clear)
         sv._login_fails.clear()
         self.addCleanup(sv._login_fails.clear)
-        self.addCleanup(dt.drop_data_cache)
+        self.addCleanup(cache.drop)
 
     def request(
         self,
@@ -446,7 +445,7 @@ class HandlerTest(unittest.TestCase):
             status, _, payload = self.get("/api/data?employee=9&fresh")
             self.assertEqual(status, 200)
             asked = {
-                "from": dr.local(pending["date_start"]).isoformat(),
+                "from": ar.local(pending["date_start"]).isoformat(),
                 "id": 552,
                 "reason": "Olvidé fichar",
                 "status": "pending",
@@ -908,10 +907,10 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(sv._pairings, {})
 
     def test_logout_drops_only_its_own_cached_data(self):
-        dt._data_cache.update({("sid", None): (0, {}), ("sid", 42): (0, {}), ("other", None): (0, {})})
+        cache._entries.update({("sid", None): (0, {}), ("sid", 42): (0, {}), ("other", None): (0, {})})
         with patch.object(sv, "new_client", ServerOdoo().factory):
             self.post("/api/logout", {})
-        self.assertEqual(list(dt._data_cache), [("other", None)])
+        self.assertEqual(list(cache._entries), [("other", None)])
 
     def test_two_users_keep_their_own_state(self):
         sv._sessions["other"] = 4

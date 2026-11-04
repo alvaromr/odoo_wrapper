@@ -22,15 +22,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, TypedDict
 
+from odoo_wrapper import attendance_rules, cache
 from odoo_wrapper import corrections_rules as rules
-from odoo_wrapper import data, data_rules
 from odoo_wrapper.client import OdooClient, OdooError, SessionExpired
 
 
 class AttendanceEnd(TypedDict):
     """An hr.attendance as save_attendance reads it before changing it: whose it is and when it ended."""
 
-    employee_id: data_rules.Many2one
+    employee_id: attendance_rules.Many2one
     check_out: str | Literal[False]
 
 
@@ -44,7 +44,7 @@ def lost_entry(client: OdooClient, employee_id: int, old_out: str | None, new_ou
         "search_count",
         [[("employee_id", "=", employee_id), ("check_in", ">=", window[0]), ("check_in", "<=", window[1])]],
     )
-    return None if later else data_rules.local(window[0]).isoformat()
+    return None if later else attendance_rules.local(window[0]).isoformat()
 
 
 def save_attendance(client: OdooClient, body: Mapping[str, Any]) -> tuple[int, Mapping[str, object]]:
@@ -67,7 +67,7 @@ def save_attendance(client: OdooClient, body: Mapping[str, Any]) -> tuple[int, M
         raise
     except OdooError as error:
         return 409, {"error": str(error)}
-    data.drop_data_cache()
+    cache.drop()
     return 200, {"ok": True, "lost_entry": lost}
 
 
@@ -85,7 +85,7 @@ def run_on(
         raise
     except OdooError as error:
         return 409, {"error": str(error)}
-    data.drop_data_cache()
+    cache.drop()
     return 200, {"ok": True}
 
 

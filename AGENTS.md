@@ -18,8 +18,9 @@ src/odoo_wrapper/
   sheets.py          Google Sheets for `odoo notices`, as the Google account gws is signed in with
   dashboard.py       entry point: wires the pieces below and serves
   server.py          pages, JSON API, Odoo sessions as the login, same-site guard
-  data.py            the payload read from Odoo (sessions, schedule, absences), its cache, and the punches sent
-  data_rules.py      the rules of that payload, pure over plain rows: hours, schedule, absences, what a punch does
+  attendance.py      the personal page's payload read from Odoo (sessions, schedule, absences), and the punches sent
+  attendance_rules.py  the rules of that payload, pure over plain rows: hours, schedule, absences, what a punch does
+  cache.py           every page's payloads, kept per Odoo session
   team.py            the management view's payload read from Odoo: one week of everyone the session can read
   team_rules.py      the rules of that payload, pure: days, weeks, flags, months, what is left to fix
   corrections.py     the day dialog's writes: correcting and adding punches, approving change requests
@@ -61,7 +62,8 @@ Don't duplicate — each fact has one home:
 - **`bin/odoo` with no arguments** and **`bin/odoo-dashboard --help`** — everything about using each tool:
   commands, flags, files, what clocks for real.
 - **The header of each module** — why it behaves as it does: `server.py` (sessions, same-site guard, API),
-  `data.py` (what is read from Odoo and how it is cached), `data_rules.py` (the personal payload's rules),
+  `attendance.py` (what is read from Odoo), `attendance_rules.py` (the personal payload's rules), `cache.py` (how
+  long a payload is kept),
   `team.py` (who the management view shows), `team_rules.py` (what each flag means),
   `corrections.py` (what the day dialog writes), `corrections_rules.py` (when it warns), `discord.py` (why a bot, and
   how the recipient is found), `state.py` (the shared state),
@@ -120,13 +122,13 @@ Read the header of a module before touching it.
   <reason>` and `biome-ignore <rule>: <reason>`. A rule switched off for a whole file or the whole project says
   why beside it, in `pyproject.toml` or `biome.jsonc`.
 - Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
-- Keep the rules pure. `data_rules.py`, `team_rules.py` and `corrections_rules.py` take plain rows and values and
-  return the payload or the write: no Odoo client, file, network, process, thread or clock (`now` and `today` come
-  in as arguments), which `tests/test_project.py` checks. `data.py`, `team.py` and `corrections.py` are the edge:
-  they read the rows from Odoo, hand them to the rules and send what the rules decide. New logic about hours,
-  flags or what a write holds goes in the rules; a query goes in the edge.
+- Keep the rules pure. `attendance_rules.py`, `team_rules.py` and `corrections_rules.py` take plain rows and values
+  and return the payload or the write: no Odoo client, file, network, process, thread or clock (`now` and `today`
+  come in as arguments), which `tests/test_project.py` checks. `attendance.py`, `team.py` and `corrections.py` are
+  the edge: they read the rows from Odoo, hand them to the rules and send what the rules decide. New logic about
+  hours, flags or what a write holds goes in the rules; a query goes in the edge.
 - No boolean parameter switches between two behaviours (a `fresh=True` that skips a cache): give each behaviour
-  its own function (`fetch_data` and `reload_data`). A bool that is plain data about the input (`on_rest`) is fine.
+  its own function (`fetch_personal` and `reload_personal`). A bool that is plain data about the input (`on_rest`) is fine.
 - Keep `client.py` free of dashboard and CLI concerns: no printing, no HTTP serving. `cli.py` and the
   server modules import from it, never the other way round.
 
@@ -321,7 +323,7 @@ What `client.py` relies on, and why it looks the way it does. Verified against a
   in a field added with Studio, found by its label «Discord»; archived employees are
   left out, their `departure_date` is only readable by HR officers) and `approval.request` (attendance change
   requests, found by category name).
-  Which employees a session sees is left to Odoo's record rules; `data.py` and `team.py` headers have the
+  Which employees a session sees is left to Odoo's record rules; `attendance.py` and `team.py` headers have the
   details.
 - **The Discord notice's button, and the personal page's «Solicitar cambio», open a window action created by
   hand** (`ir.actions.act_window` with path `modificacion-fichaje`, an administrator's job, like the «Discord»
