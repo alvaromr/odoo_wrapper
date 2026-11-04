@@ -33,12 +33,13 @@ src/odoo_wrapper/
   updates.py         whether GitHub holds a newer release than this version, for the pages' banner, and
                      «Actualizar ahora»: installing it with uv and restarting into it
   qr.py              hand-written QR encoder
-  templates/         dashboard.html, team.html (the management view at /gestion), login.html, style.css
+  static/            dashboard.html, team.html (the management view at /gestion), login.html, style.css
                      (design tokens) and each page's own .css, manifest.json and icon.svg (installable page),
                      and js/: the pages
-                     as ES modules, app.js and team.js the only ones each page loads: the dashboard's (store, format,
-                     week, ui, api, hero, render, alarms, app), the management view's (teamstate, teamfixes, teamcharts,
-                     teamdiscord, team) and what both use (shared, dayedit: the day dialog); store.js and
+                     as ES modules, app.js, team.js and login.js the only ones each page loads: the dashboard's (store,
+                     format, week, ui, api, hero, render, alarms, app), the management view's (teamstate, teamfixes,
+                     teamcharts, teamdiscord, team), the login page's (login) and what the first two share (shared,
+                     dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
 tests/               unittest + node tests, and report_coverage.py, the Python suite with its coverage
@@ -68,7 +69,7 @@ Don't duplicate — each fact has one home:
   `autostart.py` (the login entry on each system), `updates.py` (where the version lives, how it is compared, how
   often GitHub is asked, and how each kind of install is updated), `cli.py` (the commands),
   `sheets.py` (why gws, and how little is asked of it),
-  each file in `templates/js/` (shared state, reload policy, buttons, alarms…), `templates/style.css` (palette and
+  each file in `static/js/` (shared state, reload policy, buttons, alarms…), `static/style.css` (palette and
   how breaks are drawn), `qr.py` (the encoder and how to verify it).
 - **The skills** — only when an agent should reach for the CLI and what to confirm first; `odoo-notices` also
   carries `SETUP.md`, what a machine needs for `odoo notices` on each operating system.

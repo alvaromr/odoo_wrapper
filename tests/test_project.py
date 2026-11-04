@@ -19,7 +19,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGE = os.path.join(ROOT, "src", "odoo_wrapper")
-SCRIPTS = os.path.join(PACKAGE, "templates", "js")
+SCRIPTS = os.path.join(PACKAGE, "static", "js")
 SKIPPED = {".git", "mutants", ".stryker-tmp", "reports", "__pycache__", "build", "dist", "node_modules", ".tools"}
 SECRETS = {
     "private key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),

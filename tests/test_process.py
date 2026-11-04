@@ -177,7 +177,7 @@ class OutputTest(unittest.TestCase):
         with patch.object(pr, "WATCHED", [present, os.path.join(home, "gone.py")]):
             self.assertEqual(list(pr.stamps()), [present])
 
-    def test_every_module_and_template_is_watched(self):
+    def test_every_module_and_static_file_is_watched(self):
         names = {os.path.basename(p) for p in pr.SOURCES}
         self.assertTrue({"process.py", "server.py", "lan.py", "data.py", "state.py", "cli.py"} <= names)
         self.assertTrue({"dashboard.html", "login.html", "style.css"} <= names)

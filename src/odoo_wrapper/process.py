@@ -38,7 +38,7 @@
   never restarts anything, and then restarts into the new install itself: its interpreter, with a bootstrap
   that imports the package installed there instead of putting this copy's folder first, and UPDATED_ENV,
   which tells the new process to move the login entry to itself (autostart.follow).
-- source_version is the newest mtime across the package and its templates; a page on localhost polls it and
+- source_version is the newest mtime across the package and its static files; a page on localhost polls it and
   reloads when it moves, so an edit needs no manual refresh.
 """
 
@@ -58,9 +58,9 @@ from odoo_wrapper.client import STATE_DIR
 HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALLED_BOOTSTRAP = "from odoo_wrapper.dashboard import main; main()"
 BOOTSTRAP = f"import sys; sys.path.insert(0, {os.path.dirname(HERE)!r}); {INSTALLED_BOOTSTRAP}"
-TEMPLATES = os.path.join(HERE, "templates")
+STATIC = os.path.join(HERE, "static")
 WATCHED = [os.path.join(HERE, name) for name in sorted(os.listdir(HERE)) if name.endswith(".py")]
-SOURCES = WATCHED + sorted(os.path.join(folder, name) for folder, _, names in os.walk(TEMPLATES) for name in names)
+SOURCES = WATCHED + sorted(os.path.join(folder, name) for folder, _, names in os.walk(STATIC) for name in names)
 LOG_FILE = os.path.join(STATE_DIR, "dashboard.log")
 LOG_MAX = 1_000_000
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
@@ -105,7 +105,7 @@ def write_to_the_log_file() -> None:
 
 
 def source_version() -> float:
-    """Return the newest modification time across the package and its templates."""
+    """Return the newest modification time across the package and its static files."""
     return max((os.path.getmtime(p) for p in SOURCES if os.path.exists(p)), default=0)
 
 

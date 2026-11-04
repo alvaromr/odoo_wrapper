@@ -13,7 +13,7 @@ itself at its top:
   updates.py   whether GitHub holds a newer release, and installing it, asked for by the pages through server.py
   cli.py       the CLI, whose Odoo session is kept alive from here
 
-The page is documented at the top of each file in templates/js/ and of templates/style.css, the QR
+The page is documented at the top of each file in static/js/ and of static/style.css, the QR
 encoder in qr.py,
 and what the Odoo side offers in AGENTS.md § Odoo API notes.
 """

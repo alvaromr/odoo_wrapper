@@ -137,19 +137,19 @@ from odoo_wrapper.client import (
 )
 
 PORT = 8931
-TEMPLATE = f"{process.TEMPLATES}/dashboard.html"
-LOGIN_TEMPLATE = f"{process.TEMPLATES}/login.html"
-TEAM_TEMPLATE = f"{process.TEMPLATES}/team.html"
+DASHBOARD_PAGE = f"{process.STATIC}/dashboard.html"
+LOGIN_PAGE = f"{process.STATIC}/login.html"
+TEAM_PAGE = f"{process.STATIC}/team.html"
 PAGES = {
-    "/": TEMPLATE,
-    "/index.html": TEMPLATE,
-    "/empleado": TEMPLATE,
-    "/gestion": TEAM_TEMPLATE,
-    "/login": LOGIN_TEMPLATE,
+    "/": DASHBOARD_PAGE,
+    "/index.html": DASHBOARD_PAGE,
+    "/empleado": DASHBOARD_PAGE,
+    "/gestion": TEAM_PAGE,
+    "/login": LOGIN_PAGE,
 }
-SCRIPTS = f"{process.TEMPLATES}/js"
-MANIFEST = f"{process.TEMPLATES}/manifest.json"
-ICON = f"{process.TEMPLATES}/icon.svg"
+SCRIPTS = f"{process.STATIC}/js"
+MANIFEST = f"{process.STATIC}/manifest.json"
+ICON = f"{process.STATIC}/icon.svg"
 FILES = {
     "/manifest.json": (MANIFEST, "application/manifest+json; charset=utf-8"),
     "/icon.svg": (ICON, "image/svg+xml"),
@@ -383,9 +383,9 @@ class Handler(BaseHTTPRequestHandler):
     def _asset(self) -> tuple[str, str] | None:
         name = self.path[1:]
         if self.path in PAGES:
-            return PAGES[self.path] if session_cookie(self.headers) else LOGIN_TEMPLATE, "text/html; charset=utf-8"
-        if name.endswith(".css") and name in os.listdir(process.TEMPLATES):
-            return os.path.join(process.TEMPLATES, name), "text/css; charset=utf-8"
+            return PAGES[self.path] if session_cookie(self.headers) else LOGIN_PAGE, "text/html; charset=utf-8"
+        if name.endswith(".css") and name in os.listdir(process.STATIC):
+            return os.path.join(process.STATIC, name), "text/css; charset=utf-8"
         if name.startswith("js/") and name[3:] in os.listdir(SCRIPTS):
             return os.path.join(SCRIPTS, name[3:]), "text/javascript; charset=utf-8"
         return FILES.get(self.path)

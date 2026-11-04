@@ -31,8 +31,8 @@ process.on("warning", (warning) => {
   throw warning;
 });
 
-const TEMPLATES = new URL("../src/odoo_wrapper/templates/", import.meta.url);
-const JS_DIR = new URL("js/", TEMPLATES);
+const STATIC = new URL("../src/odoo_wrapper/static/", import.meta.url);
+const JS_DIR = new URL("js/", STATIC);
 export const JS_FILES = fs.readdirSync(JS_DIR).filter((name) => name.endsWith(".js"));
 export const IMPORT_RE = /^import\s*\{([^}]*)\}\s*from\s*"\.\/([^"]+)";?\s*$/gm;
 

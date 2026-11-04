@@ -362,7 +362,7 @@ class HandlerTest(unittest.TestCase):
             "/app.js",
             "/nada.css",
             "/js/style.css",
-            "/../templates/style.css",
+            "/../static/style.css",
             "/dashboard.html",
         ):
             self.assertEqual(self.get(path)[0], 404, path)

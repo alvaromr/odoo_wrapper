@@ -3,14 +3,14 @@
   // What git ignores Biome skips too: StrykerJS's sandbox copies this file, and a second root config ends the run.
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["src/odoo_wrapper/templates/**/*.js", "src/odoo_wrapper/templates/*.css", "tests/*.mjs", "*.json"]
+    "includes": ["src/odoo_wrapper/static/**/*.js", "src/odoo_wrapper/static/*.css", "tests/*.mjs", "*.json"]
   },
   "formatter": { "indentStyle": "space", "lineWidth": 120 },
   "javascript": { "formatter": { "quoteStyle": "double" } },
   "linter": { "rules": { "preset": "recommended" } },
   "overrides": [
     {
-      "includes": ["src/odoo_wrapper/templates/*.css"],
+      "includes": ["src/odoo_wrapper/static/*.css"],
       "linter": {
         "rules": {
           // The sheets follow the page's sections, and the pairs this flags never match one element with the

@@ -25,7 +25,7 @@ version = { attr = "odoo_wrapper.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-odoo_wrapper = ["templates/*", "templates/js/*"]
+odoo_wrapper = ["static/*", "static/js/*"]
 
 [tool.ruff]
 line-length = 120
