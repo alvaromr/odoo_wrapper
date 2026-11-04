@@ -46,7 +46,8 @@ scripts/             check.py (the gate), fix.py, mutate.py, audit.py and releas
                      locked; see below
 package.json         the gate's Node tools (Biome, TypeScript, StrykerJS), locked in pnpm-lock.yaml; never the
                      package's: it ships none
-.githooks/           pre-commit: runs the gate before each commit, on what the commit holds
+.githooks/           pre-commit: runs the gate before each commit, on what the commit holds; commit-msg: refuses a
+                     subject longer than a log line shows
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
                      machine for it); .claude/skills in the repo points there
 .claude-plugin/      marketplace.json: publishes .ai/ as the Claude Code plugin `odoo`, its skills/ the
@@ -182,7 +183,7 @@ fixed by the next one.
 
 Start with the gate, one command that needs uv, pnpm and Node at the versions it pins (`TOOLCHAIN` in
 `scripts/check.py`). It installs uv's own Python of every version it runs, at the latest patch, where uv keeps them;
-in the repo, only its tools, in folders git ignores (`.tools/`, `node_modules/`), and its own pre-commit hook
+in the repo, only its tools, in folders git ignores (`.tools/`, `node_modules/`), and the repo's own hooks
 (`.githooks/`, set in git's `core.hooksPath` the first time it runs):
 
 ```bash

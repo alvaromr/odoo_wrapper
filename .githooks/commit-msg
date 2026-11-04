@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+# A commit's subject fits in SUBJECT_MAX characters, so no log or tool view cuts it short; the body below it says the
+# rest. Git passes the message file, comments included; the subject is its first line that is not one.
+import sys
+
+SUBJECT_MAX = 72
+
+with open(sys.argv[1], encoding="utf-8") as message:
+    subject = next((line.rstrip("\n") for line in message if not line.startswith("#")), "")
+if len(subject) > SUBJECT_MAX:
+    print(f"commit-msg: the subject has {len(subject)} characters, more than {SUBJECT_MAX}:\n  {subject}")
+    sys.exit(1)
