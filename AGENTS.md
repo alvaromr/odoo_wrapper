@@ -246,7 +246,7 @@ locked as the gate's are:
 python3 scripts/mutate.py             # mutmut over what changed in the package, then the mutants no test killed
 python3 scripts/mutate.py js          # StrykerJS over what changed in the page's JS (stryker.config.json)
 python3 scripts/mutate.py state       # only the mutants of the modules named (`js tip` for the page's)
-python3 scripts/mutate.py --full      # every mutant, only when asked; `js --full` for the page's, about an hour
+python3 scripts/mutate.py --full      # every mutant, only when asked; `js --full` for the page's, over two hours
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
@@ -256,7 +256,7 @@ in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and 
 only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
 
 The page's JS runs under StrykerJS, from `package.json`: `stryker.config.json` points it at
-`node --test`, so every mutant runs the whole page suite and a full round takes about an hour; it reports no test
+`node --test`, so every mutant runs the whole page suite and a full round takes over two hours; it reports no test
 files, which is why `scripts/mutate.py` tracks the tests itself. The suite's files
 run one after another there: Stryker already runs mutants in parallel, and files in parallel inside each one
 overloaded the machine until nearly every mutant timed out. Its working
