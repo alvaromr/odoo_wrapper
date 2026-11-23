@@ -198,9 +198,10 @@ in `pnpm-lock.yaml`. None of them reaches the users, whose install needs only uv
 `pyproject.toml`, does: it builds the package on the user's machine, with the user's Python, so it moves only as
 far as its last release that runs on the oldest Python the package supports. The pins move forward rather than
 freeze: when one is behind its latest stable release (the latest LTS for Node), move it in its own commit, once
-the release is a week old: read the changelog from the pinned version to the new one, note what changes here, ask
-the owner before a major jump, change the pin, lock it again (the command at the top of each `.txt`, run in
-`scripts/tools/`, or `pnpm install`), and run the gate, and the mutation round whose lock changed
+the release is as old as its lock waits for (`--exclude-newer` in the command at the top of each `.txt`,
+`minimumReleaseAge` in `pnpm-workspace.yaml`): read the changelog from the pinned version to the new one, note
+what changes here, ask the owner before a major jump, change the pin, lock it again (the command at the top of
+each `.txt`, run in `scripts/tools/`, or `pnpm install`), and run the gate, and the mutation round whose lock changed
 (`scripts/tools/mutation.txt` or `pnpm-lock.yaml`), which then runs in full by itself. Locking again also moves what the
 tools pull in, so do it now and then even with no pin to move. Every lock is also checked against the known
 vulnerabilities, now and then and by `scripts/release.py` before it ships; its header says why and how:
