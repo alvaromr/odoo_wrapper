@@ -4,19 +4,23 @@ verify changes says when each runs).
 
 `python3 scripts/mutate.py` is the Python round, mutmut over the package (pyproject.toml), and `python3
 scripts/mutate.py js` the page's, StrykerJS over its JS (stryker.config.json). By default each runs scoped: the
-tool's own incremental mode retests only the mutants whose code changed (mutmut by the hash of each function,
-StrykerJS by a diff of each file against reports/stryker-incremental.json) and reuses every other result. Neither
-sees a change in a test that already existed: mutmut maps only new tests, and StrykerJS's command runner reports no
-test files. So this script keeps a digest of the tests and the files every mutant depends on, written after each
-complete round (mutants/odoo-tests.json, reports/odoo-tests.json), and compares it before the next: a test of one
-module changed (tests/test_<module>.py, tests/<module>.test.mjs) retests that module's mutants; anything else changed
-(a shared helper such as tests/harness.py or tests/page.mjs, StrykerJS's config, the Node lock) runs the round in full
-and says why. mutmut watches its own config and dependencies itself (pyproject.toml's on_dependency_change), and
-reruns all with the files it names. tests/test_project.py and tests/report_coverage.py are not watched: mutmut skips
-the guards, and the coverage report runs no mutant. A round runs in full, saying why, also when the tool's result or
-the digest is missing, since no complete result exists to reuse, and with `--full`, for the owner's request. Naming
-modules instead, `python3 scripts/mutate.py state cache` or `... js tip`, retests only theirs and leaves the digest
-as it was.
+tool's own incremental mode retests only the mutants whose code changed (mutmut by the hash of each function and of
+those it calls, StrykerJS by a diff of each file against reports/stryker-incremental.json) and reuses every other
+result. Neither sees a change in a test that already existed: mutmut maps only new tests, and StrykerJS's command
+runner reports no test files. So this script keeps a digest of the tests, and of StrykerJS's config, written after
+each complete round (mutants/odoo-tests.json, reports/odoo-tests.json), and compares it before the next, retesting
+only the modules each change reaches: a test of one module (tests/test_<module>.py, tests/<module>.test.mjs) reaches
+that module; a shared helper (tests/harness.py, tests/page.mjs, or one they import) the modules whose tests import
+it; a file no test imports, such as the guards of tests/test_project.py or tests/report_coverage.py, none.
+StrykerJS's config reaches every mutant only through the keys that say how the tests run, all but JS_CONFIG_UNUSED
+(which files are mutated, where the reports go, what the sandbox leaves out); the round then runs in full, saying
+why. Nothing else is watched: the tools' versions and locks, the package's version, pnpm's settings, tsconfig.json
+and the linters' config change no mutant's result, and a mutant they add, as a new file to mutate or a new release
+of the tool may, has no result yet and runs anyway. mutmut, told so in pyproject.toml, ignores the changes of files
+other than Python, and resets by itself only the verdicts its own settings can change (how pytest runs, the
+timeout, the type check). A round runs in full also when the tool's result or the digest is missing, since no
+complete result exists to reuse, and with `--full`, when the owner asks for it. Naming modules instead, `python3
+scripts/mutate.py state cache` or `... js tip`, retests only theirs and leaves the digest as it was.
 
 Every round is bounded so the machine stays usable: at lower priority (NICENESS), on at most half the cores, fewer
 for the page, whose every mutant runs the whole suite in one node process (JS_CONCURRENCY), and with a timeout per
@@ -34,6 +38,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -50,18 +55,11 @@ PAGE = os.path.join(PACKAGE, "static", "js")
 PY_RESULTS = os.path.join(ROOT, "mutants")
 PY_STATS = os.path.join(PY_RESULTS, "mutmut-stats.json")
 PY_DIGEST = os.path.join(PY_RESULTS, "odoo-tests.json")
-PY_UNWATCHED = {"tests/test_project.py", "tests/report_coverage.py"}
 JS_RESULTS = os.path.join(ROOT, "reports")
 JS_INCREMENTAL = os.path.join(JS_RESULTS, "stryker-incremental.json")
 JS_DIGEST = os.path.join(JS_RESULTS, "odoo-tests.json")
-JS_WATCHED = [
-    "tests/*.mjs",
-    "stryker.config.json",
-    "tsconfig.json",
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-]
+JS_CONFIG = "stryker.config.json"
+JS_CONFIG_UNUSED = {"mutate", "reporters", "ignorePatterns"}
 
 
 def digests(paths):
@@ -72,9 +70,24 @@ def digests(paths):
     return {path: digest(path) for path in sorted(paths)}
 
 
-def watched(patterns, unwatched=frozenset()):
-    found = {os.path.relpath(path, ROOT) for pattern in patterns for path in glob.glob(os.path.join(ROOT, pattern))}
-    return digests(found - unwatched)
+def watched(patterns):
+    return digests(
+        {os.path.relpath(path, ROOT) for pattern in patterns for path in glob.glob(os.path.join(ROOT, pattern))}
+    )
+
+
+def settings(path, unused):
+    with open(os.path.join(ROOT, path)) as source:
+        kept = {key: value for key, value in json.load(source).items() if key not in unused}
+    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode()).hexdigest()
+
+
+def py_watched():
+    return watched(["tests/*.py"])
+
+
+def js_watched():
+    return {**watched(["tests/*.mjs"]), JS_CONFIG: settings(JS_CONFIG, JS_CONFIG_UNUSED)}
 
 
 def py_module(path):
@@ -88,8 +101,44 @@ def js_module(path):
     return module if path.endswith(".test.mjs") and os.path.isfile(os.path.join(ROOT, PAGE, f"{module}.js")) else None
 
 
-def plan(full, result, digest_path, now, module_of):
-    """Why the round runs in full, or None, and the modules whose tests changed since the last complete round."""
+def py_import(path):
+    return rf"^\s*(?:from|import)\s+{re.escape(os.path.basename(path).removesuffix('.py'))}\b"
+
+
+def js_import(path):
+    return rf'from\s+"\./{re.escape(os.path.basename(path))}"'
+
+
+def importers(path, statement):
+    found = re.compile(statement(path), re.MULTILINE)
+
+    def imports(test):
+        with open(test) as source:
+            return found.search(source.read())
+
+    tests = glob.glob(os.path.join(ROOT, "tests", "*"))
+    return [os.path.relpath(test, ROOT) for test in tests if os.path.isfile(test) and imports(test)]
+
+
+def reach(path, module_of, statement):
+    """The modules whose mutants the test file at path can change: its module's, or those of the tests importing it."""
+    module = module_of(path)
+    if module:
+        return {module}
+    return set().union(*(reach(test, module_of, statement) for test in importers(path, statement)))
+
+
+def py_reach(path):
+    return reach(path, py_module, py_import)
+
+
+def js_reach(path):
+    return None if path == JS_CONFIG else reach(path, js_module, js_import)
+
+
+def plan(full, result, digest_path, now, reach_of):
+    """Why the round runs in full, or None, and the modules whose mutants the changes since the last complete round
+    can change: reach_of(path) names them, or is None for a change of how every mutant's tests run."""
     if full:
         return "asked for with --full", []
     if not os.path.isfile(result):
@@ -100,10 +149,11 @@ def plan(full, result, digest_path, now, module_of):
     except FileNotFoundError:
         return "no complete result recorded yet", []
     changed = sorted(path for path in now.keys() | before.keys() if now.get(path) != before.get(path))
-    shared = [path for path in changed if module_of(path) is None]
-    if shared:
-        return f"{', '.join(shared)} changed, which every mutant depends on", []
-    return None, sorted({module_of(path) for path in changed})
+    reached = {path: reach_of(path) for path in changed}
+    everything = [path for path, modules in reached.items() if modules is None]
+    if everything:
+        return f"{', '.join(everything)} changed how every mutant's tests run", []
+    return None, sorted(set().union(*reached.values()))
 
 
 def record(digest_path, now):
@@ -129,16 +179,16 @@ def python_round(full, modules):
     tools = os.path.join(TOOLS, "mutation", "bin")
     env = {**os.environ, "no_proxy": "*", "PATH": os.pathsep.join([tools, os.environ.get("PATH", "")])}
     mutmut = [os.path.join(tools, "mutmut"), "run", "--max-children", str(PY_CHILDREN)]
-    now = watched(["tests/*.py"], PY_UNWATCHED)
+    now = py_watched()
     if modules:
         names = [[f"odoo_wrapper.{module}.*" for module in known(modules, PACKAGE, ".py")]]
     else:
-        reason, changed = plan(full, PY_STATS, PY_DIGEST, now, py_module)
+        reason, changed = plan(full, PY_STATS, PY_DIGEST, now, py_reach)
         if reason:
             print(f"Full round: {reason}")
             shutil.rmtree(PY_RESULTS, ignore_errors=True)
         elif changed:
-            print(f"Tests changed for {', '.join(changed)}: their mutants run again")
+            print(f"Tests changed that reach {', '.join(changed)}: their mutants run again")
         names = [[], *([[f"odoo_wrapper.{module}.*" for module in changed]] if changed else [])]
     done = all(subprocess.run([*mutmut, *each], cwd=ROOT, env=env, check=False).returncode == 0 for each in names)
     if not modules:
@@ -152,18 +202,18 @@ def js_round(full, modules):
     if not run("page tools", ["pnpm", "install", "--frozen-lockfile"]):
         return 1
     stryker = ["pnpm", "exec", "stryker", "run", "--concurrency", str(JS_CONCURRENCY)]
-    now = watched(JS_WATCHED)
+    now = js_watched()
     if modules:
         incremental = ["--incremental", "--force"] if os.path.isfile(JS_INCREMENTAL) else []
         runs = [[*incremental, "--mutate", page_files(known(modules, PAGE, ".js"))]]
     else:
-        reason, changed = plan(full, JS_INCREMENTAL, JS_DIGEST, now, js_module)
+        reason, changed = plan(full, JS_INCREMENTAL, JS_DIGEST, now, js_reach)
         if reason:
             print(f"Full round: {reason}")
             runs = [["--incremental", "--force"]]
         else:
             if changed:
-                print(f"Tests changed for {', '.join(changed)}: their mutants run again")
+                print(f"Tests changed that reach {', '.join(changed)}: their mutants run again")
             retest = [["--incremental", "--force", "--mutate", page_files(changed)]] if changed else []
             runs = [["--incremental"], *retest]
     done = all(subprocess.run([*stryker, *each], cwd=ROOT, check=False).returncode == 0 for each in runs)

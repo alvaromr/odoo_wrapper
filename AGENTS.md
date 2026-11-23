@@ -202,8 +202,8 @@ freeze: when one is behind its latest stable release (the latest LTS for Node), 
 the release is as old as its lock waits for (`--exclude-newer` in the command at the top of each `.txt`,
 `minimumReleaseAge` in `pnpm-workspace.yaml`): read the changelog from the pinned version to the new one, note
 what changes here, ask the owner before a major jump, change the pin, lock it again (the command at the top of
-each `.txt`, run in `scripts/tools/`, or `pnpm install`), and run the gate, and the mutation round whose lock changed
-(`scripts/tools/mutation.txt` or `pnpm-lock.yaml`), which then runs in full by itself. Locking again also moves what the
+each `.txt`, run in `scripts/tools/`, or `pnpm install`), and run the gate; a mutation round reruns nothing for a
+new pin or lock. Locking again also moves what the
 tools pull in, so do it now and then even with no pin to move. Every lock is also checked against the known
 vulnerabilities, now and then and by `scripts/release.py` before it ships; its header says why and how:
 
@@ -226,14 +226,16 @@ package, every function annotated, each module starting with `from __future__ im
 it) so they read as on 3.10+ while the package runs on 3.9; and TypeScript over the page's JS, typed in JSDoc
 (`tsconfig.json`), where an element the page always holds is reached with `byId` (`shared.js`).
 
-Mutation testing runs now and then rather than on every commit, and on what changed: each round retests only the
-mutants of the code and tests changed since its last complete result, and runs in full only when there is no
-result yet, when something every mutant depends on changed (a shared test helper, the mutation config, the tools'
-lock), each time saying why, or when the owner asks for it. Once a result exists, a score, a release or a commit
-is no reason to run it in full again. Every round runs at lower priority, on at most half the cores, with a timeout
+Mutation testing runs in full once, when the owner chooses, and is then kept current: each change runs the rounds
+of what it touches before it is pushed, and ends at zero unexplained survivors. Each round retests only the mutants
+whose result a change since its last complete result can change: those of the code changed and of the modules a
+changed test reaches, a shared test helper reaching the modules whose tests import it. The tools' versions and
+locks, the package's version, pnpm's settings and the linters' config rerun nothing. A round runs in full only when
+there is no result yet, when StrykerJS's config changes how every mutant's tests run, each time saying why, or when
+the owner asks for it: a score, a release or a commit is no reason to. Every round runs at lower priority, on at most half the cores, with a timeout
 per mutant of 10 to 20 times what its tests take; `scripts/mutate.py`'s header says how it tells what changed. Its
-working copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess and the project's guards,
-which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
+working copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess, and the project's guards and
+the tests of `scripts/mutate.py`, which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
 calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
 unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. Before the tests it runs mypy
 over every mutant, at the gate's version, and counts those mypy rejects as caught: the gate would stop them too.
