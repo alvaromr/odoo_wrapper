@@ -248,7 +248,7 @@ locked as the gate's are:
 python3 scripts/mutate.py             # mutmut over what changed in the package, then the mutants no test killed
 python3 scripts/mutate.py js          # StrykerJS over what changed in the page's JS (stryker.config.json)
 python3 scripts/mutate.py state       # only the mutants of the modules named (`js tip` for the page's)
-python3 scripts/mutate.py --full      # every mutant, only when asked; `js --full` for the page's, over two hours
+python3 scripts/mutate.py --full      # every mutant, only when asked; `js --full` for the page's, about 6 minutes
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
