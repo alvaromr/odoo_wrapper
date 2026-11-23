@@ -2,7 +2,7 @@
 // into the figures the page draws with, on a clock the test sets (clockAt in page.mjs).
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { answer, at, dashboard, heroOf, iso, load, now, payload, session, settle, TUESDAY } from "./page.mjs";
 
 const staleAt = (page, loaded, tried) =>

@@ -3,7 +3,7 @@
 // page.mjs).
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { at, dashboard, heroOf, load, payload, session, settle, TUESDAY } from "./page.mjs";
 
 const buttonOf = (page, label) =>

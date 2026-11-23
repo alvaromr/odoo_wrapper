@@ -111,7 +111,7 @@ each module, and `AGENTS.md` says how to work on the repo. This README does not 
 Used daily on macOS against Odoo 18 Enterprise. On Windows 11 the install, the CLI without a session and the
 start at login have been reported to work; logging in, punching and the rest are not reported yet. Linux has
 not been exercised — the code avoids macOS-only paths, but the first run there is the real test. The Python
-package is covered line by line by mocked unit tests and the page's logic runs under `node --test`;
+package is covered line by line by mocked unit tests and the page's logic runs under Vitest;
 `AGENTS.md` lists the commands and the manual checks that have actually caught regressions.
 
 ## License

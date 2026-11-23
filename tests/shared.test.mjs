@@ -2,7 +2,7 @@
 // functions are called straight from the page's context.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { answering, load, reply, teamPage, teamPayload } from "./page.mjs";
 
 test("byId returns the page's element and names the one it lacks", () => {

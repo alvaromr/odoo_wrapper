@@ -7,9 +7,9 @@ minor Python the package supports from MIN_PYTHON (read from .python-version, wh
 must match; Ruff takes its target from requires-python itself) up to the one before COVERAGE_PYTHON, the same suite
 on COVERAGE_PYTHON measuring every line and branch (branches need 3.14), Biome over the page's JS and CSS and the JS
 tests (format, lint and import order, as biome.jsonc sets), TypeScript checking the page's JS against its JSDoc types
-in strict mode (tsconfig.json), the page's suite with its coverage, and a smoke test of the package as users get it:
-built by uv on the oldest and the newest Python, the wheel from the sdist so that nothing left in the git-ignored
-build/ reaches it, installed alone, and its two commands run. Every Python is uv's
+in strict mode (tsconfig.json), the page's suite with its coverage (Vitest, vitest.config.mjs), and a smoke test of
+the package as users get it: built by uv on the oldest and the newest Python, the wheel from the sdist so that
+nothing left in the git-ignored build/ reaches it, installed alone, and its two commands run. Every Python is uv's
 own, brought up to the latest patch the pinned uv knows before anything runs, since that is the patch users get;
 each Python step names it, so a difference between machines shows. A warning fails the Python suites and Biome as an
 error does, and so does one from node in the page's suite (tests/page.mjs). First it checks that node, pnpm and uv
@@ -20,12 +20,12 @@ without it.
 
 The tools come locked with every dependency they pull in, so each run installs the same files. Ruff and mypy come
 from scripts/tools/lint.txt, generated from lint.in with a hash for every file, and installed with the hashes required
-into .tools/lint, a virtual environment git ignores, on COVERAGE_PYTHON; Biome and TypeScript from package.json and
-pnpm-lock.yaml into node_modules, which pnpm-workspace.yaml hardens. TypeScript is there twice: the gate runs the 7
-line through its alias, typescript-7, and `typescript` stays on 6 for StrykerJS (mutate.py says why). The suites run
-on `uv run`, with nothing but the standard library. Nothing reaches the package, whose only requirement is still
-Python's standard library (AGENTS.md, rule 1). Mutation testing is not part of it: it takes minutes (AGENTS.md says
-how to run it).
+into .tools/lint, a virtual environment git ignores, on COVERAGE_PYTHON; Biome, TypeScript and Vitest from
+package.json and pnpm-lock.yaml into node_modules, which pnpm-workspace.yaml hardens. TypeScript is there twice: the
+gate runs the 7 line through its alias, typescript-7, and `typescript` stays on 6 for StrykerJS (mutate.py says why).
+The suites run on `uv run`, with nothing but the standard library. Nothing reaches the package, whose only requirement
+is still Python's standard library (AGENTS.md, rule 1). Mutation testing is not part of it: it takes minutes
+(AGENTS.md says how to run it).
 """
 
 import glob
@@ -46,13 +46,6 @@ COVERAGE_PYTHON = "3.14"
 LINT = os.path.join(TOOLS, "lint", "bin")
 TOOLCHAIN = {"node": "26.13.1", "pnpm": "12.22.0", "uv": "0.13.9"}
 VERSION = re.compile(r"\d+\.\d+\.\d+")
-NODE_COVERAGE = [
-    "--experimental-test-coverage",
-    "--test-coverage-include=src/**",
-    "--test-coverage-lines=100",
-    "--test-coverage-branches=100",
-    "--test-coverage-functions=100",
-]
 COMMANDS = (["odoo-dashboard", "--help"], ["odoo"])
 PYTHON_STEPS = [
     ("Ruff format", [os.path.join(LINT, "ruff"), "format", "--check"]),
@@ -62,7 +55,7 @@ PYTHON_STEPS = [
 PAGE_STEPS = [
     ("Biome", ["pnpm", "exec", "biome", "ci", "--error-on-warnings"]),
     ("TypeScript", ["node", "node_modules/typescript-7/bin/tsc", "-p", "tsconfig.json"]),
-    ("page suite and coverage", ["node", "--test", *NODE_COVERAGE, "tests/*.test.mjs"]),
+    ("page suite and coverage", ["pnpm", "exec", "vitest", "run", "--coverage"]),
 ]
 
 

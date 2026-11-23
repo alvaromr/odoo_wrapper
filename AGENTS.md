@@ -41,11 +41,11 @@ src/odoo_wrapper/
                      (login) and what the first two share (shared, tip, updates, dayedit: the day dialog); store.js and
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
-tests/               unittest + node tests, and report_coverage.py, the Python suite with its coverage
+tests/               unittest + Vitest tests, and report_coverage.py, the Python suite with its coverage
 scripts/             check.py (the gate), fix.py, mutate.py, audit.py and release.py, and tools/, their Python tools
                      locked; see below
-package.json         the gate's Node tools (Biome, TypeScript, StrykerJS), locked in pnpm-lock.yaml; never the
-                     package's: it ships none
+package.json         the gate's Node tools (Biome, TypeScript, Vitest, StrykerJS), locked in pnpm-lock.yaml; never
+                     the package's: it ships none. vitest.config.mjs runs the page's suite and its coverage
 .githooks/           pre-commit: runs the gate before each commit, on what the commit holds; commit-msg: refuses a
                      subject longer than a log line shows
 .ai/skills/          odoo-attendance (clocking) and odoo-notices (the warnings spreadsheet and the setup of a
@@ -219,7 +219,8 @@ depends on the day the suite runs.
 
 Its steps run alone too, while working on one side: `python3 -m unittest discover -s tests` (the Python
 suite), `python3 tests/report_coverage.py` (with every line and branch; branches need Python ≥ 3.14) and
-`node --test 'tests/*.test.mjs'` (the page's logic, each suite on the harness in `tests/page.mjs`). `ruff format` lays out every Python file, tests included,
+`pnpm exec vitest run` (the page's logic, each suite on the harness in `tests/page.mjs`; `--coverage` for its
+coverage, `vitest.config.mjs` says why Vite's module runner is off). `ruff format` lays out every Python file, tests included,
 at the line length `pyproject.toml` sets, and Biome the page's JS and CSS and the JS tests (`biome.jsonc`), which it
 also lints; run them rather than wrapping by hand. Types are strict on both sides: mypy `--strict` over the
 package, every function annotated, each module starting with `from __future__ import annotations` (Ruff adds
@@ -255,8 +256,8 @@ mutmut counts as a survivor. A mutant reported as timeout ran past mutmut's limi
 in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and in `odoo notices` time out
 only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
 
-The page's JS runs under StrykerJS, from `package.json`: `stryker.config.json` points it at
-`node --test`, so every mutant runs the whole page suite and a full round takes over two hours; it reports no test
+The page's JS runs under StrykerJS, from `package.json`: `stryker.config.json` points its command runner at
+`vitest run`, so every mutant runs the whole page suite and a full round takes over two hours; it reports no test
 files, which is why `scripts/mutate.py` tracks the tests itself. The suite's files
 run one after another there: Stryker already runs mutants in parallel, and files in parallel inside each one
 overloaded the machine until nearly every mutant timed out. Its working

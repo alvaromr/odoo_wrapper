@@ -1,7 +1,7 @@
 // tip.js: the tooltip both pages draw, where it opens and when it closes, on the pointer and on keyboard focus.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { element, load, showAll, teamPage, tipOf } from "./page.mjs";
 
 test("the tooltip opens on the far side of the pointer when it would not fit the window", () => {

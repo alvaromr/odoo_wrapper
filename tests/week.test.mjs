@@ -3,7 +3,7 @@
 // (clockAt in page.mjs).
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { at, dashboard, load, MIDNIGHT, MONDAY, payload, session, TUESDAY, withData } from "./page.mjs";
 
 const SUNDAY = new Date(2026, 8, 20, 10, 0);

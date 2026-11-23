@@ -1,7 +1,7 @@
 // pan.js: a big box of the management view scrolls by dragging, and a drag never counts as a click.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { element, teamPage } from "./page.mjs";
 
 test("a press pans a box only once it moves, leaves links alone and tells a click it was a drag, once", () => {

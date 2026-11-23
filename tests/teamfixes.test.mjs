@@ -2,7 +2,7 @@
 // zooms and pans. The clock is page.mjs's: today is TUESDAY 2026-09-15.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   drag,
   hover,

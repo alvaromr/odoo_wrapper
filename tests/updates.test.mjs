@@ -2,7 +2,7 @@
 // (show in page.mjs), so a class, an attribute or a text that changes shows up as a failing line.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   answering,
   load,

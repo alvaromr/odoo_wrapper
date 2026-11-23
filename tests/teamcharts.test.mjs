@@ -3,7 +3,7 @@
 // a class, an attribute or a text that changes shows up as a failing line.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { element, rounded, show, showAll, teamPage, tipOf } from "./page.mjs";
 
 function hovered(page, node) {

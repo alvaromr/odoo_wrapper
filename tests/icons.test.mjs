@@ -1,7 +1,7 @@
 // icons.js: the hero's inline icons, read back as the SVG nodes they draw.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { built, dashboard, element } from "./page.mjs";
 
 test("the icons are SVG paths with the same stroke, and the muted bell is crossed out", () => {

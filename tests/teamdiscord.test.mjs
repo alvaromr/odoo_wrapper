@@ -1,7 +1,7 @@
 // teamdiscord.js: the Discord dialog of the management view, where the bot's token is kept and tested.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { answering, load, reply, settle, show, teamFixes, teamPage, teamPayload } from "./page.mjs";
 
 test("the Discord dialog is built as the page expects and sits in the document", async () => {

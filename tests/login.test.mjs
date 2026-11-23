@@ -2,7 +2,7 @@
 // and what a refused sign-in says, on a clock the test sets (clockAt in page.mjs).
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { answer, clockAt, element, load, settle } from "./page.mjs";
 
 // The login page with its fields as login.html has them: the URL, the database and the code start hidden.

@@ -3,7 +3,7 @@
 // numbers that decide it, and what is drawn is read back as a sketch of the nodes: tag, classes, attributes, text.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   at,
   bannerLine,

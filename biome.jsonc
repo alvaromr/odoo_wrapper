@@ -3,7 +3,13 @@
   // What git ignores Biome skips too: StrykerJS's sandbox copies this file, and a second root config ends the run.
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["src/odoo_wrapper/static/**/*.js", "src/odoo_wrapper/static/*.css", "tests/*.mjs", "*.json"]
+    "includes": [
+      "src/odoo_wrapper/static/**/*.js",
+      "src/odoo_wrapper/static/*.css",
+      "tests/*.mjs",
+      "*.json",
+      "vitest.config.mjs"
+    ]
   },
   "formatter": { "indentStyle": "space", "lineWidth": 120 },
   "javascript": { "formatter": { "quoteStyle": "double" } },

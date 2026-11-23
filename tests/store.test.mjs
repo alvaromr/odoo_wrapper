@@ -1,7 +1,7 @@
 // store.js: the constants of the dashboard and its shared state as the page starts with them.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { load } from "./page.mjs";
 
 test("the page starts with its constants and an empty shared state", () => {

@@ -1,7 +1,7 @@
 // theme.js: the colour theme, the one classic script, read from storage on load.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { load, memoryStorage } from "./page.mjs";
 
 test("the colour theme is read from storage on load, and a choice says whether it was kept", () => {

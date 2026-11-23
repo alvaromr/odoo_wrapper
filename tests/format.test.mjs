@@ -1,7 +1,7 @@
 // format.js: hours, deltas and clock times as the pages write them.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { load, SCHEDULE } from "./page.mjs";
 
 test("formats hours, deltas and clocks", () => {

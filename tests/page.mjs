@@ -3,9 +3,9 @@
 // dependencies first, with a minimal DOM stand-in, fetch and timers replaced, so the logic (formats, weeks, gaps,
 // alarms, day rollover) runs without a browser.
 // Each module keeps its own file name and every byte offset of the file on disk: its import statements and
-// `export` keywords are blanked out, not removed, so node's coverage maps back to the real lines. Scripts in
+// `export` keywords are blanked out, not removed, so V8's coverage maps back to the real lines. Scripts in
 // one context share their top-level names, as the modules' imports did. Run the suites with
-// `node --test tests/*.test.mjs`, and with coverage as AGENTS.md says.
+// `pnpm exec vitest run`, and with coverage as AGENTS.md says.
 // The clock is replaced too: Date starts every run at TUESDAY and ticks on from there, here and in the pages.
 // With the real one the suite passed or failed, and covered every branch or not, by the day and the hour it ran:
 // Thursdays, weekends, before nine, the days a fixture crossed a daylight-saving change, the last ones of a year.

@@ -3,7 +3,7 @@
 // today is TUESDAY 2026-09-15, which the payloads below are built around.
 
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   cellText,
   drag,

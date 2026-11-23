@@ -2,8 +2,8 @@
 // in a context of its own.
 
 import assert from "node:assert/strict";
-import test from "node:test";
 import vm from "node:vm";
+import { test } from "vitest";
 import { IMPORT_RE, readModule } from "./page.mjs";
 
 function loadModules(...names) {
