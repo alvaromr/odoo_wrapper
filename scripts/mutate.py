@@ -27,8 +27,8 @@ scripts/mutate.py state cache` or `... js tip`, retests only theirs and leaves t
 Every round is bounded so the machine stays usable: at lower priority (NICENESS), on at most half the cores, fewer
 for the page, whose every worker is a Vitest process of its own running the tests that cover each mutant
 (JS_CONCURRENCY), and with a timeout per mutant: mutmut's default multiplier, 15 times what its tests take, and
-StrykerJS's defaults, 1.5 times what the mutant's tests took in the dry run plus 5 seconds
-(docs/decisions/0004-strykers-default-timeout.md says why).
+StrykerJS's defaults, 1.5 times what the mutant's tests took in the dry run plus 5 seconds: each tool's default
+fits how it runs the tests.
 
 The tools come locked, as the gate's do (check.py says how): mutmut, with the pytest it runs and the gate's own mypy,
 which type-checks each mutant, from scripts/tools/mutation.txt into .tools/mutation, on MUTMUT_PYTHON; StrykerJS from
