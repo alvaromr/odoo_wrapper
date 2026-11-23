@@ -77,7 +77,8 @@ strict = true
 [tool.mutmut]
 source_paths = ["src/odoo_wrapper/"]
 pytest_add_cli_args_test_selection = ["tests/"]
-pytest_add_cli_args = ["-q", "-p", "no:cacheprovider"]
+# tests/test_mutate.py imports scripts/mutate.py, which mutmut's copy of the repo lacks.
+pytest_add_cli_args = ["-q", "-p", "no:cacheprovider", "--ignore=tests/test_mutate.py"]
 type_check_command = ["mypy", "src/odoo_wrapper", "--output", "json", "--no-warn-unused-ignores"]
 # A change to a file other than Python, this one or the tools' lock included, reruns nothing: mutmut still resets
 # the verdicts its settings above can change, and scripts/mutate.py the mutants a changed test reaches.

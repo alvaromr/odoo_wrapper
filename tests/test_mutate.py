@@ -38,7 +38,6 @@ JS_FILES = {
 }
 
 
-@unittest.skipIf("MUTANT_UNDER_TEST" in os.environ, "mutmut's copy holds the package, not the scripts")
 class PlanTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
