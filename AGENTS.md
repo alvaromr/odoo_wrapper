@@ -77,6 +77,7 @@ Don't duplicate — each fact has one home:
 - **`README.md`** — human quickstart only, the install included, and what the phone mode cannot do.
 - **`docs/decisions/`** — each practice the repo departs from on purpose, why, and who approved it.
 - **`SECURITY.md`** — where to report a vulnerability: privately, through GitHub.
+- **`CONTRIBUTING.md`** — only a pointer to this file, where contributors look first.
 - **`CHANGELOG.md`** — what each release changes for its users, in Spanish (Keep a Changelog).
 - **This file** — how to work on the repo, and the Odoo API notes below.
 
