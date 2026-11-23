@@ -31,7 +31,6 @@ JS_FILES = {
     "tests/tip.test.mjs": 'import {\n  load,\n} from "./page.mjs";\n',
     "tests/qr.test.mjs": 'import { test } from "vitest";\n',
     "stryker.config.json": json.dumps({"mutate": ["a.js"], "testRunner": "vitest"}),
-    "vitest.config.mjs": "export default {};\n",
     "tsconfig.json": "{}",
     "package.json": "{}",
     "pnpm-lock.yaml": "",
@@ -47,6 +46,10 @@ class PlanTest(unittest.TestCase):
         patcher = patch.object(mutate, "ROOT", self.root)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.suite = {"test": {"include": ["tests/*.test.mjs"], "coverage": {"thresholds": {"lines": 100}}}}
+        suite = patch.object(mutate, "suite_config", lambda: self.suite)
+        suite.start()
+        self.addCleanup(suite.stop)
         self.result = os.path.join(self.root, "result")
         self.digest = os.path.join(self.root, "digest.json")
         self.write({**PY_FILES, **JS_FILES})
@@ -150,9 +153,19 @@ class PlanTest(unittest.TestCase):
         self.write({"stryker.config.json": json.dumps(config)})
         self.assertEqual(self.js_plan(), ("stryker.config.json changed how every mutant's tests run", []))
 
-    def test_vitests_config_retests_every_mutant_saying_why(self):
+    def test_vitests_coverage_settings_retest_nothing(self):
         self.recorded(mutate.js_watched())
-        self.write({"vitest.config.mjs": "export default { test: {} };\n"})
+        self.suite = {"test": {**self.suite["test"], "coverage": {"thresholds": {"lines": 90}, "reporter": ["html"]}}}
+        self.assertEqual(self.js_plan(), (None, []))
+
+    def test_vitests_config_of_how_tests_run_retests_every_mutant_saying_why(self):
+        self.recorded(mutate.js_watched())
+        self.suite = {"test": {**self.suite["test"], "include": ["tests/a.test.mjs"]}}
+        self.assertEqual(self.js_plan(), ("vitest.config.mjs changed how every mutant's tests run", []))
+
+    def test_vitests_config_outside_its_test_settings_retests_every_mutant(self):
+        self.recorded(mutate.js_watched())
+        self.suite = {**self.suite, "plugins": ["x"]}
         self.assertEqual(self.js_plan(), ("vitest.config.mjs changed how every mutant's tests run", []))
 
 

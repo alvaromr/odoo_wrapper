@@ -15,7 +15,8 @@ or one they import) the modules whose tests import it; a file no test imports, s
 tests/test_project.py or tests/report_coverage.py, none. The page's test files (tests/*.test.mjs) are left to
 StrykerJS. Its config reaches every mutant only through the keys that say how the tests run, all but
 JS_CONFIG_UNUSED (which files are mutated, where the reports go, what the sandbox leaves out), and Vitest's
-(JS_SUITE_CONFIG) through any change; the round then runs in full, saying why. Nothing else is watched: the tools'
+(JS_SUITE_CONFIG, read as node evaluates it) through all but its coverage (JS_SUITE_UNUSED), which StrykerJS's runner
+turns off; the round then runs in full, saying why. Nothing else is watched: the tools'
 versions and locks, the package's version, pnpm's settings, tsconfig.json and the linters' config change no mutant's
 result, and a mutant they add, as a new file to mutate or a new release of the tool may, has no result yet and runs
 anyway. mutmut, told so in pyproject.toml, ignores the changes of files
@@ -41,6 +42,7 @@ import glob
 import hashlib
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -64,6 +66,8 @@ JS_DIGEST = os.path.join(JS_RESULTS, "odoo-tests.json")
 JS_CONFIG = "stryker.config.json"
 JS_CONFIG_UNUSED = {"mutate", "reporters", "ignorePatterns"}
 JS_SUITE_CONFIG = "vitest.config.mjs"
+JS_SUITE_UNUSED = {"coverage"}
+SUITE_CONFIG_DUMP = "console.log(JSON.stringify((await import(process.argv[1])).default))"
 
 
 def digests(paths):
@@ -80,10 +84,29 @@ def watched(patterns):
     )
 
 
+def kept(config, unused):
+    return {key: value for key, value in config.items() if key not in unused}
+
+
+def fingerprint(config):
+    return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+
+
 def settings(path, unused):
     with open(os.path.join(ROOT, path)) as source:
-        kept = {key: value for key, value in json.load(source).items() if key not in unused}
-    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode()).hexdigest()
+        return fingerprint(kept(json.load(source), unused))
+
+
+def suite_config():
+    """Vitest's config as node evaluates it."""
+    url = pathlib.Path(ROOT, JS_SUITE_CONFIG).as_uri()
+    command = ["node", "--input-type=module", "-e", SUITE_CONFIG_DUMP, url]
+    return json.loads(subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True).stdout)
+
+
+def suite_settings():
+    config = suite_config()
+    return fingerprint({**config, "test": kept(config["test"], JS_SUITE_UNUSED)})
 
 
 def py_watched():
@@ -92,7 +115,7 @@ def py_watched():
 
 def js_watched():
     helpers = {path: digest for path, digest in watched(["tests/*.mjs"]).items() if not path.endswith(".test.mjs")}
-    return {**helpers, **digests([JS_SUITE_CONFIG]), JS_CONFIG: settings(JS_CONFIG, JS_CONFIG_UNUSED)}
+    return {**helpers, JS_SUITE_CONFIG: suite_settings(), JS_CONFIG: settings(JS_CONFIG, JS_CONFIG_UNUSED)}
 
 
 def py_module(path):
