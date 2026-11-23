@@ -133,7 +133,7 @@ export function renderKpis(weeks) {
   /**
    * @param {string} label
    * @param {string} valueText
-   * @param {string | null} [foot]
+   * @param {string} foot
    * @param {string | null} [valueCls]
    * @returns {HTMLDivElement}
    */
@@ -143,8 +143,7 @@ export function renderKpis(weeks) {
     const v = el("div", "value num", valueText);
     if (valueCls) v.classList.add(valueCls);
     c.appendChild(v);
-    // Stryker disable next-line ConditionalExpression: every tile is given a foot, so the guard is always true
-    if (foot) c.appendChild(el("div", "foot", foot));
+    c.appendChild(el("div", "foot", foot));
     return c;
   }
   if (!done.length) return;
@@ -263,14 +262,13 @@ export function renderOverview(weeks) {
   /**
    * @param {string} tag
    * @param {Object<string, string | number>} attrs
-   * @param {string} [cls]
+   * @param {string} cls
    * @returns {SVGElement}
    */
   function sEl(tag, attrs, cls) {
     const e = document.createElementNS(NS, tag);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, /** @type {string} */ (v));
-    // Stryker disable next-line ConditionalExpression: every call passes a class, so the guard is always true
-    if (cls) e.setAttribute("class", cls);
+    e.setAttribute("class", cls);
     return e;
   }
 
