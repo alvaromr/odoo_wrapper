@@ -7,7 +7,7 @@ import { test } from "vitest";
 import { IMPORT_RE, readModule } from "./page.mjs";
 
 function loadModules(...names) {
-  const ctx = vm.createContext({ Date, __stryker__: { activeMutant: process.env.__STRYKER_ACTIVE_MUTANT__ } });
+  const ctx = vm.createContext({ Date, __stryker__: globalThis.__stryker__ });
   const blank = (text) => text.replace(/[^\n]/g, " ");
   for (const name of names) {
     vm.runInContext(
