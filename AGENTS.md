@@ -232,9 +232,10 @@ of what it touches before it is pushed, and ends at zero unexplained survivors. 
 whose result a change since its last complete result can change: those of the code changed and of the modules a
 changed test reaches, a shared test helper reaching the modules whose tests import it. The tools' versions and
 locks, the package's version, pnpm's settings and the linters' config rerun nothing. A round runs in full only when
-there is no result yet, when StrykerJS's config changes how every mutant's tests run, each time saying why, or when
-the owner asks for it: a score, a release or a commit is no reason to. Every round runs at lower priority, on at most half the cores, with a timeout
-per mutant of 10 to 20 times what its tests take; `scripts/mutate.py`'s header says how it tells what changed. Its
+there is no result yet, when StrykerJS's or Vitest's config changes how every mutant's tests run, each time saying
+why, or when the owner asks for it: a score, a release or a commit is no reason to. Every round runs at lower
+priority, on at most half the cores, with a timeout per mutant; `scripts/mutate.py`'s header says which, and how it
+tells what changed. Its
 working copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess, and the project's guards and
 the tests of `scripts/mutate.py`, which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
 calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
@@ -256,13 +257,12 @@ mutmut counts as a survivor. A mutant reported as timeout ran past mutmut's limi
 in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and in `odoo notices` time out
 only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
 
-The page's JS runs under StrykerJS, from `package.json`: `stryker.config.json` points its command runner at
-`vitest run`, so every mutant runs the whole page suite and a full round takes over two hours; it reports no test
-files, which is why `scripts/mutate.py` tracks the tests itself. The suite's files
-run one after another there: Stryker already runs mutants in parallel, and files in parallel inside each one
-overloaded the machine until nearly every mutant timed out. Its working
-copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context
-(the header of `tests/page.mjs` says why). It needs TypeScript to copy `tsconfig.json` into its sandbox, and the
+The page's JS runs under StrykerJS, from `package.json`, with its Vitest runner (`stryker.config.json`): a dry run
+records which tests reach each mutant, and each mutant then runs only those, in one Vitest process per worker
+that runs one test file at a time, since Stryker already runs mutants in parallel. The runner reports each test's
+file, so StrykerJS's incremental mode sees a changed test by itself; `scripts/mutate.py` tracks only the shared
+helpers and the configs. Its working copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands
+the runner's `__stryker__` to its vm context (the header of `tests/page.mjs` says why). It needs TypeScript to copy `tsconfig.json` into its sandbox, and the
 6 line, which `scripts/mutate.py`'s header explains.
 
 Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the

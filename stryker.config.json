@@ -1,9 +1,8 @@
 {
   "mutate": ["src/odoo_wrapper/static/js/*.js"],
-  "testRunner": "command",
-  "commandRunner": { "command": "pnpm exec vitest run --maxWorkers=1" },
-  "coverageAnalysis": "off",
-  "timeoutFactor": 10,
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.config.mjs", "related": false },
   "reporters": ["clear-text", "progress"],
   "ignorePatterns": ["mutants", "reports", ".stryker-tmp", ".claude", ".tools"]
 }

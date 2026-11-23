@@ -29,8 +29,9 @@ JS_FILES = {
     "tests/page.mjs": "export const x = 1;\n",
     "tests/store.test.mjs": 'import { load } from "./page.mjs";\n',
     "tests/tip.test.mjs": 'import {\n  load,\n} from "./page.mjs";\n',
-    "tests/qr.test.mjs": 'import test from "node:test";\n',
-    "stryker.config.json": json.dumps({"mutate": ["a.js"], "commandRunner": {"command": "node --test"}}),
+    "tests/qr.test.mjs": 'import { test } from "vitest";\n',
+    "stryker.config.json": json.dumps({"mutate": ["a.js"], "testRunner": "vitest"}),
+    "vitest.config.mjs": "export default {};\n",
     "tsconfig.json": "{}",
     "package.json": "{}",
     "pnpm-lock.yaml": "",
@@ -126,10 +127,11 @@ class PlanTest(unittest.TestCase):
         )
         self.assertEqual(self.js_plan(), (None, []))
 
-    def test_a_page_modules_test_retests_that_module(self):
+    def test_a_page_modules_test_is_left_to_strykers_own_diff(self):
         self.recorded(mutate.js_watched())
-        self.write({"tests/tip.test.mjs": "// changed\n"})
-        self.assertEqual(self.js_plan(), (None, ["tip"]))
+        self.write({"tests/tip.test.mjs": "// changed\n", "tests/new.test.mjs": ""})
+        self.remove("tests/qr.test.mjs")
+        self.assertEqual(self.js_plan(), (None, []))
 
     def test_the_page_harness_retests_only_the_modules_whose_tests_import_it(self):
         self.recorded(mutate.js_watched())
@@ -138,15 +140,20 @@ class PlanTest(unittest.TestCase):
 
     def test_strykers_config_outside_how_tests_run_retests_nothing(self):
         self.recorded(mutate.js_watched())
-        config = {"mutate": ["b.js"], "commandRunner": {"command": "node --test"}, "reporters": ["html"]}
+        config = {"mutate": ["b.js"], "testRunner": "vitest", "reporters": ["html"]}
         self.write({"stryker.config.json": json.dumps(config, indent=4)})
         self.assertEqual(self.js_plan(), (None, []))
 
     def test_strykers_config_of_how_tests_run_retests_every_mutant_saying_why(self):
         self.recorded(mutate.js_watched())
-        config = {"mutate": ["a.js"], "commandRunner": {"command": "node --test --test-concurrency=1"}}
+        config = {"mutate": ["a.js"], "testRunner": "vitest", "vitest": {"related": False}}
         self.write({"stryker.config.json": json.dumps(config)})
         self.assertEqual(self.js_plan(), ("stryker.config.json changed how every mutant's tests run", []))
+
+    def test_vitests_config_retests_every_mutant_saying_why(self):
+        self.recorded(mutate.js_watched())
+        self.write({"vitest.config.mjs": "export default { test: {} };\n"})
+        self.assertEqual(self.js_plan(), ("vitest.config.mjs changed how every mutant's tests run", []))
 
 
 if __name__ == "__main__":

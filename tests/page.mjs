@@ -9,8 +9,11 @@
 // The clock is replaced too: Date starts every run at TUESDAY and ticks on from there, here and in the pages.
 // With the real one the suite passed or failed, and covered every branch or not, by the day and the hour it ran:
 // Thursdays, weekends, before nine, the days a fixture crossed a daylight-saving change, the last ones of a year.
-// Under StrykerJS the context also gets __stryker__ with the mutant to switch on: its instrumented code looks for
-// it on the global object, which in a vm context is the sandbox, not node's.
+// Under StrykerJS the context also gets the Vitest runner's own __stryker__, which says the mutant to switch on and
+// records which test reaches which mutant: its instrumented code looks for it on the global object, which in a vm
+// context is the sandbox, not node's. The runner finds no test through the imports, since none imports a module,
+// so stryker.config.json turns its `related` off. The runner's own setup file is a .js module, which node loads
+// without a warning, the one that would fail the suite, only because package.json says "type": "module".
 // The suites never reach the network: loading this file makes every socket connect throw, so a call left unmocked
 // fails its test instead of reaching a real server.
 // A warning from node, a deprecation or any other, fails the suite too: loading this file turns each into an error.
@@ -345,7 +348,7 @@ export function load({
     clearInterval: () => {},
     setTimeout: (fn, ms) => (calls.timeouts ||= []).push([fn, ms]),
     clearTimeout: () => {},
-    __stryker__: { activeMutant: process.env.__STRYKER_ACTIVE_MUTANT__ },
+    __stryker__: globalThis.__stryker__,
     ...globals,
   };
   const ctx = vm.createContext(sandbox);

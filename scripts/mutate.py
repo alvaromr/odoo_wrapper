@@ -6,26 +6,29 @@ verify changes says when each runs).
 scripts/mutate.py js` the page's, StrykerJS over its JS (stryker.config.json). By default each runs scoped: the
 tool's own incremental mode retests only the mutants whose code changed (mutmut by the hash of each function and of
 those it calls, StrykerJS by a diff of each file against reports/stryker-incremental.json) and reuses every other
-result. Neither sees a change in a test that already existed: mutmut maps only new tests, and StrykerJS's command
-runner reports no test files. So this script keeps a digest of the tests, and of StrykerJS's config, written after
-each complete round (mutants/odoo-tests.json, reports/odoo-tests.json), and compares it before the next, retesting
-only the modules each change reaches: a test of one module (tests/test_<module>.py, tests/<module>.test.mjs) reaches
-that module; a shared helper (tests/harness.py, tests/page.mjs, or one they import) the modules whose tests import
-it; a file no test imports, such as the guards of tests/test_project.py or tests/report_coverage.py, none.
-StrykerJS's config reaches every mutant only through the keys that say how the tests run, all but JS_CONFIG_UNUSED
-(which files are mutated, where the reports go, what the sandbox leaves out); the round then runs in full, saying
-why. Nothing else is watched: the tools' versions and locks, the package's version, pnpm's settings, tsconfig.json
-and the linters' config change no mutant's result, and a mutant they add, as a new file to mutate or a new release
-of the tool may, has no result yet and runs anyway. mutmut, told so in pyproject.toml, ignores the changes of files
+result. StrykerJS's Vitest runner reports each test with its file, so its incremental mode also retests the mutants
+a changed test file covers; mutmut maps only new tests, and neither sees a shared helper that is no test file. So
+this script keeps a digest of what they miss, written after each complete round (mutants/odoo-tests.json,
+reports/odoo-tests.json), and compares it before the next, retesting only the modules each change reaches: a Python
+test of one module (tests/test_<module>.py) reaches that module; a shared helper (tests/harness.py, tests/page.mjs,
+or one they import) the modules whose tests import it; a file no test imports, such as the guards of
+tests/test_project.py or tests/report_coverage.py, none. The page's test files (tests/*.test.mjs) are left to
+StrykerJS. Its config reaches every mutant only through the keys that say how the tests run, all but
+JS_CONFIG_UNUSED (which files are mutated, where the reports go, what the sandbox leaves out), and Vitest's
+(JS_SUITE_CONFIG) through any change; the round then runs in full, saying why. Nothing else is watched: the tools'
+versions and locks, the package's version, pnpm's settings, tsconfig.json and the linters' config change no mutant's
+result, and a mutant they add, as a new file to mutate or a new release of the tool may, has no result yet and runs
+anyway. mutmut, told so in pyproject.toml, ignores the changes of files
 other than Python, and resets by itself only the verdicts its own settings can change (how pytest runs, the
 timeout, the type check). A round runs in full also when the tool's result or the digest is missing, since no
 complete result exists to reuse, and with `--full`, when the owner asks for it. Naming modules instead, `python3
 scripts/mutate.py state cache` or `... js tip`, retests only theirs and leaves the digest as it was.
 
 Every round is bounded so the machine stays usable: at lower priority (NICENESS), on at most half the cores, fewer
-for the page, whose every mutant runs the whole suite in one node process (JS_CONCURRENCY), and with a timeout per
-mutant of about 10 to 20 times what its tests take: mutmut's default multiplier, 15, and StrykerJS's timeoutFactor in
-its config.
+for the page, whose every worker is a Vitest process of its own running the tests that cover each mutant
+(JS_CONCURRENCY), and with a timeout per mutant: mutmut's default multiplier, 15 times what its tests take, and
+StrykerJS's defaults, 1.5 times what the mutant's tests took in the dry run plus 5 seconds
+(docs/decisions/0004-strykers-default-timeout.md says why).
 
 The tools come locked, as the gate's do (check.py says how): mutmut, with the pytest it runs and the gate's own mypy,
 which type-checks each mutant, from scripts/tools/mutation.txt into .tools/mutation, on MUTMUT_PYTHON; StrykerJS from
@@ -60,6 +63,7 @@ JS_INCREMENTAL = os.path.join(JS_RESULTS, "stryker-incremental.json")
 JS_DIGEST = os.path.join(JS_RESULTS, "odoo-tests.json")
 JS_CONFIG = "stryker.config.json"
 JS_CONFIG_UNUSED = {"mutate", "reporters", "ignorePatterns"}
+JS_SUITE_CONFIG = "vitest.config.mjs"
 
 
 def digests(paths):
@@ -87,7 +91,8 @@ def py_watched():
 
 
 def js_watched():
-    return {**watched(["tests/*.mjs"]), JS_CONFIG: settings(JS_CONFIG, JS_CONFIG_UNUSED)}
+    helpers = {path: digest for path, digest in watched(["tests/*.mjs"]).items() if not path.endswith(".test.mjs")}
+    return {**helpers, **digests([JS_SUITE_CONFIG]), JS_CONFIG: settings(JS_CONFIG, JS_CONFIG_UNUSED)}
 
 
 def py_module(path):
@@ -133,7 +138,7 @@ def py_reach(path):
 
 
 def js_reach(path):
-    return None if path == JS_CONFIG else reach(path, js_module, js_import)
+    return None if path in (JS_CONFIG, JS_SUITE_CONFIG) else reach(path, js_module, js_import)
 
 
 def plan(full, result, digest_path, now, reach_of):
