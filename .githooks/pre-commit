@@ -1,13 +1,18 @@
 #!/bin/sh
 # The gate before every commit, on exactly what the commit holds: scripts/check.py says what it runs, and installs this
 # hook the first time. What is not staged, untracked files included, is set aside in a stash while it runs and put
-# back after, whatever the gate says. If that is cut short, `git stash list` shows it and `git stash pop` restores it.
+# back after, whatever the gate says. The stash list is shared by every worktree of the repo, so another one may stash
+# while the gate runs: the entry is put back by its own sha, never as the newest one. If that is cut short,
+# `git stash list` shows it and `git stash pop` restores it.
 before=$(git rev-parse -q --verify refs/stash)
 git stash push -q --keep-index --include-untracked -m "pre-commit: what was not staged, while the gate ran"
 after=$(git rev-parse -q --verify refs/stash)
 restore() {
   if [ "$after" != "$before" ]; then
-    git stash pop -q
+    entry=$(git stash list --format='%gd %H' | awk -v sha="$after" '$2 == sha { print $1 }')
+    if [ -n "$entry" ]; then
+      git stash apply -q "$after" && git stash drop -q "$entry"
+    fi
   fi
 }
 trap 'restore; exit 130' INT TERM
