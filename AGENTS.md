@@ -42,8 +42,8 @@ src/odoo_wrapper/
                      teamstate.js hold each page's state. theme.js, the colour theme, is the one classic script,
                      loaded from every page's <head>. Served at /<name>.css and /js/<name>
 tests/               unittest + Vitest tests, and report_coverage.py, the Python suite with its coverage
-scripts/             check.py (the gate), fix.py, mutate.py, audit.py and release.py, and tools/, their Python tools
-                     locked; see below
+scripts/             check.py (the gate), fix.py, mutate.py, audit.py, smoke.py and release.py, and tools/, their
+                     Python tools locked; see below
 package.json         the gate's Node tools (Biome, TypeScript, Vitest, StrykerJS), locked in pnpm-lock.yaml; never
                      the package's: it ships none. vitest.config.mjs runs the page's suite and its coverage
 .githooks/           pre-commit: runs the gate before each commit, on what the commit holds; commit-msg: refuses a
@@ -285,15 +285,8 @@ change touches:
 mkdir -p /tmp/fakehome
 HOME=/tmp/fakehome python3 bin/odoo-dashboard
 
-# Auth and anti-CSRF/rebinding matrix (expected: login page, 401, 401, 403, 303 to /login, 403, 403)
-curl -sk https://<lan-ip>:8443/ | grep -c "Introduce tu usuario"
-curl -sk -o /dev/null -w "%{http_code}\n" https://<lan-ip>:8443/api/personal
-curl -sk -o /dev/null -w "%{http_code}\n" -H "Cookie: odoo_dash=deadbeef" https://<lan-ip>:8443/api/personal
-curl -sk -o /dev/null -w "%{http_code}\n" -X POST https://<lan-ip>:8443/api/login -d '{}'
-curl -sk -o /dev/null -w "%{http_code} %{redirect_url}\n" "https://<lan-ip>:8443/pair?t=bogus"
-curl -s  -o /dev/null -w "%{http_code}\n" -H "Host: evil.com" http://localhost:8931/api/personal
-curl -s  -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8931/api/attendance \
-     -H "Origin: https://evil.example" -H "Content-Type: text/plain" -d '{"action":"bogus"}'
+# Auth and anti-CSRF/rebinding matrix against the running dashboard, over its real sockets (its header lists it)
+python3 scripts/smoke.py
 ```
 
 Never test `/api/attendance` with a real action — it would clock the user in or out for real. Use
