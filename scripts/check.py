@@ -44,7 +44,7 @@ with open(os.path.join(ROOT, ".python-version")) as pinned:
     MIN_PYTHON = pinned.read().strip()
 COVERAGE_PYTHON = "3.14"
 LINT = os.path.join(TOOLS, "lint", "bin")
-TOOLCHAIN = {"node": "26.13.1", "pnpm": "12.22.0", "uv": "0.13.6"}
+TOOLCHAIN = {"node": "26.13.1", "pnpm": "12.22.0", "uv": "0.13.8"}
 VERSION = re.compile(r"\d+\.\d+\.\d+")
 NODE_COVERAGE = [
     "--experimental-test-coverage",
