@@ -3,7 +3,7 @@
   "testRunner": "command",
   "commandRunner": { "command": "node --test --test-concurrency=1 'tests/*.test.mjs'" },
   "coverageAnalysis": "off",
-  "concurrency": 4,
+  "timeoutFactor": 10,
   "reporters": ["clear-text", "progress"],
   "ignorePatterns": ["mutants", "reports", ".stryker-tmp", ".claude", ".tools"]
 }

@@ -200,7 +200,8 @@ far as its last release that runs on the oldest Python the package supports. The
 freeze: when one is behind its latest stable release (the latest LTS for Node), move it in its own commit, once
 the release is a week old: read the changelog from the pinned version to the new one, note what changes here, ask
 the owner before a major jump, change the pin, lock it again (the command at the top of each `.txt`, run in
-`scripts/tools/`, or `pnpm install`), and run the gate and both mutation rounds. Locking again also moves what the
+`scripts/tools/`, or `pnpm install`), and run the gate, and the mutation round whose lock changed
+(`scripts/tools/mutation.txt` or `pnpm-lock.yaml`), which then runs in full by itself. Locking again also moves what the
 tools pull in, so do it now and then even with no pin to move. Every lock is also checked against the known
 vulnerabilities, now and then and by `scripts/release.py` before it ships; its header says why and how:
 
@@ -223,8 +224,13 @@ package, every function annotated, each module starting with `from __future__ im
 it) so they read as on 3.10+ while the package runs on 3.9; and TypeScript over the page's JS, typed in JSDoc
 (`tsconfig.json`), where an element the page always holds is reached with `byId` (`shared.js`).
 
-Mutation testing runs now and then rather than on every commit: it takes a couple of minutes, and its working
-copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess and the project's guards,
+Mutation testing runs now and then rather than on every commit, and on what changed: each round retests only the
+mutants of the code and tests changed since its last complete result, and runs in full only when there is no
+result yet, when something every mutant depends on changed (a shared test helper, the mutation config, the tools'
+lock), each time saying why, or when the owner asks for it. Once a result exists, a score, a release or a commit
+is no reason to run it in full again. Every round runs at lower priority, on at most half the cores, with a timeout
+per mutant of 10 to 20 times what its tests take; `scripts/mutate.py`'s header says how it tells what changed. Its
+working copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess and the project's guards,
 which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
 calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
 unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. Before the tests it runs mypy
@@ -233,8 +239,10 @@ That is what makes the type in a `cast` need no pragma. Both rounds run through 
 locked as the gate's are:
 
 ```bash
-python3 scripts/mutate.py      # mutmut over the package (pyproject.toml), then the mutants no test killed
-python3 scripts/mutate.py js   # StrykerJS over the page's JS (stryker.config.json), about an hour
+python3 scripts/mutate.py             # mutmut over what changed in the package, then the mutants no test killed
+python3 scripts/mutate.py js          # StrykerJS over what changed in the page's JS (stryker.config.json)
+python3 scripts/mutate.py state       # only the mutants of the modules named (`js tip` for the page's)
+python3 scripts/mutate.py --full      # every mutant, only when asked; `js --full` for the page's, about an hour
 ```
 
 A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
@@ -244,7 +252,8 @@ in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and 
 only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
 
 The page's JS runs under StrykerJS, from `package.json`: `stryker.config.json` points it at
-`node --test`, so every mutant runs the whole page suite and a full round takes about an hour. The suite's files
+`node --test`, so every mutant runs the whole page suite and a full round takes about an hour; it reports no test
+files, which is why `scripts/mutate.py` tracks the tests itself. The suite's files
 run one after another there: Stryker already runs mutants in parallel, and files in parallel inside each one
 overloaded the machine until nearly every mutant timed out. Its working
 copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands the active mutant to its vm context

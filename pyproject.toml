@@ -79,3 +79,8 @@ source_paths = ["src/odoo_wrapper/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-q", "-p", "no:cacheprovider"]
 type_check_command = ["mypy", "src/odoo_wrapper", "--output", "json", "--no-warn-unused-ignores"]
+# A change to this file or to the tools' lock reruns every mutant, saying which file changed; git's change detection
+# would also count every JS, CSS and HTML file, which no Python mutant depends on (scripts/mutate.py says what else).
+on_dependency_change = "rerun"
+use_git_change_detection = false
+cache_invalidation_files = ["scripts/tools/mutation.txt"]
