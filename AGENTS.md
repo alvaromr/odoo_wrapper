@@ -44,7 +44,7 @@ src/odoo_wrapper/
 tests/               unittest + Vitest tests, and report_coverage.py, the Python suite with its coverage
 scripts/             check.py (the gate), fix.py, mutate.py, audit.py, smoke.py and release.py, and tools/, their
                      Python tools locked; see below
-package.json         the gate's Node tools (Biome, TypeScript, Vitest, StrykerJS), locked in pnpm-lock.yaml; never
+package.json         the gate's Node tools (Biome, TypeScript, Vitest) and StrykerJS, locked in pnpm-lock.yaml; never
                      the package's: it ships none. vitest.config.mjs runs the page's suite and its coverage
 .githooks/           pre-commit: runs the gate before each commit, on what the commit holds; commit-msg: refuses a
                      subject longer than a log line shows
