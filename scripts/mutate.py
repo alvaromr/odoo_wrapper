@@ -37,7 +37,7 @@ package.json. StrykerJS reads tsconfig.json through TypeScript's JavaScript API,
 longer ships, so package.json keeps `typescript` on 6, the last line that has it.
 
 mutmut's copy of the repo, mutants/, holds the package and its tests but not the rest, so it skips the one test that
-starts a subprocess, the project's guards and the tests of this script. It runs each mutant in a forked child, and
+starts a subprocess and the project's guards. It runs each mutant in a forked child, and
 macOS crashes a forked child that calls CoreFoundation, which mutmut reports as segfault: urllib asks the system for
 its proxies that way unless `no_proxy` is set, as this script sets it, and mutmut before 3.8 set the process title
 that way too. A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`:
