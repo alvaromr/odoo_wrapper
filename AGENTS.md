@@ -118,10 +118,11 @@ Read the header of a module before touching it.
   convention, checked by Ruff); the why lives in each module's header (docstring or top comment block), nowhere
   else. Tests and launchers go without: a test says what it checks in its name. The exceptions are the
   comments that tell a tool to let one line be, each with its reason: `# pragma: no mutate - <reason>` of an
-  equivalent mutant, `// Stryker disable next-line` in the JS (see How to verify changes), `# noqa: <rule> -
+  equivalent mutant, `// Stryker disable next-line` in the JS (`scripts/mutate.py`'s header says how), `# noqa: <rule> -
   <reason>` and `biome-ignore <rule>: <reason>`. A rule switched off for a whole file or the whole project says
   why beside it, in `pyproject.toml` or `biome.jsonc`.
-- Named constants at module top, `UPPER_SNAKE`. Module-level mutable state is prefixed `_`.
+- Named constants at module top, `UPPER_SNAKE`, for what reads better or repeats. Module-level mutable state is
+  prefixed `_`.
 - Keep the rules pure. `attendance_rules.py`, `team_rules.py` and `corrections_rules.py` take plain rows and values
   and return the payload or the write: no Odoo client, file, network, process, thread or clock (`now` and `today`
   come in as arguments), which `tests/test_project.py` checks. `attendance.py`, `team.py` and `corrections.py` are
@@ -202,8 +203,7 @@ freeze: when one is behind its latest stable release (the latest LTS for Node), 
 the release is as old as its lock waits for (`--exclude-newer` in the command at the top of each `.txt`,
 `minimumReleaseAge` in `pnpm-workspace.yaml`): read the changelog from the pinned version to the new one, note
 what changes here, ask the owner before a major jump, change the pin, lock it again (the command at the top of
-each `.txt`, run in `scripts/tools/`, or `pnpm install`), and run the gate; a mutation round reruns nothing for a
-new pin or lock. Locking again also moves what the
+each `.txt`, run in `scripts/tools/`, or `pnpm install`), and run the gate. Locking again also moves what the
 tools pull in, so do it now and then even with no pin to move. Every lock is also checked against the known
 vulnerabilities, now and then and by `scripts/release.py` before it ships; its header says why and how:
 
@@ -227,52 +227,8 @@ package, every function annotated, each module starting with `from __future__ im
 it) so they read as on 3.10+ while the package runs on 3.9; and TypeScript over the page's JS, typed in JSDoc
 (`tsconfig.json`), where an element the page always holds is reached with `byId` (`shared.js`).
 
-Mutation testing runs in full once, when the owner chooses, and is then kept current: each change runs the rounds
-of what it touches before it is pushed, and ends at zero unexplained survivors. Each round retests only the mutants
-whose result a change since its last complete result can change: those of the code changed and of the modules a
-changed test reaches, a shared test helper reaching the modules whose tests import it. The tools' versions and
-locks, the package's version, pnpm's settings and the linters' config rerun nothing. A round runs in full only when
-there is no result yet, when StrykerJS's or Vitest's config changes how every mutant's tests run, each time saying
-why, or when the owner asks for it: a score, a release or a commit is no reason to. Every round runs at lower
-priority, on at most half the cores, with a timeout per mutant; `scripts/mutate.py`'s header says which, and how it
-tells what changed. Its
-working copy, `mutants/`, is ignored by git. mutmut skips the one test that starts a subprocess, and the project's guards and
-the tests of `scripts/mutate.py`, which read the repo its copy lacks. It runs each mutant in a forked child, and macOS crashes a forked child that
-calls CoreFoundation, which mutmut then reports as segfault: urllib asks the system for its proxies that way
-unless `no_proxy` is set, and mutmut before 3.8 set the process title that way too. Before the tests it runs mypy
-over every mutant, at the gate's version, and counts those mypy rejects as caught: the gate would stop them too.
-That is what makes the type in a `cast` need no pragma. Both rounds run through one script, with their tools
-locked as the gate's are:
-
-```bash
-python3 scripts/mutate.py             # mutmut over what changed in the package, then the mutants no test killed
-python3 scripts/mutate.py js          # StrykerJS over what changed in the page's JS (stryker.config.json)
-python3 scripts/mutate.py state       # only the mutants of the modules named (`js tip` for the page's)
-python3 scripts/mutate.py --full      # every mutant, only when asked; `js --full` for the page's, about 6 minutes
-```
-
-A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`: a mutant
-that takes the wrong branch would otherwise start a real dashboard and end the test with exit code 0, which
-mutmut counts as a survivor. A mutant reported as timeout ran past mutmut's limit and counts as caught: the ones
-in `qr.py` and `process.py` make a loop endless, while those in `sheets.py` and in `odoo notices` time out
-only under mutmut's runner, and the same tests kill them in under a second under pytest alone.
-
-The page's JS runs under StrykerJS, from `package.json`, with its Vitest runner (`stryker.config.json`): a dry run
-records which tests reach each mutant, and each mutant then runs only those, in one Vitest process per worker
-that runs one test file at a time, since Stryker already runs mutants in parallel. The runner reports each test's
-file, so StrykerJS's incremental mode sees a changed test by itself; `scripts/mutate.py` tracks only the shared
-helpers and the configs. Its working copy, `.stryker-tmp/`, and `reports/` are ignored by git. The suite hands
-the runner's `__stryker__` to its vm context (the header of `tests/page.mjs` says why). It needs TypeScript to copy `tsconfig.json` into its sandbox, and the
-6 line, which `scripts/mutate.py`'s header explains.
-
-Every surviving mutant is either a missing test, which gets written, or an equivalent one, which behaves as the
-original for every input and gets `# pragma: no mutate - <reason>` on its line, saying why. The pragma silences
-every mutant starting on that line, not only the equivalent one, and counts only on the first line of a
-statement: on a line whose other mutants a test kills, the equivalent part moves to a line of its own first,
-unless splitting reads worse, as in a dict of HTTP headers, whose names are equivalent in any case and whose
-statement goes between `# pragma: no mutate start - <reason>` and `# pragma: no mutate end`. In the JS the comment is `// Stryker disable next-line <mutator>:
-<reason>` on the line above, and it silences only that mutator. A message moved to a constant to escape its
-mutants proves nothing: constants are for what reads better or repeats.
+Mutation testing is optional, outside the gate and the hooks: run `python3 scripts/mutate.py` (`js` for the page's)
+by hand when you want to find missing tests; its header says how.
 
 Keep both at 100 % of lines and branches, and the JS at 100 % of functions too: a new branch in the code comes
 with the test that runs it, and each report names what is missing. A branch no input can take is removed from

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Mutation testing, on what changed since the last result unless a full round is asked for (AGENTS.md § How to
-verify changes says when each runs).
+"""Mutation testing, on what changed since the last result unless a full round is asked for: an optional tool, run by
+hand to find missing tests, and never a step of the gate, a hook or a release.
 
 `python3 scripts/mutate.py` is the Python round, mutmut over the package (pyproject.toml), and `python3
 scripts/mutate.py js` the page's, StrykerJS over its JS (stryker.config.json). By default each runs scoped: the
@@ -22,7 +22,7 @@ result, and a mutant they add, as a new file to mutate or a new release of the t
 anyway. mutmut, told so in pyproject.toml, ignores the changes of files
 other than Python, and resets by itself only the verdicts its own settings can change (how pytest runs, the
 timeout, the type check). A round runs in full also when the tool's result or the digest is missing, since no
-complete result exists to reuse, and with `--full`, when the owner asks for it. Naming modules instead, `python3
+complete result exists to reuse, and with `--full`. Naming modules instead, `python3
 scripts/mutate.py state cache` or `... js tip`, retests only theirs and leaves the digest as it was.
 
 Every round is bounded so the machine stays usable: at lower priority (NICENESS), on at most half the cores, fewer
@@ -35,6 +35,27 @@ The tools come locked, as the gate's do (check.py says how): mutmut, with the py
 which type-checks each mutant, from scripts/tools/mutation.txt into .tools/mutation, on MUTMUT_PYTHON; StrykerJS from
 package.json. StrykerJS reads tsconfig.json through TypeScript's JavaScript API, which TypeScript 7, the gate's, no
 longer ships, so package.json keeps `typescript` on 6, the last line that has it.
+
+mutmut's copy of the repo, mutants/, holds the package and its tests but not the rest, so it skips the one test that
+starts a subprocess, the project's guards and the tests of this script. It runs each mutant in a forked child, and
+macOS crashes a forked child that calls CoreFoundation, which mutmut reports as segfault: urllib asks the system for
+its proxies that way unless `no_proxy` is set, as this script sets it, and mutmut before 3.8 set the process title
+that way too. A test that reaches `process.restart` mocks `subprocess.Popen` and `os._exit` as well as `os.execve`:
+a mutant that takes the wrong branch would otherwise start a real dashboard and end the test with exit code 0, a
+survivor. StrykerJS's Vitest runner records in a dry run which tests reach each mutant, and runs each mutant on only
+those, one test file at a time in each worker's Vitest process; the suite hands the runner's `__stryker__` to its vm
+context (tests/page.mjs says why). Its working copies, .stryker-tmp/ and reports/, are ignored by git, as mutants/ is.
+
+A mutant mypy rejects counts as caught, since the gate would stop it too, so the type in a `cast` needs no pragma; one
+reported as timeout ran past the limit and counts as caught too: those in qr.py and process.py make a loop endless,
+while those in sheets.py and in `odoo notices` time out only under mutmut's runner. Every survivor is a missing test,
+which gets written, or an equivalent mutant, which behaves as the original for every input and gets
+`# pragma: no mutate - <reason>` on its line. The pragma silences every mutant starting on that line and counts only
+on the first line of a statement, so on a line whose other mutants a test kills the equivalent part moves to a line
+of its own first, unless splitting reads worse, as in a dict of HTTP headers, whose statement goes between
+`# pragma: no mutate start - <reason>` and `# pragma: no mutate end`. In the JS it is
+`// Stryker disable next-line <mutator>: <reason>` on the line above, which silences only that mutator. A message
+moved to a constant to escape its mutants proves nothing.
 """
 
 import argparse
